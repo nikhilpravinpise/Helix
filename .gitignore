@@ -1,1 +1,11 @@
 *.docx
+
+# Python / uv
+__pycache__/
+*.pyc
+.venv/
+.pytest_cache/
+.ruff_cache/
+
+# secrets
+.env
