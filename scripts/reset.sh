@@ -21,9 +21,24 @@ READY_MAX_ATTEMPTS=30
 
 kctl apply -f "${K8S_DIR}"
 
-# Undo any override of the config-mismatch fault variable left by a previous
-# `kubectl set env`. The `VAR-` syntax is a no-op if no override is present.
-kctl -n "${NAMESPACE}" set env deployment/payment-api PAYMENT_API_DOWNSTREAM_URL-
+# Drop every `kubectl set env` override in one shot rather than naming each
+# variable. The manifests supply configuration through envFrom, so the
+# container's own env list is only ever populated by a fault, and clearing it
+# wholesale returns to manifest state.
+#
+# Naming variables individually does not work: `kubectl apply` never owned a
+# field that only ever arrived via `set env`, so its three-way merge has no
+# record of it and leaves it in place. PAYMENT_API_BALLAST_MB survived reset
+# that way and left the sandbox crashlooping. Enumerating known variables
+# would also mean every new fault silently depends on someone remembering to
+# extend this list, and a fault script that is interrupted before its own
+# cleanup would leave a sandbox reset.sh cannot repair.
+#
+# Strategic merge, not --type=merge. A JSON merge patch replaces the whole
+# containers array rather than merging into it, which drops required fields
+# like image and the API server rejects the patch.
+kctl -n "${NAMESPACE}" patch deployment/payment-api \
+  -p '{"spec":{"template":{"spec":{"containers":[{"name":"payment-api","env":null}]}}}}' >/dev/null
 
 kctl -n "${NAMESPACE}" scale deployment/downstream-stub --replicas=1
 
