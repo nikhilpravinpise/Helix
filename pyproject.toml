@@ -26,10 +26,12 @@ packages = ["helix"]
 
 [tool.pytest.ini_options]
 pythonpath = ["."]
+testpaths = ["tests"]
 
 [tool.ruff]
 line-length = 100
 target-version = "py312"
+extend-exclude = ["sandbox"]
 
 [tool.ruff.lint]
 select = ["E", "F", "I", "UP"]
