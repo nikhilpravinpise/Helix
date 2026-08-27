@@ -1,0 +1,82 @@
+# The service payment-api depends on. It exists so that dependency-failure and
+# config-mismatch stay two distinct faults rather than one.
+#
+#   dependency failure -> kubectl scale deploy/downstream-stub --replicas=0
+#                         config stays correct, the dependency vanishes
+#   config mismatch    -> edit PAYMENT_API_DOWNSTREAM_URL in the ConfigMap
+#                         the dependency stays healthy, config points elsewhere
+#
+# Telling those two apart is the diagnosis being benchmarked from 1.4 onward,
+# so they must not collapse into the same trigger.
+#
+# In-cluster and pinned rather than a public endpoint: readiness must be
+# deterministic, and public-internet latency against the app's 2s timeout
+# makes it flaky.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: downstream-stub-config
+  namespace: payment-api
+data:
+  # "return 200" answers every method. nginx's default would 405 a POST, which
+  # would break the /payments happy path.
+  default.conf: |
+    server {
+      listen 80;
+      location / {
+        add_header Content-Type text/plain;
+        return 200 "ok\n";
+      }
+    }
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: downstream-stub
+  namespace: payment-api
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: downstream-stub
+  template:
+    metadata:
+      labels:
+        app: downstream-stub
+    spec:
+      containers:
+        - name: nginx
+          image: nginx:1.27-alpine
+          ports:
+            - containerPort: 80
+          volumeMounts:
+            - name: config
+              mountPath: /etc/nginx/conf.d
+          resources:
+            requests:
+              cpu: 10m
+              memory: 16Mi
+            limits:
+              memory: 64Mi
+          readinessProbe:
+            httpGet:
+              path: /
+              port: 80
+            initialDelaySeconds: 2
+            periodSeconds: 5
+      volumes:
+        - name: config
+          configMap:
+            name: downstream-stub-config
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: downstream-stub
+  namespace: payment-api
+spec:
+  selector:
+    app: downstream-stub
+  ports:
+    - port: 80
+      targetPort: 80
