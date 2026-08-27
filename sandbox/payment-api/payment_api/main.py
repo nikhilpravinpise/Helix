@@ -45,9 +45,10 @@ def health():
 
 @app.get("/ready")
 async def ready():
+    headers = {"Authorization": f"Bearer {settings.api_key}"}
     try:
         async with httpx.AsyncClient(timeout=2.0) as client:
-            response = await client.get(settings.downstream_url)
+            response = await client.get(settings.downstream_url, headers=headers)
             response.raise_for_status()
     except httpx.HTTPError:
         raise HTTPException(status_code=503, detail="downstream dependency unreachable") from None
@@ -56,9 +57,12 @@ async def ready():
 
 @app.post("/payments", response_model=PaymentRecord, status_code=201)
 async def create_payment(payment: PaymentRequest):
+    headers = {"Authorization": f"Bearer {settings.api_key}"}
     try:
         async with httpx.AsyncClient(timeout=2.0) as client:
-            response = await client.post(settings.downstream_url, json=payment.model_dump())
+            response = await client.post(
+                settings.downstream_url, json=payment.model_dump(), headers=headers
+            )
             response.raise_for_status()
     except httpx.HTTPError:
         raise HTTPException(status_code=502, detail="downstream dependency unreachable") from None
