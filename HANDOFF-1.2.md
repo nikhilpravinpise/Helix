@@ -1,8 +1,8 @@
 # Handoff - Subphase 1.2 (Sandbox Target Environment)
 
-**Date:** 2026-08-25
-**Branch:** `main`, working tree
-**Commits made:** none. Everything below is uncommitted and awaiting review.
+**Date:** 2026-08-27
+**Branch:** `main`
+**Commits:** `f57f0d2` payment-api sandbox service, `9be6f49` api_key sent as Authorization header.
 
 ---
 
@@ -155,7 +155,7 @@ There is no GCP project and no billing account, and `gcloud` authentication is i
 | Drop Logstash | 1.3 needs only bounded log queries by service, time window and level | Filebeat straight to Elasticsearch. Syllabus mapping still reads as ELK |
 | Pin the cluster version (GCP only) | If GKE auto-upgrades mid-benchmark, the 1.11 tolerance band measures GKE rather than Helix | Release channel `None`, autoscaling off, fixed node count |
 | Namespace-scoped reset (GCP only) | Locally, reset could mean deleting the cluster: free and instant. On GKE a recreate is minutes and real money, repeated across every benchmark run. | Treat the cluster as long-lived infrastructure |
-| Wire the API key through | `api_key` is required but nothing reads it, so it currently reads as dead config | Send it as an `Authorization` header on the downstream call. 1.3's exit criterion needs a real secret travelling in evidence to prove redaction against |
+| ~~Wire the API key through~~ | Done in `9be6f49`. Sent as `Authorization: Bearer` on both downstream calls, so 1.3 has a real secret travelling in evidence to prove redaction against | Resolved |
 | Do not build dual targets | Supporting both kind and GCP is speculative flexibility | 1.3's recorded fixtures are already the fast iteration path from 1.4 onward |
 
 ---
