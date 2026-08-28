@@ -1,0 +1,13 @@
+{
+  "fault": "dependency-failure",
+  "layer": "ci",
+  "captured_at": "2026-08-28T12:19:52Z",
+  "trigger": "sandbox/payment-api/pyproject.toml [project].dependencies: added a nonexistent package this-package-definitely-does-not-exist-helix-fault>=1.0 (uncommitted, reverted after capture)",
+  "jenkins_job": "payment-api",
+  "jenkins_build_number": 3,
+  "jenkins_build_url": "http://localhost:8080/job/payment-api/3",
+  "jenkins_result": "FAILURE",
+  "evidence": {
+    "console_output": "Started by user admin\n[Pipeline] Start of Pipeline\n[Pipeline] node\nRunning on Jenkins in /var/jenkins_home/workspace/payment-api\n[Pipeline] {\n[Pipeline] withEnv\n[Pipeline] {\n[Pipeline] stage\n[Pipeline] { (Install dependencies)\n[Pipeline] sh\n+ set -euo pipefail\n+ rm -rf /var/jenkins_home/workspace/payment-api/payment-api\n+ cp -r /workspace/helix-src/sandbox/payment-api /var/jenkins_home/workspace/payment-api/payment-api\n+ cd /var/jenkins_home/workspace/payment-api/payment-api\n+ uv sync --group dev\nwarning: Ignoring existing virtual environment linked to non-existent Python interpreter: .venv/bin/python3 -> python\nUsing CPython 3.12.14\nRemoved virtual environment at: .venv\nCreating virtual environment at: .venv\n  \u00d7 No solution found when resolving dependencies:\n  \u2570\u2500\u25b6 Because this-package-definitely-does-not-exist-helix-fault was\n      not found in the package registry and your project depends on\n      this-package-definitely-does-not-exist-helix-fault>=1.0, we can conclude\n      that your project's requirements are unsatisfiable.\n[Pipeline] }\n[Pipeline] // stage\n[Pipeline] stage\n[Pipeline] { (Test)\nStage \"Test\" skipped due to earlier failure(s)\n[Pipeline] getContext\n[Pipeline] }\n[Pipeline] // stage\n[Pipeline] stage\n[Pipeline] { (Build image)\nStage \"Build image\" skipped due to earlier failure(s)\n[Pipeline] getContext\n[Pipeline] }\n[Pipeline] // stage\n[Pipeline] stage\n[Pipeline] { (Deploy to kind)\nStage \"Deploy to kind\" skipped due to earlier failure(s)\n[Pipeline] getContext\n[Pipeline] }\n[Pipeline] // stage\n[Pipeline] }\n[Pipeline] // withEnv\n[Pipeline] }\n[Pipeline] // node\n[Pipeline] End of Pipeline\nERROR: script returned exit code 1\nFinished: FAILURE\n"
+  }
+}
