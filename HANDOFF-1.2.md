@@ -1,34 +1,41 @@
 # Handoff - Subphase 1.2 (Sandbox Target Environment)
 
-**Date:** 2026-08-27
+**Date:** 2026-08-28
 **Branch:** `main`
-**Commits:** `f57f0d2` payment-api sandbox service, `9be6f49` api_key sent as Authorization header.
+**Commits:** `f57f0d2` payment-api sandbox service, `9be6f49` api_key as Authorization header,
+`e2ef0d1` Kubernetes manifests, `53202a8` bring-up/teardown/reset scripts,
+`45ca992` fault injection catalogue, `4e1c9b3` log aggregation,
+`98db2dc` Jenkins and the payment-api pipeline, `e0bb9fe` recorded fixtures,
+`1f5cdc4` truncation reporting in query-logs.
 
 ---
 
 ## Where things stand
 
-Subphase 1.1 is complete and verified. Subphase 1.2 is **one deliverable in of seven**, and the remaining six are blocked on a single decision: where the sandbox cluster lives.
+Subphase 1.1 and 1.2 are both complete and verified. Every deliverable was
+re-run independently rather than accepted on report; the defects that surfaced
+during that re-verification are listed under Verification below.
 
 | ID | Subphase | Status | Note |
 |----|----------|--------|------|
 | 1.1 | Repository and Toolchain Foundation | Done | Lint, tests, CI, config, logging, observability, LLM interface |
-| 1.2 | Sandbox Target Environment | 1 of 7 | `payment-api` built and verified, rest blocked |
-| 1.3 | Evidence Layer | Not started | Depends on 1.2 for recorded fixtures |
+| 1.2 | Sandbox Target Environment | Done | Built against kind, all 10 faults captured as fixtures |
+| 1.3 | Evidence Layer | Ready to start | Fixtures in `fixtures/faults/` unblock it without a live cluster |
 
 ---
 
 ## Subphase 1.2 deliverable ledger
 
-| Deliverable | Status | Blocked by |
+| Deliverable | Status | Note |
 |---|---|---|
 | `payment-api` service, Dockerfile, test suite | **Done** | Target-agnostic, so the cluster decision cannot invalidate it |
-| Kubernetes manifests (deployment, service, config, secret, ingress) | Blocked | Ingress and image registry references differ between kind and GKE |
-| Jenkins in Docker outside the cluster (D1) | Blocked | Observer plane placement undecided |
-| Jenkins pipeline: build, test, containerize, deploy | Blocked | Deploy step targets a cluster that does not exist yet |
-| ELK receiving application and cluster logs | Blocked | Placement, and whether Logstash stays in scope |
-| Fault injection catalogue (9 faults) | Partly open | The 2 CI-side faults could start now; the 7 cluster-side faults cannot |
-| `scripts/` bring-up and teardown | Blocked | Nothing to bring up yet |
+| Kubernetes manifests (deployment, service, config, secret, ingress) | **Done** | Image reference and Ingress isolated so a GKE switch touches only those |
+| Jenkins in Docker outside the cluster (D1) | **Done** | Docker via the host socket as a sibling of the kind node; cluster via `kind get kubeconfig --internal` |
+| Jenkins pipeline: build, test, containerize, deploy | **Done** | Deploy stage self-verifies by requiring `/ready` to answer 200 |
+| ELK receiving application and cluster logs | **Done** | Filebeat on `hostNetwork` to reach host Elasticsearch; events shipped via a watcher, no Logstash |
+| Fault injection catalogue (9 faults) | **Done** | 7 cluster-side scripts plus 3 CI-side faults, all with distinct machine-checkable signatures |
+| `scripts/` bring-up and teardown | **Done** | `up`/`down`/`reset`, `logging-up`/`down`, `jenkins-up`/`down` |
+| Recorded fixtures | **Done** | 10 fixtures in `fixtures/faults/`, captured from real runs, unredacted by design |
 
 ---
 
@@ -181,3 +188,28 @@ There is no GCP project and no billing account, and `gcloud` authentication is i
 - **Commits carry no co-author trailer.** CLAUDE.md section 7 and CONTEXT.md section 23 forbid it, and that overrides the harness default.
 
 - **Still unanswered from plan.md:** whether a hard DJS23OLOE501 submission deadline should compress Phase 2 scope. Does not block anything. If the schedule tightens, cut in the order given under Scope Compression Order.
+
+- **The sandbox secret never reaches the evidence surface.** `sk-sandbox-placeholder`
+  appears in none of the 10 fixtures, and this is real rather than accidental
+  redaction: pod status never carries resolved `envFrom` values, since resolution
+  happens inside the container and is invisible to the API object; Events never
+  carry them either; and httpx logs method, URL and status but never the
+  `Authorization` header it sends. Ticket #4 wired the key through specifically so
+  1.3 would have a real secret in evidence to prove redaction against, and that
+  assumption did not survive contact with the actual evidence types. **1.3 needs a
+  decision:** either add an evidence source that legitimately carries the value
+  (reading the Secret object, or a deliberate log line), or accept that redaction
+  cannot be tested against these fixtures and test it against a synthetic input.
+  The second is honest but weaker, because it stops proving anything about the
+  real pipeline.
+
+- **`query-logs.sh` truncates at 200 lines and now says so.** The warning goes to
+  stderr. An evidence layer that reads only stdout will still silently receive a
+  partial window, so 1.3 should either check stderr or narrow the window itself.
+
+- **Memory is the binding constraint on this host, not disk or CPU.** kind, ELK and
+  Jenkins cannot all run at once with confidence: roughly 11GB of the 15.6GB is
+  held by unrelated workloads and ~6GB of swap is in use before any Helix stack
+  starts. Fixture capture was sequenced in two passes for this reason. Never
+  respond to the pressure by lowering `payment-api`'s memory limits, which would
+  move the OOMKilled fault's threshold and quietly invalidate that fault.
