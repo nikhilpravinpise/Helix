@@ -42,6 +42,7 @@ if [[ -n "${LEVEL}" ]]; then
 fi
 
 query='{
+  "track_total_hits": true,
   "size": '"${MAX_HITS}"',
   "sort": [{"@timestamp": "asc"}],
   "query": {
@@ -82,6 +83,26 @@ hits = data.get("hits", {}).get("hits", [])
 if not hits:
     print("no matching log lines")
     sys.exit(0)
+
+# Elasticsearch applies the sort before truncating to "size", so a window
+# holding more than MAX_HITS lines returns the oldest ones and drops the
+# newest, which is often exactly where a failure is. Capturing the crashloop
+# fixture hit this: over a wide window the pod's own startup failure did not
+# come back, and nothing in the output said the result had been cut short.
+#
+# The direction is not the bug - whether the fault sits at the head or the
+# tail of the window depends on when the query runs, so neither ascending
+# nor descending is right in general. The bug is doing it silently. Say so
+# on stderr, so the caller knows to narrow the window rather than reading a
+# partial result as the whole story. stderr specifically: stdout is the log
+# lines, and callers redirect it.
+total = data.get("hits", {}).get("total", {}).get("value", len(hits))
+if total > len(hits):
+    print(
+        f"warning: {total} lines matched, showing the oldest {len(hits)}. "
+        f"Narrow the window to see the rest.",
+        file=sys.stderr,
+    )
 
 for hit in hits:
     src = hit["_source"]
