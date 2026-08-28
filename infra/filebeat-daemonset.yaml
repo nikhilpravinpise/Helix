@@ -1,0 +1,232 @@
+# Log shipper for the kind sandbox (ticket #6). Runs as a DaemonSet inside
+# the cluster because that is where the logs are. The STORE it ships to
+# (Elasticsearch) runs on the host, outside the cluster - see
+# infra/docker-compose.yml for why.
+#
+# Reaching a host-side service from inside a kind node: kind nodes are
+# Docker containers on a Docker bridge network ("kind"). A container on that
+# network reaches the host at the network's gateway address (the same
+# mechanism as `host.docker.internal`, but that name is not resolvable here
+# because kind does not register it). The gateway address is not fixed - it
+# is assigned per-host by Docker - so it cannot be hardcoded into this
+# manifest. Instead:
+#
+#   1. This DaemonSet runs with hostNetwork: true, so Filebeat's pod shares
+#      the *node's* network namespace rather than a pod-CIDR namespace. Only
+#      from the node's own namespace does `ip route show default` report the
+#      Docker bridge gateway; from inside a normal pod's overlay network it
+#      would report the CNI gateway instead, which cannot reach the host.
+#   2. An init container reads that default-route gateway once at pod start
+#      and writes it to a file on a shared emptyDir.
+#   3. The Filebeat container exports that value into $ES_HOST before
+#      exec-ing filebeat, and filebeat.yml references it as ${ES_HOST}.
+#
+# Verified on this host: a hostNetwork pod's `ip route show default` gateway
+# is reachable at Elasticsearch's published port 9200 with a real 200 from
+# /_cluster/health.
+#
+# Applied directly with `kubectl apply -f infra/filebeat-daemonset.yaml`
+# against the kind context, after both `scripts/logging-up.sh` (so the ES
+# host port is listening) and `scripts/up.sh` (so the cluster and its
+# network exist). Not wired into either script: both are off-limits to
+# modify, and this manifest is orthogonal to the payment-api application it
+# ships logs about, not a dependency of it.
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: helix-logging
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: filebeat
+  namespace: helix-logging
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: filebeat
+rules:
+  - apiGroups: [""]
+    resources: ["namespaces", "nodes", "pods"]
+    verbs: ["get", "list", "watch"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: filebeat
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: filebeat
+subjects:
+  - kind: ServiceAccount
+    name: filebeat
+    namespace: helix-logging
+---
+# Kubernetes cluster events (Pod scheduling, OOMKilled, CrashLoopBackOff,
+# probe failures, ...) are API objects, not files, so Filebeat cannot tail
+# them directly. This watcher turns each event into one JSON line on stdout;
+# Filebeat then picks it up exactly like any other container's logs, via the
+# same generic container-log input below. No extra shipping path needed.
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: events-watcher
+  namespace: helix-logging
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: events-watcher
+rules:
+  - apiGroups: [""]
+    resources: ["events"]
+    verbs: ["get", "list", "watch"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: events-watcher
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: events-watcher
+subjects:
+  - kind: ServiceAccount
+    name: events-watcher
+    namespace: helix-logging
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: events-watcher
+  namespace: helix-logging
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: events-watcher
+  template:
+    metadata:
+      labels:
+        app: events-watcher
+    spec:
+      serviceAccountName: events-watcher
+      containers:
+        - name: events-watcher
+          image: rancher/kubectl:v1.32.13
+          command:
+            - kubectl
+            - get
+            - events
+            - --all-namespaces
+            - --watch
+            - --output-watch-events
+            - -o
+            - 'go-template={{.type}} ns={{.object.involvedObject.namespace}} pod={{.object.involvedObject.name}} reason={{.object.reason}} message={{.object.message}} lastTimestamp={{.object.lastTimestamp}}{{"\n"}}'
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: filebeat-config
+  namespace: helix-logging
+data:
+  filebeat.yml: |
+    filebeat.inputs:
+      - type: container
+        paths:
+          - /var/log/containers/*.log
+        processors:
+          - add_kubernetes_metadata:
+              host: ${NODE_NAME}
+              matchers:
+                - logs_path:
+                    logs_path: "/var/log/containers/"
+
+    output.elasticsearch:
+      hosts: ["http://${ES_HOST}:9200"]
+      index: "helix-logs-%{+yyyy.MM.dd}"
+
+    setup.template.name: "helix-logs"
+    setup.template.pattern: "helix-logs-*"
+    setup.ilm.enabled: false
+
+    logging.level: info
+---
+apiVersion: apps/v1
+kind: DaemonSet
+metadata:
+  name: filebeat
+  namespace: helix-logging
+spec:
+  selector:
+    matchLabels:
+      app: filebeat
+  template:
+    metadata:
+      labels:
+        app: filebeat
+    spec:
+      serviceAccountName: filebeat
+      hostNetwork: true
+      dnsPolicy: ClusterFirstWithHostNet
+      terminationGracePeriodSeconds: 30
+      initContainers:
+        - name: discover-es-host
+          image: busybox:1.36
+          command:
+            - sh
+            - -c
+            # BusyBox's `ip` does not filter on the `default` selector the
+            # way iproute2 does - it prints the whole table regardless, so
+            # the default route line is picked out explicitly instead.
+            - "ip route | grep '^default' | head -1 | awk '{print $3}' > /shared/es_host && cat /shared/es_host"
+          volumeMounts:
+            - name: shared
+              mountPath: /shared
+      containers:
+        - name: filebeat
+          image: docker.elastic.co/beats/filebeat:8.15.3
+          command:
+            - sh
+            - -c
+            - 'export ES_HOST="$(cat /shared/es_host)" && exec filebeat -e -c /etc/filebeat.yml'
+          env:
+            - name: NODE_NAME
+              valueFrom:
+                fieldRef:
+                  fieldPath: spec.nodeName
+          securityContext:
+            runAsUser: 0
+          resources:
+            limits:
+              memory: 200Mi
+            requests:
+              cpu: 100m
+              memory: 100Mi
+          volumeMounts:
+            - name: shared
+              mountPath: /shared
+            - name: config
+              mountPath: /etc/filebeat.yml
+              subPath: filebeat.yml
+              readOnly: true
+            - name: varlogcontainers
+              mountPath: /var/log/containers
+              readOnly: true
+            - name: varlogpods
+              mountPath: /var/log/pods
+              readOnly: true
+      volumes:
+        - name: shared
+          emptyDir: {}
+        - name: config
+          configMap:
+            name: filebeat-config
+        - name: varlogcontainers
+          hostPath:
+            path: /var/log/containers
+        - name: varlogpods
+          hostPath:
+            path: /var/log/pods
