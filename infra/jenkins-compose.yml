@@ -1,0 +1,83 @@
+# Host-side Jenkins for the payment-api sandbox pipeline (ticket #5), per
+# decision D1: Jenkins runs in Docker on the host, outside the kind cluster,
+# because the cluster is the thing being deliberately broken by the fault
+# catalogue and CI must not share its failure domain.
+#
+# The project name is pinned rather than left to Compose's default (the
+# compose file's parent directory, "infra"), for the same reason
+# infra/docker-compose.yml pins "helix-logging": that default collides with
+# an unrelated project on this host that also uses <repo>/infra as its
+# compose directory.
+#
+# --- How Jenkins reaches Docker and the kind cluster ---
+#
+# Docker: the host's Docker socket is bind-mounted straight into the
+# container. Jenkins becomes a *sibling* of the kind node containers (same
+# Docker daemon), not a nested Docker-in-Docker daemon - so `docker build`
+# in the pipeline is a genuine build on the host engine, and
+# `docker exec <kind-node>` (the same image-load mechanism scripts/up.sh
+# uses) works unmodified. `group_add` adds this host's `docker` group GID so
+# the non-root `jenkins` user can use the socket without running the
+# container as root.
+#
+# Kubernetes API: kind's default kubeconfig points at 127.0.0.1:<port> on
+# the HOST - unreachable from inside a container, since 127.0.0.1 there
+# means the container itself (the same class of problem
+# infra/filebeat-daemonset.yaml documents, just in the opposite direction:
+# a container reaching the host rather than a pod reaching a host service).
+# Going through the host's loopback is also a dead end here even with a
+# gateway trick, because kind binds the API server's published port to
+# 127.0.0.1 specifically, not to all interfaces.
+#
+# The fix kind ships for exactly this - a CI runner that is itself a
+# container - is `kind get kubeconfig --internal`, which points at the
+# control-plane container's own name and port 6443 instead of the published
+# host port. That address only resolves from another container on the same
+# Docker network kind created ("kind"), so this service is attached to it
+# explicitly below. The Jenkinsfile's deploy stage generates this kubeconfig
+# fresh on every run (it needs `kind`, installed in infra/jenkins/Dockerfile)
+# rather than baking a static one into the image, since the control-plane
+# container is recreated whenever the cluster is.
+#
+# Verified on this host: from a container on the "kind" network, `kubectl
+# --kubeconfig <internal-kubeconfig> get ns` succeeds and returns real
+# namespaces, including payment-api.
+#
+# --- Memory ---
+#
+# This host is tight on RAM (see the ticket's measured ceiling). Do not run
+# this alongside infra/docker-compose.yml's ELK stack and kind at the same
+# time - bring up kind plus this file only.
+name: helix-jenkins
+
+services:
+  jenkins:
+    build:
+      context: ./jenkins
+    container_name: helix-jenkins
+    group_add:
+      - "963" # host `docker` group GID - `getent group docker` to confirm on another host
+    networks:
+      default: {}
+      kind:
+        aliases: []
+    volumes:
+      - jenkins-home:/var/jenkins_home
+      - /var/run/docker.sock:/var/run/docker.sock
+      - ../:/workspace/helix-src:ro
+    ports:
+      - "127.0.0.1:8080:8080"
+    environment:
+      - JAVA_OPTS=-Djenkins.install.runSetupWizard=false -Xmx512m
+      # Placeholder credentials for a local, single-user sandbox - not a
+      # real secret. See infra/jenkins/jenkins.yaml.
+      - JENKINS_ADMIN_ID=admin
+      - JENKINS_ADMIN_PASSWORD=admin-sandbox-placeholder
+    mem_limit: 1g
+
+networks:
+  kind:
+    external: true
+
+volumes:
+  jenkins-home:

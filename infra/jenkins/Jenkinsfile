@@ -1,0 +1,119 @@
+// Builds, tests, containerizes and deploys sandbox/payment-api (ticket #5).
+// Single node, no agents, no multi-branch: this pipeline has one job to do.
+//
+// The Helix repo is bind-mounted read-only into this container at
+// /workspace/helix-src (see infra/jenkins-compose.yml), so every stage
+// below reads the live working tree, including uncommitted changes. That
+// is deliberate: proving the pipeline fails on a broken test or a broken
+// Dockerfile means running it against an uncommitted edit, not a commit.
+//
+// Docker and the kind cluster are reached as described in
+// infra/jenkins-compose.yml and infra/jenkins/Dockerfile:
+//   - docker CLI talks to the host's own Docker daemon via the bind-mounted
+//     socket (this container is a sibling of the kind node container, not
+//     a nested dind).
+//   - kubectl talks to the cluster via a kubeconfig generated on demand
+//     with `kind get kubeconfig --internal`, which points at the kind
+//     control-plane container's own name and port on the "kind" Docker
+//     network this container is attached to.
+pipeline {
+    agent any
+
+    environment {
+        SRC          = '/workspace/helix-src/sandbox/payment-api'
+        BUILD_DIR    = "${WORKSPACE}/payment-api"
+        IMAGE_TAG    = 'payment-api:kind'
+        CLUSTER_NAME = 'helix-sandbox'
+        NAMESPACE    = 'payment-api'
+    }
+
+    stages {
+        stage('Install dependencies') {
+            steps {
+                sh '''
+                    set -euo pipefail
+                    rm -rf "${BUILD_DIR}"
+                    cp -r "${SRC}" "${BUILD_DIR}"
+                    cd "${BUILD_DIR}"
+                    uv sync --group dev
+                '''
+            }
+        }
+
+        stage('Test') {
+            steps {
+                sh '''
+                    set -euo pipefail
+                    cd "${BUILD_DIR}"
+                    uv run pytest -v
+                '''
+            }
+        }
+
+        stage('Build image') {
+            steps {
+                sh '''
+                    set -euo pipefail
+                    docker build --provenance=false -t "${IMAGE_TAG}" "${SRC}"
+                '''
+            }
+        }
+
+        stage('Deploy to kind') {
+            steps {
+                sh '''
+                    set -euo pipefail
+
+                    KUBECONFIG_FILE="$(mktemp)"
+                    PF_PID=""
+                    cleanup() {
+                        [ -n "${PF_PID}" ] && kill "${PF_PID}" 2>/dev/null || true
+                        rm -f "${KUBECONFIG_FILE}"
+                    }
+                    trap cleanup EXIT
+
+                    # Internal kubeconfig: points at the control-plane
+                    # container's own name and port 6443, reachable because
+                    # this container shares the "kind" Docker network - not
+                    # the host-published port kind also exposes, which is
+                    # bound to 127.0.0.1 on the host and therefore
+                    # unreachable from inside this container.
+                    kind get kubeconfig --name "${CLUSTER_NAME}" --internal > "${KUBECONFIG_FILE}"
+                    export KUBECONFIG="${KUBECONFIG_FILE}"
+
+                    NODE="$(kind get nodes --name "${CLUSTER_NAME}" | head -1)"
+                    docker save --platform linux/amd64 "${IMAGE_TAG}" \
+                      | docker exec -i "${NODE}" ctr --namespace=k8s.io images import --digests --snapshotter=overlayfs -
+
+                    kubectl -n "${NAMESPACE}" rollout restart deployment/payment-api
+                    kubectl -n "${NAMESPACE}" rollout status deployment/payment-api --timeout=120s
+
+                    kubectl -n "${NAMESPACE}" port-forward svc/payment-api :8000 >/tmp/jenkins-pf.log 2>&1 &
+                    PF_PID=$!
+
+                    PORT=""
+                    for i in $(seq 1 30); do
+                        PORT="$(sed -n 's/.*127\\.0\\.0\\.1:\\([0-9]\\{1,\\}\\).*/\\1/p' /tmp/jenkins-pf.log | head -1)"
+                        [ -n "${PORT}" ] && break
+                        sleep 1
+                    done
+                    [ -n "${PORT}" ] || { echo "port-forward never reported a local port" >&2; exit 1; }
+
+                    STATUS=""
+                    for i in $(seq 1 30); do
+                        STATUS="$(curl -s -o /dev/null -w '%{http_code}' --max-time 2 "http://localhost:${PORT}/ready" || true)"
+                        [ "${STATUS}" = "200" ] && break
+                        sleep 1
+                    done
+
+                    if [ "${STATUS}" != "200" ]; then
+                        echo "deploy verification failed: /ready did not return 200 (last status: ${STATUS:-none})" >&2
+                        exit 1
+                    fi
+
+                    echo "deploy verified: /ready is 200"
+                '''
+            }
+        }
+    }
+}
