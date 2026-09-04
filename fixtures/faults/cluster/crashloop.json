@@ -1,0 +1,4470 @@
+{
+  "fault": "crashloop",
+  "layer": "cluster",
+  "captured_at": "2026-08-28T12:14:46Z",
+  "trigger": "Secret payment-api-secret's PAYMENT_API_API_KEY patched to whitespace, then deployment/payment-api restarted; app's own fail-fast config validation rejects the empty value and exits 1",
+  "fault_script": "faults/crashloop.sh",
+  "fault_script_exit_code": 0,
+  "fault_script_output": "[crashloop] setting PAYMENT_API_API_KEY to whitespace\n[crashloop] restarting deployment/payment-api\n[crashloop] waiting for CrashLoopBackOff with a non-OOM exit\n[crashloop] evidence: payment-api-98867c74d-h6j8v reason=Error exitCode=1 restarts=1\n[crashloop] PASS\n",
+  "evidence": {
+    "pods_payment_api": {
+      "apiVersion": "v1",
+      "items": [
+        {
+          "apiVersion": "v1",
+          "kind": "Pod",
+          "metadata": {
+            "annotations": {
+              "kubectl.kubernetes.io/restartedAt": "2026-08-28T17:43:41+05:30"
+            },
+            "creationTimestamp": "2026-08-28T12:13:41Z",
+            "generateName": "payment-api-7c886558c8-",
+            "labels": {
+              "app": "payment-api",
+              "pod-template-hash": "7c886558c8"
+            },
+            "name": "payment-api-7c886558c8-f29pk",
+            "namespace": "payment-api",
+            "ownerReferences": [
+              {
+                "apiVersion": "apps/v1",
+                "blockOwnerDeletion": true,
+                "controller": true,
+                "kind": "ReplicaSet",
+                "name": "payment-api-7c886558c8",
+                "uid": "8b7236aa-c919-4c8b-a394-bb6ffb305bf7"
+              }
+            ],
+            "resourceVersion": "1852",
+            "uid": "2376d814-86b4-4384-a374-0c25bb142b11"
+          },
+          "spec": {
+            "containers": [
+              {
+                "envFrom": [
+                  {
+                    "configMapRef": {
+                      "name": "payment-api-config"
+                    }
+                  },
+                  {
+                    "secretRef": {
+                      "name": "payment-api-secret"
+                    }
+                  }
+                ],
+                "image": "payment-api:kind",
+                "imagePullPolicy": "IfNotPresent",
+                "livenessProbe": {
+                  "failureThreshold": 3,
+                  "httpGet": {
+                    "path": "/health",
+                    "port": 8000,
+                    "scheme": "HTTP"
+                  },
+                  "initialDelaySeconds": 3,
+                  "periodSeconds": 5,
+                  "successThreshold": 1,
+                  "timeoutSeconds": 1
+                },
+                "name": "payment-api",
+                "ports": [
+                  {
+                    "containerPort": 8000,
+                    "protocol": "TCP"
+                  }
+                ],
+                "readinessProbe": {
+                  "failureThreshold": 3,
+                  "httpGet": {
+                    "path": "/ready",
+                    "port": 8000,
+                    "scheme": "HTTP"
+                  },
+                  "initialDelaySeconds": 3,
+                  "periodSeconds": 5,
+                  "successThreshold": 1,
+                  "timeoutSeconds": 1
+                },
+                "resources": {
+                  "limits": {
+                    "memory": "128Mi"
+                  },
+                  "requests": {
+                    "cpu": "100m",
+                    "memory": "64Mi"
+                  }
+                },
+                "terminationMessagePath": "/dev/termination-log",
+                "terminationMessagePolicy": "File",
+                "volumeMounts": [
+                  {
+                    "mountPath": "/var/run/secrets/kubernetes.io/serviceaccount",
+                    "name": "kube-api-access-n6rls",
+                    "readOnly": true
+                  }
+                ]
+              }
+            ],
+            "dnsPolicy": "ClusterFirst",
+            "enableServiceLinks": true,
+            "nodeName": "helix-sandbox-control-plane",
+            "preemptionPolicy": "PreemptLowerPriority",
+            "priority": 0,
+            "restartPolicy": "Always",
+            "schedulerName": "default-scheduler",
+            "securityContext": {},
+            "serviceAccount": "default",
+            "serviceAccountName": "default",
+            "terminationGracePeriodSeconds": 30,
+            "tolerations": [
+              {
+                "effect": "NoExecute",
+                "key": "node.kubernetes.io/not-ready",
+                "operator": "Exists",
+                "tolerationSeconds": 300
+              },
+              {
+                "effect": "NoExecute",
+                "key": "node.kubernetes.io/unreachable",
+                "operator": "Exists",
+                "tolerationSeconds": 300
+              }
+            ],
+            "volumes": [
+              {
+                "name": "kube-api-access-n6rls",
+                "projected": {
+                  "defaultMode": 420,
+                  "sources": [
+                    {
+                      "serviceAccountToken": {
+                        "expirationSeconds": 3607,
+                        "path": "token"
+                      }
+                    },
+                    {
+                      "configMap": {
+                        "items": [
+                          {
+                            "key": "ca.crt",
+                            "path": "ca.crt"
+                          }
+                        ],
+                        "name": "kube-root-ca.crt"
+                      }
+                    },
+                    {
+                      "downwardAPI": {
+                        "items": [
+                          {
+                            "fieldRef": {
+                              "apiVersion": "v1",
+                              "fieldPath": "metadata.namespace"
+                            },
+                            "path": "namespace"
+                          }
+                        ]
+                      }
+                    }
+                  ]
+                }
+              }
+            ]
+          },
+          "status": {
+            "conditions": [
+              {
+                "lastProbeTime": null,
+                "lastTransitionTime": "2026-08-28T12:13:42Z",
+                "status": "True",
+                "type": "PodReadyToStartContainers"
+              },
+              {
+                "lastProbeTime": null,
+                "lastTransitionTime": "2026-08-28T12:13:41Z",
+                "status": "True",
+                "type": "Initialized"
+              },
+              {
+                "lastProbeTime": null,
+                "lastTransitionTime": "2026-08-28T12:14:13Z",
+                "status": "True",
+                "type": "Ready"
+              },
+              {
+                "lastProbeTime": null,
+                "lastTransitionTime": "2026-08-28T12:14:13Z",
+                "status": "True",
+                "type": "ContainersReady"
+              },
+              {
+                "lastProbeTime": null,
+                "lastTransitionTime": "2026-08-28T12:13:41Z",
+                "status": "True",
+                "type": "PodScheduled"
+              }
+            ],
+            "containerStatuses": [
+              {
+                "containerID": "containerd://8084bf4e9f0a8413ef19854c3f29e09e8b786496aa315d0e9239ee8ff790e001",
+                "image": "docker.io/library/payment-api:kind",
+                "imageID": "sha256:d73bd3adc1e860e5a13715ba2b1c06a0f31f517269c70fbb6e3bf0a162e10d1b",
+                "lastState": {},
+                "name": "payment-api",
+                "ready": true,
+                "restartCount": 0,
+                "started": true,
+                "state": {
+                  "running": {
+                    "startedAt": "2026-08-28T12:14:07Z"
+                  }
+                },
+                "volumeMounts": [
+                  {
+                    "mountPath": "/var/run/secrets/kubernetes.io/serviceaccount",
+                    "name": "kube-api-access-n6rls",
+                    "readOnly": true,
+                    "recursiveReadOnly": "Disabled"
+                  }
+                ]
+              }
+            ],
+            "hostIP": "172.28.0.2",
+            "hostIPs": [
+              {
+                "ip": "172.28.0.2"
+              }
+            ],
+            "phase": "Running",
+            "podIP": "10.244.0.17",
+            "podIPs": [
+              {
+                "ip": "10.244.0.17"
+              }
+            ],
+            "qosClass": "Burstable",
+            "startTime": "2026-08-28T12:13:41Z"
+          }
+        },
+        {
+          "apiVersion": "v1",
+          "kind": "Pod",
+          "metadata": {
+            "annotations": {
+              "kubectl.kubernetes.io/restartedAt": "2026-08-28T17:44:20+05:30"
+            },
+            "creationTimestamp": "2026-08-28T12:14:20Z",
+            "generateName": "payment-api-98867c74d-",
+            "labels": {
+              "app": "payment-api",
+              "pod-template-hash": "98867c74d"
+            },
+            "name": "payment-api-98867c74d-h6j8v",
+            "namespace": "payment-api",
+            "ownerReferences": [
+              {
+                "apiVersion": "apps/v1",
+                "blockOwnerDeletion": true,
+                "controller": true,
+                "kind": "ReplicaSet",
+                "name": "payment-api-98867c74d",
+                "uid": "25815b1a-1857-4a0c-bee5-1f2e4b8244b5"
+              }
+            ],
+            "resourceVersion": "1917",
+            "uid": "5dd1b62d-42ae-4c12-b0b3-9db353bddae0"
+          },
+          "spec": {
+            "containers": [
+              {
+                "envFrom": [
+                  {
+                    "configMapRef": {
+                      "name": "payment-api-config"
+                    }
+                  },
+                  {
+                    "secretRef": {
+                      "name": "payment-api-secret"
+                    }
+                  }
+                ],
+                "image": "payment-api:kind",
+                "imagePullPolicy": "IfNotPresent",
+                "livenessProbe": {
+                  "failureThreshold": 3,
+                  "httpGet": {
+                    "path": "/health",
+                    "port": 8000,
+                    "scheme": "HTTP"
+                  },
+                  "initialDelaySeconds": 3,
+                  "periodSeconds": 5,
+                  "successThreshold": 1,
+                  "timeoutSeconds": 1
+                },
+                "name": "payment-api",
+                "ports": [
+                  {
+                    "containerPort": 8000,
+                    "protocol": "TCP"
+                  }
+                ],
+                "readinessProbe": {
+                  "failureThreshold": 3,
+                  "httpGet": {
+                    "path": "/ready",
+                    "port": 8000,
+                    "scheme": "HTTP"
+                  },
+                  "initialDelaySeconds": 3,
+                  "periodSeconds": 5,
+                  "successThreshold": 1,
+                  "timeoutSeconds": 1
+                },
+                "resources": {
+                  "limits": {
+                    "memory": "128Mi"
+                  },
+                  "requests": {
+                    "cpu": "100m",
+                    "memory": "64Mi"
+                  }
+                },
+                "terminationMessagePath": "/dev/termination-log",
+                "terminationMessagePolicy": "File",
+                "volumeMounts": [
+                  {
+                    "mountPath": "/var/run/secrets/kubernetes.io/serviceaccount",
+                    "name": "kube-api-access-882m5",
+                    "readOnly": true
+                  }
+                ]
+              }
+            ],
+            "dnsPolicy": "ClusterFirst",
+            "enableServiceLinks": true,
+            "nodeName": "helix-sandbox-control-plane",
+            "preemptionPolicy": "PreemptLowerPriority",
+            "priority": 0,
+            "restartPolicy": "Always",
+            "schedulerName": "default-scheduler",
+            "securityContext": {},
+            "serviceAccount": "default",
+            "serviceAccountName": "default",
+            "terminationGracePeriodSeconds": 30,
+            "tolerations": [
+              {
+                "effect": "NoExecute",
+                "key": "node.kubernetes.io/not-ready",
+                "operator": "Exists",
+                "tolerationSeconds": 300
+              },
+              {
+                "effect": "NoExecute",
+                "key": "node.kubernetes.io/unreachable",
+                "operator": "Exists",
+                "tolerationSeconds": 300
+              }
+            ],
+            "volumes": [
+              {
+                "name": "kube-api-access-882m5",
+                "projected": {
+                  "defaultMode": 420,
+                  "sources": [
+                    {
+                      "serviceAccountToken": {
+                        "expirationSeconds": 3607,
+                        "path": "token"
+                      }
+                    },
+                    {
+                      "configMap": {
+                        "items": [
+                          {
+                            "key": "ca.crt",
+                            "path": "ca.crt"
+                          }
+                        ],
+                        "name": "kube-root-ca.crt"
+                      }
+                    },
+                    {
+                      "downwardAPI": {
+                        "items": [
+                          {
+                            "fieldRef": {
+                              "apiVersion": "v1",
+                              "fieldPath": "metadata.namespace"
+                            },
+                            "path": "namespace"
+                          }
+                        ]
+                      }
+                    }
+                  ]
+                }
+              }
+            ]
+          },
+          "status": {
+            "conditions": [
+              {
+                "lastProbeTime": null,
+                "lastTransitionTime": "2026-08-28T12:14:21Z",
+                "status": "True",
+                "type": "PodReadyToStartContainers"
+              },
+              {
+                "lastProbeTime": null,
+                "lastTransitionTime": "2026-08-28T12:14:20Z",
+                "status": "True",
+                "type": "Initialized"
+              },
+              {
+                "lastProbeTime": null,
+                "lastTransitionTime": "2026-08-28T12:14:20Z",
+                "message": "containers with unready status: [payment-api]",
+                "reason": "ContainersNotReady",
+                "status": "False",
+                "type": "Ready"
+              },
+              {
+                "lastProbeTime": null,
+                "lastTransitionTime": "2026-08-28T12:14:20Z",
+                "message": "containers with unready status: [payment-api]",
+                "reason": "ContainersNotReady",
+                "status": "False",
+                "type": "ContainersReady"
+              },
+              {
+                "lastProbeTime": null,
+                "lastTransitionTime": "2026-08-28T12:14:20Z",
+                "status": "True",
+                "type": "PodScheduled"
+              }
+            ],
+            "containerStatuses": [
+              {
+                "containerID": "containerd://ae2e436d8b763f435386029e8262af507ca816de1e7cb938f51532df0435a7e1",
+                "image": "docker.io/library/payment-api:kind",
+                "imageID": "sha256:d73bd3adc1e860e5a13715ba2b1c06a0f31f517269c70fbb6e3bf0a162e10d1b",
+                "lastState": {
+                  "terminated": {
+                    "containerID": "containerd://ae2e436d8b763f435386029e8262af507ca816de1e7cb938f51532df0435a7e1",
+                    "exitCode": 1,
+                    "finishedAt": "2026-08-28T12:14:24Z",
+                    "reason": "Error",
+                    "startedAt": "2026-08-28T12:14:23Z"
+                  }
+                },
+                "name": "payment-api",
+                "ready": false,
+                "restartCount": 1,
+                "started": false,
+                "state": {
+                  "waiting": {
+                    "message": "back-off 10s restarting failed container=payment-api pod=payment-api-98867c74d-h6j8v_payment-api(5dd1b62d-42ae-4c12-b0b3-9db353bddae0)",
+                    "reason": "CrashLoopBackOff"
+                  }
+                },
+                "volumeMounts": [
+                  {
+                    "mountPath": "/var/run/secrets/kubernetes.io/serviceaccount",
+                    "name": "kube-api-access-882m5",
+                    "readOnly": true,
+                    "recursiveReadOnly": "Disabled"
+                  }
+                ]
+              }
+            ],
+            "hostIP": "172.28.0.2",
+            "hostIPs": [
+              {
+                "ip": "172.28.0.2"
+              }
+            ],
+            "phase": "Running",
+            "podIP": "10.244.0.18",
+            "podIPs": [
+              {
+                "ip": "10.244.0.18"
+              }
+            ],
+            "qosClass": "Burstable",
+            "startTime": "2026-08-28T12:14:20Z"
+          }
+        }
+      ],
+      "kind": "List",
+      "metadata": {
+        "resourceVersion": ""
+      }
+    },
+    "pods_downstream_stub": {
+      "apiVersion": "v1",
+      "items": [
+        {
+          "apiVersion": "v1",
+          "kind": "Pod",
+          "metadata": {
+            "creationTimestamp": "2026-08-28T12:11:39Z",
+            "generateName": "downstream-stub-678f9959b9-",
+            "labels": {
+              "app": "downstream-stub",
+              "pod-template-hash": "678f9959b9"
+            },
+            "name": "downstream-stub-678f9959b9-mfxpl",
+            "namespace": "payment-api",
+            "ownerReferences": [
+              {
+                "apiVersion": "apps/v1",
+                "blockOwnerDeletion": true,
+                "controller": true,
+                "kind": "ReplicaSet",
+                "name": "downstream-stub-678f9959b9",
+                "uid": "45933851-0830-4646-862c-da28b469f70f"
+              }
+            ],
+            "resourceVersion": "1518",
+            "uid": "d3fd9bdf-8930-453e-a4a1-71c52321f00a"
+          },
+          "spec": {
+            "containers": [
+              {
+                "image": "nginx:1.27-alpine",
+                "imagePullPolicy": "IfNotPresent",
+                "name": "nginx",
+                "ports": [
+                  {
+                    "containerPort": 80,
+                    "protocol": "TCP"
+                  }
+                ],
+                "readinessProbe": {
+                  "failureThreshold": 3,
+                  "httpGet": {
+                    "path": "/",
+                    "port": 80,
+                    "scheme": "HTTP"
+                  },
+                  "initialDelaySeconds": 2,
+                  "periodSeconds": 5,
+                  "successThreshold": 1,
+                  "timeoutSeconds": 1
+                },
+                "resources": {
+                  "limits": {
+                    "memory": "64Mi"
+                  },
+                  "requests": {
+                    "cpu": "10m",
+                    "memory": "16Mi"
+                  }
+                },
+                "terminationMessagePath": "/dev/termination-log",
+                "terminationMessagePolicy": "File",
+                "volumeMounts": [
+                  {
+                    "mountPath": "/etc/nginx/conf.d",
+                    "name": "config"
+                  },
+                  {
+                    "mountPath": "/var/run/secrets/kubernetes.io/serviceaccount",
+                    "name": "kube-api-access-bfn2p",
+                    "readOnly": true
+                  }
+                ]
+              }
+            ],
+            "dnsPolicy": "ClusterFirst",
+            "enableServiceLinks": true,
+            "nodeName": "helix-sandbox-control-plane",
+            "preemptionPolicy": "PreemptLowerPriority",
+            "priority": 0,
+            "restartPolicy": "Always",
+            "schedulerName": "default-scheduler",
+            "securityContext": {},
+            "serviceAccount": "default",
+            "serviceAccountName": "default",
+            "terminationGracePeriodSeconds": 30,
+            "tolerations": [
+              {
+                "effect": "NoExecute",
+                "key": "node.kubernetes.io/not-ready",
+                "operator": "Exists",
+                "tolerationSeconds": 300
+              },
+              {
+                "effect": "NoExecute",
+                "key": "node.kubernetes.io/unreachable",
+                "operator": "Exists",
+                "tolerationSeconds": 300
+              }
+            ],
+            "volumes": [
+              {
+                "configMap": {
+                  "defaultMode": 420,
+                  "name": "downstream-stub-config"
+                },
+                "name": "config"
+              },
+              {
+                "name": "kube-api-access-bfn2p",
+                "projected": {
+                  "defaultMode": 420,
+                  "sources": [
+                    {
+                      "serviceAccountToken": {
+                        "expirationSeconds": 3607,
+                        "path": "token"
+                      }
+                    },
+                    {
+                      "configMap": {
+                        "items": [
+                          {
+                            "key": "ca.crt",
+                            "path": "ca.crt"
+                          }
+                        ],
+                        "name": "kube-root-ca.crt"
+                      }
+                    },
+                    {
+                      "downwardAPI": {
+                        "items": [
+                          {
+                            "fieldRef": {
+                              "apiVersion": "v1",
+                              "fieldPath": "metadata.namespace"
+                            },
+                            "path": "namespace"
+                          }
+                        ]
+                      }
+                    }
+                  ]
+                }
+              }
+            ]
+          },
+          "status": {
+            "conditions": [
+              {
+                "lastProbeTime": null,
+                "lastTransitionTime": "2026-08-28T12:11:39Z",
+                "status": "True",
+                "type": "PodReadyToStartContainers"
+              },
+              {
+                "lastProbeTime": null,
+                "lastTransitionTime": "2026-08-28T12:11:39Z",
+                "status": "True",
+                "type": "Initialized"
+              },
+              {
+                "lastProbeTime": null,
+                "lastTransitionTime": "2026-08-28T12:11:45Z",
+                "status": "True",
+                "type": "Ready"
+              },
+              {
+                "lastProbeTime": null,
+                "lastTransitionTime": "2026-08-28T12:11:45Z",
+                "status": "True",
+                "type": "ContainersReady"
+              },
+              {
+                "lastProbeTime": null,
+                "lastTransitionTime": "2026-08-28T12:11:39Z",
+                "status": "True",
+                "type": "PodScheduled"
+              }
+            ],
+            "containerStatuses": [
+              {
+                "containerID": "containerd://49edf15a0071678c121a48f36e815b19ce286f5b0f83d8c23d6e4d67a4ce09f7",
+                "image": "docker.io/library/nginx:1.27-alpine",
+                "imageID": "sha256:6769dc3a703c719c1d2756bda113659be28ae16cf0da58dd5fd823d6b9a050ea",
+                "lastState": {},
+                "name": "nginx",
+                "ready": true,
+                "restartCount": 0,
+                "started": true,
+                "state": {
+                  "running": {
+                    "startedAt": "2026-08-28T12:11:39Z"
+                  }
+                },
+                "volumeMounts": [
+                  {
+                    "mountPath": "/etc/nginx/conf.d",
+                    "name": "config"
+                  },
+                  {
+                    "mountPath": "/var/run/secrets/kubernetes.io/serviceaccount",
+                    "name": "kube-api-access-bfn2p",
+                    "readOnly": true,
+                    "recursiveReadOnly": "Disabled"
+                  }
+                ]
+              }
+            ],
+            "hostIP": "172.28.0.2",
+            "hostIPs": [
+              {
+                "ip": "172.28.0.2"
+              }
+            ],
+            "phase": "Running",
+            "podIP": "10.244.0.14",
+            "podIPs": [
+              {
+                "ip": "10.244.0.14"
+              }
+            ],
+            "qosClass": "Burstable",
+            "startTime": "2026-08-28T12:11:39Z"
+          }
+        }
+      ],
+      "kind": "List",
+      "metadata": {
+        "resourceVersion": ""
+      }
+    },
+    "events": {
+      "apiVersion": "v1",
+      "items": [
+        {
+          "apiVersion": "v1",
+          "count": 1,
+          "eventTime": null,
+          "firstTimestamp": "2026-08-28T12:05:56Z",
+          "involvedObject": {
+            "apiVersion": "v1",
+            "kind": "Pod",
+            "name": "downstream-stub-678f9959b9-2tfr7",
+            "namespace": "payment-api",
+            "resourceVersion": "740",
+            "uid": "330cd18b-fa18-4947-87c4-c0039a9f882c"
+          },
+          "kind": "Event",
+          "lastTimestamp": "2026-08-28T12:05:56Z",
+          "message": "Successfully assigned payment-api/downstream-stub-678f9959b9-2tfr7 to helix-sandbox-control-plane",
+          "metadata": {
+            "creationTimestamp": "2026-08-28T12:05:56Z",
+            "name": "downstream-stub-678f9959b9-2tfr7.18cff6a2dae4fe18",
+            "namespace": "payment-api",
+            "resourceVersion": "746",
+            "uid": "58f823c0-4822-4151-a3e5-838f876ab52d"
+          },
+          "reason": "Scheduled",
+          "reportingComponent": "default-scheduler",
+          "reportingInstance": "",
+          "source": {
+            "component": "default-scheduler"
+          },
+          "type": "Normal"
+        },
+        {
+          "apiVersion": "v1",
+          "count": 1,
+          "eventTime": null,
+          "firstTimestamp": "2026-08-28T12:05:56Z",
+          "involvedObject": {
+            "apiVersion": "v1",
+            "fieldPath": "spec.containers{nginx}",
+            "kind": "Pod",
+            "name": "downstream-stub-678f9959b9-2tfr7",
+            "namespace": "payment-api",
+            "resourceVersion": "744",
+            "uid": "330cd18b-fa18-4947-87c4-c0039a9f882c"
+          },
+          "kind": "Event",
+          "lastTimestamp": "2026-08-28T12:05:56Z",
+          "message": "Container image \"nginx:1.27-alpine\" already present on machine",
+          "metadata": {
+            "creationTimestamp": "2026-08-28T12:05:56Z",
+            "name": "downstream-stub-678f9959b9-2tfr7.18cff6a2f3b9e4ef",
+            "namespace": "payment-api",
+            "resourceVersion": "751",
+            "uid": "ec885a79-29ec-47df-8804-164cc6079857"
+          },
+          "reason": "Pulled",
+          "reportingComponent": "kubelet",
+          "reportingInstance": "helix-sandbox-control-plane",
+          "source": {
+            "component": "kubelet",
+            "host": "helix-sandbox-control-plane"
+          },
+          "type": "Normal"
+        },
+        {
+          "apiVersion": "v1",
+          "count": 1,
+          "eventTime": null,
+          "firstTimestamp": "2026-08-28T12:05:56Z",
+          "involvedObject": {
+            "apiVersion": "v1",
+            "fieldPath": "spec.containers{nginx}",
+            "kind": "Pod",
+            "name": "downstream-stub-678f9959b9-2tfr7",
+            "namespace": "payment-api",
+            "resourceVersion": "744",
+            "uid": "330cd18b-fa18-4947-87c4-c0039a9f882c"
+          },
+          "kind": "Event",
+          "lastTimestamp": "2026-08-28T12:05:56Z",
+          "message": "Created container: nginx",
+          "metadata": {
+            "creationTimestamp": "2026-08-28T12:05:56Z",
+            "name": "downstream-stub-678f9959b9-2tfr7.18cff6a2f5355b79",
+            "namespace": "payment-api",
+            "resourceVersion": "752",
+            "uid": "23b9445d-a00c-4235-aa68-503a75dabfe5"
+          },
+          "reason": "Created",
+          "reportingComponent": "kubelet",
+          "reportingInstance": "helix-sandbox-control-plane",
+          "source": {
+            "component": "kubelet",
+            "host": "helix-sandbox-control-plane"
+          },
+          "type": "Normal"
+        },
+        {
+          "apiVersion": "v1",
+          "count": 1,
+          "eventTime": null,
+          "firstTimestamp": "2026-08-28T12:05:56Z",
+          "involvedObject": {
+            "apiVersion": "v1",
+            "fieldPath": "spec.containers{nginx}",
+            "kind": "Pod",
+            "name": "downstream-stub-678f9959b9-2tfr7",
+            "namespace": "payment-api",
+            "resourceVersion": "744",
+            "uid": "330cd18b-fa18-4947-87c4-c0039a9f882c"
+          },
+          "kind": "Event",
+          "lastTimestamp": "2026-08-28T12:05:56Z",
+          "message": "Started container nginx",
+          "metadata": {
+            "creationTimestamp": "2026-08-28T12:05:56Z",
+            "name": "downstream-stub-678f9959b9-2tfr7.18cff6a2f8db4fcf",
+            "namespace": "payment-api",
+            "resourceVersion": "753",
+            "uid": "2bb9ab5e-3b5c-4a12-8f05-3cb18ba83cc7"
+          },
+          "reason": "Started",
+          "reportingComponent": "kubelet",
+          "reportingInstance": "helix-sandbox-control-plane",
+          "source": {
+            "component": "kubelet",
+            "host": "helix-sandbox-control-plane"
+          },
+          "type": "Normal"
+        },
+        {
+          "apiVersion": "v1",
+          "count": 1,
+          "eventTime": null,
+          "firstTimestamp": "2026-08-28T12:11:15Z",
+          "involvedObject": {
+            "apiVersion": "v1",
+            "fieldPath": "spec.containers{nginx}",
+            "kind": "Pod",
+            "name": "downstream-stub-678f9959b9-2tfr7",
+            "namespace": "payment-api",
+            "resourceVersion": "744",
+            "uid": "330cd18b-fa18-4947-87c4-c0039a9f882c"
+          },
+          "kind": "Event",
+          "lastTimestamp": "2026-08-28T12:11:15Z",
+          "message": "Stopping container nginx",
+          "metadata": {
+            "creationTimestamp": "2026-08-28T12:11:15Z",
+            "name": "downstream-stub-678f9959b9-2tfr7.18cff6ed2a22f006",
+            "namespace": "payment-api",
+            "resourceVersion": "1439",
+            "uid": "e3d0aa8d-4152-470b-943b-b711d4ddd4e9"
+          },
+          "reason": "Killing",
+          "reportingComponent": "kubelet",
+          "reportingInstance": "helix-sandbox-control-plane",
+          "source": {
+            "component": "kubelet",
+            "host": "helix-sandbox-control-plane"
+          },
+          "type": "Normal"
+        },
+        {
+          "apiVersion": "v1",
+          "count": 1,
+          "eventTime": null,
+          "firstTimestamp": "2026-08-28T12:11:39Z",
+          "involvedObject": {
+            "apiVersion": "v1",
+            "kind": "Pod",
+            "name": "downstream-stub-678f9959b9-mfxpl",
+            "namespace": "payment-api",
+            "resourceVersion": "1492",
+            "uid": "d3fd9bdf-8930-453e-a4a1-71c52321f00a"
+          },
+          "kind": "Event",
+          "lastTimestamp": "2026-08-28T12:11:39Z",
+          "message": "Successfully assigned payment-api/downstream-stub-678f9959b9-mfxpl to helix-sandbox-control-plane",
+          "metadata": {
+            "creationTimestamp": "2026-08-28T12:11:39Z",
+            "name": "downstream-stub-678f9959b9-mfxpl.18cff6f2b3aac25b",
+            "namespace": "payment-api",
+            "resourceVersion": "1497",
+            "uid": "d9b13f42-3e15-4c65-a838-322b31b8d6ff"
+          },
+          "reason": "Scheduled",
+          "reportingComponent": "default-scheduler",
+          "reportingInstance": "",
+          "source": {
+            "component": "default-scheduler"
+          },
+          "type": "Normal"
+        },
+        {
+          "apiVersion": "v1",
+          "count": 1,
+          "eventTime": null,
+          "firstTimestamp": "2026-08-28T12:11:39Z",
+          "involvedObject": {
+            "apiVersion": "v1",
+            "fieldPath": "spec.containers{nginx}",
+            "kind": "Pod",
+            "name": "downstream-stub-678f9959b9-mfxpl",
+            "namespace": "payment-api",
+            "resourceVersion": "1495",
+            "uid": "d3fd9bdf-8930-453e-a4a1-71c52321f00a"
+          },
+          "kind": "Event",
+          "lastTimestamp": "2026-08-28T12:11:39Z",
+          "message": "Container image \"nginx:1.27-alpine\" already present on machine",
+          "metadata": {
+            "creationTimestamp": "2026-08-28T12:11:39Z",
+            "name": "downstream-stub-678f9959b9-mfxpl.18cff6f2cbbdcc1a",
+            "namespace": "payment-api",
+            "resourceVersion": "1502",
+            "uid": "8117b8af-48ff-48e8-88ed-4e3a5636a226"
+          },
+          "reason": "Pulled",
+          "reportingComponent": "kubelet",
+          "reportingInstance": "helix-sandbox-control-plane",
+          "source": {
+            "component": "kubelet",
+            "host": "helix-sandbox-control-plane"
+          },
+          "type": "Normal"
+        },
+        {
+          "apiVersion": "v1",
+          "count": 1,
+          "eventTime": null,
+          "firstTimestamp": "2026-08-28T12:11:39Z",
+          "involvedObject": {
+            "apiVersion": "v1",
+            "fieldPath": "spec.containers{nginx}",
+            "kind": "Pod",
+            "name": "downstream-stub-678f9959b9-mfxpl",
+            "namespace": "payment-api",
+            "resourceVersion": "1495",
+            "uid": "d3fd9bdf-8930-453e-a4a1-71c52321f00a"
+          },
+          "kind": "Event",
+          "lastTimestamp": "2026-08-28T12:11:39Z",
+          "message": "Created container: nginx",
+          "metadata": {
+            "creationTimestamp": "2026-08-28T12:11:39Z",
+            "name": "downstream-stub-678f9959b9-mfxpl.18cff6f2cd123f2c",
+            "namespace": "payment-api",
+            "resourceVersion": "1503",
+            "uid": "b7df70bb-bdf9-4d1f-afd7-803f984620ab"
+          },
+          "reason": "Created",
+          "reportingComponent": "kubelet",
+          "reportingInstance": "helix-sandbox-control-plane",
+          "source": {
+            "component": "kubelet",
+            "host": "helix-sandbox-control-plane"
+          },
+          "type": "Normal"
+        },
+        {
+          "apiVersion": "v1",
+          "count": 1,
+          "eventTime": null,
+          "firstTimestamp": "2026-08-28T12:11:39Z",
+          "involvedObject": {
+            "apiVersion": "v1",
+            "fieldPath": "spec.containers{nginx}",
+            "kind": "Pod",
+            "name": "downstream-stub-678f9959b9-mfxpl",
+            "namespace": "payment-api",
+            "resourceVersion": "1495",
+            "uid": "d3fd9bdf-8930-453e-a4a1-71c52321f00a"
+          },
+          "kind": "Event",
+          "lastTimestamp": "2026-08-28T12:11:39Z",
+          "message": "Started container nginx",
+          "metadata": {
+            "creationTimestamp": "2026-08-28T12:11:39Z",
+            "name": "downstream-stub-678f9959b9-mfxpl.18cff6f2d17423da",
+            "namespace": "payment-api",
+            "resourceVersion": "1504",
+            "uid": "3f96157c-9a0f-4bec-a491-eebd72d152d3"
+          },
+          "reason": "Started",
+          "reportingComponent": "kubelet",
+          "reportingInstance": "helix-sandbox-control-plane",
+          "source": {
+            "component": "kubelet",
+            "host": "helix-sandbox-control-plane"
+          },
+          "type": "Normal"
+        },
+        {
+          "apiVersion": "v1",
+          "count": 1,
+          "eventTime": null,
+          "firstTimestamp": "2026-08-28T12:04:14Z",
+          "involvedObject": {
+            "apiVersion": "v1",
+            "kind": "Pod",
+            "name": "downstream-stub-678f9959b9-vg54n",
+            "namespace": "payment-api",
+            "resourceVersion": "436",
+            "uid": "f22c58be-c3d0-4252-ada0-4bb04fa4db28"
+          },
+          "kind": "Event",
+          "lastTimestamp": "2026-08-28T12:04:14Z",
+          "message": "0/1 nodes are available: 1 node(s) had untolerated taint {node.kubernetes.io/not-ready: }. preemption: 0/1 nodes are available: 1 Preemption is not helpful for scheduling.",
+          "metadata": {
+            "creationTimestamp": "2026-08-28T12:04:14Z",
+            "name": "downstream-stub-678f9959b9-vg54n.18cff68b138b8626",
+            "namespace": "payment-api",
+            "resourceVersion": "439",
+            "uid": "d7afaadf-3488-4100-8856-fca9c1e2dd38"
+          },
+          "reason": "FailedScheduling",
+          "reportingComponent": "default-scheduler",
+          "reportingInstance": "",
+          "source": {
+            "component": "default-scheduler"
+          },
+          "type": "Warning"
+        },
+        {
+          "apiVersion": "v1",
+          "count": 1,
+          "eventTime": null,
+          "firstTimestamp": "2026-08-28T12:04:22Z",
+          "involvedObject": {
+            "apiVersion": "v1",
+            "kind": "Pod",
+            "name": "downstream-stub-678f9959b9-vg54n",
+            "namespace": "payment-api",
+            "resourceVersion": "441",
+            "uid": "f22c58be-c3d0-4252-ada0-4bb04fa4db28"
+          },
+          "kind": "Event",
+          "lastTimestamp": "2026-08-28T12:04:22Z",
+          "message": "Successfully assigned payment-api/downstream-stub-678f9959b9-vg54n to helix-sandbox-control-plane",
+          "metadata": {
+            "creationTimestamp": "2026-08-28T12:04:22Z",
+            "name": "downstream-stub-678f9959b9-vg54n.18cff68d065bb4be",
+            "namespace": "payment-api",
+            "resourceVersion": "489",
+            "uid": "512818c6-8acf-444d-a9ba-a073f6a7208a"
+          },
+          "reason": "Scheduled",
+          "reportingComponent": "default-scheduler",
+          "reportingInstance": "",
+          "source": {
+            "component": "default-scheduler"
+          },
+          "type": "Normal"
+        },
+        {
+          "apiVersion": "v1",
+          "count": 1,
+          "eventTime": null,
+          "firstTimestamp": "2026-08-28T12:04:23Z",
+          "involvedObject": {
+            "apiVersion": "v1",
+            "fieldPath": "spec.containers{nginx}",
+            "kind": "Pod",
+            "name": "downstream-stub-678f9959b9-vg54n",
+            "namespace": "payment-api",
+            "resourceVersion": "484",
+            "uid": "f22c58be-c3d0-4252-ada0-4bb04fa4db28"
+          },
+          "kind": "Event",
+          "lastTimestamp": "2026-08-28T12:04:23Z",
+          "message": "Container image \"nginx:1.27-alpine\" already present on machine",
+          "metadata": {
+            "creationTimestamp": "2026-08-28T12:04:23Z",
+            "name": "downstream-stub-678f9959b9-vg54n.18cff68d26182350",
+            "namespace": "payment-api",
+            "resourceVersion": "499",
+            "uid": "ea450655-24b6-4314-af1e-58303c6b97b7"
+          },
+          "reason": "Pulled",
+          "reportingComponent": "kubelet",
+          "reportingInstance": "helix-sandbox-control-plane",
+          "source": {
+            "component": "kubelet",
+            "host": "helix-sandbox-control-plane"
+          },
+          "type": "Normal"
+        },
+        {
+          "apiVersion": "v1",
+          "count": 1,
+          "eventTime": null,
+          "firstTimestamp": "2026-08-28T12:04:23Z",
+          "involvedObject": {
+            "apiVersion": "v1",
+            "fieldPath": "spec.containers{nginx}",
+            "kind": "Pod",
+            "name": "downstream-stub-678f9959b9-vg54n",
+            "namespace": "payment-api",
+            "resourceVersion": "484",
+            "uid": "f22c58be-c3d0-4252-ada0-4bb04fa4db28"
+          },
+          "kind": "Event",
+          "lastTimestamp": "2026-08-28T12:04:23Z",
+          "message": "Created container: nginx",
+          "metadata": {
+            "creationTimestamp": "2026-08-28T12:04:23Z",
+            "name": "downstream-stub-678f9959b9-vg54n.18cff68d2b52a7ca",
+            "namespace": "payment-api",
+            "resourceVersion": "503",
+            "uid": "a49e753b-34d3-4140-8994-6b1e3d01e1bb"
+          },
+          "reason": "Created",
+          "reportingComponent": "kubelet",
+          "reportingInstance": "helix-sandbox-control-plane",
+          "source": {
+            "component": "kubelet",
+            "host": "helix-sandbox-control-plane"
+          },
+          "type": "Normal"
+        },
+        {
+          "apiVersion": "v1",
+          "count": 1,
+          "eventTime": null,
+          "firstTimestamp": "2026-08-28T12:04:23Z",
+          "involvedObject": {
+            "apiVersion": "v1",
+            "fieldPath": "spec.containers{nginx}",
+            "kind": "Pod",
+            "name": "downstream-stub-678f9959b9-vg54n",
+            "namespace": "payment-api",
+            "resourceVersion": "484",
+            "uid": "f22c58be-c3d0-4252-ada0-4bb04fa4db28"
+          },
+          "kind": "Event",
+          "lastTimestamp": "2026-08-28T12:04:23Z",
+          "message": "Started container nginx",
+          "metadata": {
+            "creationTimestamp": "2026-08-28T12:04:23Z",
+            "name": "downstream-stub-678f9959b9-vg54n.18cff68d2fdfceca",
+            "namespace": "payment-api",
+            "resourceVersion": "506",
+            "uid": "b050d5f5-73c7-4c7c-a80e-af66c5f5a16f"
+          },
+          "reason": "Started",
+          "reportingComponent": "kubelet",
+          "reportingInstance": "helix-sandbox-control-plane",
+          "source": {
+            "component": "kubelet",
+            "host": "helix-sandbox-control-plane"
+          },
+          "type": "Normal"
+        },
+        {
+          "apiVersion": "v1",
+          "count": 1,
+          "eventTime": null,
+          "firstTimestamp": "2026-08-28T12:05:52Z",
+          "involvedObject": {
+            "apiVersion": "v1",
+            "fieldPath": "spec.containers{nginx}",
+            "kind": "Pod",
+            "name": "downstream-stub-678f9959b9-vg54n",
+            "namespace": "payment-api",
+            "resourceVersion": "484",
+            "uid": "f22c58be-c3d0-4252-ada0-4bb04fa4db28"
+          },
+          "kind": "Event",
+          "lastTimestamp": "2026-08-28T12:05:52Z",
+          "message": "Stopping container nginx",
+          "metadata": {
+            "creationTimestamp": "2026-08-28T12:05:52Z",
+            "name": "downstream-stub-678f9959b9-vg54n.18cff6a1fa69847c",
+            "namespace": "payment-api",
+            "resourceVersion": "721",
+            "uid": "cfef0d6a-5b7d-4340-ae5b-7da17cbb1b6d"
+          },
+          "reason": "Killing",
+          "reportingComponent": "kubelet",
+          "reportingInstance": "helix-sandbox-control-plane",
+          "source": {
+            "component": "kubelet",
+            "host": "helix-sandbox-control-plane"
+          },
+          "type": "Normal"
+        },
+        {
+          "apiVersion": "v1",
+          "count": 1,
+          "eventTime": null,
+          "firstTimestamp": "2026-08-28T12:04:14Z",
+          "involvedObject": {
+            "apiVersion": "apps/v1",
+            "kind": "ReplicaSet",
+            "name": "downstream-stub-678f9959b9",
+            "namespace": "payment-api",
+            "resourceVersion": "432",
+            "uid": "45933851-0830-4646-862c-da28b469f70f"
+          },
+          "kind": "Event",
+          "lastTimestamp": "2026-08-28T12:04:14Z",
+          "message": "Created pod: downstream-stub-678f9959b9-vg54n",
+          "metadata": {
+            "creationTimestamp": "2026-08-28T12:04:14Z",
+            "name": "downstream-stub-678f9959b9.18cff68b138641c3",
+            "namespace": "payment-api",
+            "resourceVersion": "438",
+            "uid": "d18c5967-6016-41cc-bb1d-61378d690092"
+          },
+          "reason": "SuccessfulCreate",
+          "reportingComponent": "replicaset-controller",
+          "reportingInstance": "",
+          "source": {
+            "component": "replicaset-controller"
+          },
+          "type": "Normal"
+        },
+        {
+          "apiVersion": "v1",
+          "count": 1,
+          "eventTime": null,
+          "firstTimestamp": "2026-08-28T12:05:52Z",
+          "involvedObject": {
+            "apiVersion": "apps/v1",
+            "kind": "ReplicaSet",
+            "name": "downstream-stub-678f9959b9",
+            "namespace": "payment-api",
+            "resourceVersion": "714",
+            "uid": "45933851-0830-4646-862c-da28b469f70f"
+          },
+          "kind": "Event",
+          "lastTimestamp": "2026-08-28T12:05:52Z",
+          "message": "Deleted pod: downstream-stub-678f9959b9-vg54n",
+          "metadata": {
+            "creationTimestamp": "2026-08-28T12:05:52Z",
+            "name": "downstream-stub-678f9959b9.18cff6a1fa5aeb43",
+            "namespace": "payment-api",
+            "resourceVersion": "720",
+            "uid": "ca4db456-233e-4256-b8c3-1e6fb0e6eec5"
+          },
+          "reason": "SuccessfulDelete",
+          "reportingComponent": "replicaset-controller",
+          "reportingInstance": "",
+          "source": {
+            "component": "replicaset-controller"
+          },
+          "type": "Normal"
+        },
+        {
+          "apiVersion": "v1",
+          "count": 1,
+          "eventTime": null,
+          "firstTimestamp": "2026-08-28T12:05:56Z",
+          "involvedObject": {
+            "apiVersion": "apps/v1",
+            "kind": "ReplicaSet",
+            "name": "downstream-stub-678f9959b9",
+            "namespace": "payment-api",
+            "resourceVersion": "737",
+            "uid": "45933851-0830-4646-862c-da28b469f70f"
+          },
+          "kind": "Event",
+          "lastTimestamp": "2026-08-28T12:05:56Z",
+          "message": "Created pod: downstream-stub-678f9959b9-2tfr7",
+          "metadata": {
+            "creationTimestamp": "2026-08-28T12:05:56Z",
+            "name": "downstream-stub-678f9959b9.18cff6a2da5002f7",
+            "namespace": "payment-api",
+            "resourceVersion": "742",
+            "uid": "2327134a-ae7f-4195-920d-2c5386ed0ad3"
+          },
+          "reason": "SuccessfulCreate",
+          "reportingComponent": "replicaset-controller",
+          "reportingInstance": "",
+          "source": {
+            "component": "replicaset-controller"
+          },
+          "type": "Normal"
+        },
+        {
+          "apiVersion": "v1",
+          "count": 1,
+          "eventTime": null,
+          "firstTimestamp": "2026-08-28T12:11:15Z",
+          "involvedObject": {
+            "apiVersion": "apps/v1",
+            "kind": "ReplicaSet",
+            "name": "downstream-stub-678f9959b9",
+            "namespace": "payment-api",
+            "resourceVersion": "1431",
+            "uid": "45933851-0830-4646-862c-da28b469f70f"
+          },
+          "kind": "Event",
+          "lastTimestamp": "2026-08-28T12:11:15Z",
+          "message": "Deleted pod: downstream-stub-678f9959b9-2tfr7",
+          "metadata": {
+            "creationTimestamp": "2026-08-28T12:11:15Z",
+            "name": "downstream-stub-678f9959b9.18cff6ed2a001101",
+            "namespace": "payment-api",
+            "resourceVersion": "1435",
+            "uid": "02d355fe-3f7e-42fc-9dea-324d3612d782"
+          },
+          "reason": "SuccessfulDelete",
+          "reportingComponent": "replicaset-controller",
+          "reportingInstance": "",
+          "source": {
+            "component": "replicaset-controller"
+          },
+          "type": "Normal"
+        },
+        {
+          "apiVersion": "v1",
+          "count": 1,
+          "eventTime": null,
+          "firstTimestamp": "2026-08-28T12:11:39Z",
+          "involvedObject": {
+            "apiVersion": "apps/v1",
+            "kind": "ReplicaSet",
+            "name": "downstream-stub-678f9959b9",
+            "namespace": "payment-api",
+            "resourceVersion": "1489",
+            "uid": "45933851-0830-4646-862c-da28b469f70f"
+          },
+          "kind": "Event",
+          "lastTimestamp": "2026-08-28T12:11:39Z",
+          "message": "Created pod: downstream-stub-678f9959b9-mfxpl",
+          "metadata": {
+            "creationTimestamp": "2026-08-28T12:11:39Z",
+            "name": "downstream-stub-678f9959b9.18cff6f2b361171c",
+            "namespace": "payment-api",
+            "resourceVersion": "1494",
+            "uid": "69767ed7-361d-423c-9894-ce12d3e85ddc"
+          },
+          "reason": "SuccessfulCreate",
+          "reportingComponent": "replicaset-controller",
+          "reportingInstance": "",
+          "source": {
+            "component": "replicaset-controller"
+          },
+          "type": "Normal"
+        },
+        {
+          "apiVersion": "v1",
+          "count": 3,
+          "eventTime": null,
+          "firstTimestamp": "2026-08-28T12:04:14Z",
+          "involvedObject": {
+            "apiVersion": "apps/v1",
+            "kind": "Deployment",
+            "name": "downstream-stub",
+            "namespace": "payment-api",
+            "resourceVersion": "431",
+            "uid": "15d05c56-e138-4bbc-9e30-ca23d2eb0966"
+          },
+          "kind": "Event",
+          "lastTimestamp": "2026-08-28T12:11:39Z",
+          "message": "Scaled up replica set downstream-stub-678f9959b9 from 0 to 1",
+          "metadata": {
+            "creationTimestamp": "2026-08-28T12:04:14Z",
+            "name": "downstream-stub.18cff68b131296b3",
+            "namespace": "payment-api",
+            "resourceVersion": "1490",
+            "uid": "4fa9bafb-4b33-4da6-b607-c4b8fe2eb019"
+          },
+          "reason": "ScalingReplicaSet",
+          "reportingComponent": "deployment-controller",
+          "reportingInstance": "",
+          "source": {
+            "component": "deployment-controller"
+          },
+          "type": "Normal"
+        },
+        {
+          "apiVersion": "v1",
+          "count": 2,
+          "eventTime": null,
+          "firstTimestamp": "2026-08-28T12:05:52Z",
+          "involvedObject": {
+            "apiVersion": "apps/v1",
+            "kind": "Deployment",
+            "name": "downstream-stub",
+            "namespace": "payment-api",
+            "resourceVersion": "713",
+            "uid": "15d05c56-e138-4bbc-9e30-ca23d2eb0966"
+          },
+          "kind": "Event",
+          "lastTimestamp": "2026-08-28T12:11:15Z",
+          "message": "Scaled down replica set downstream-stub-678f9959b9 from 1 to 0",
+          "metadata": {
+            "creationTimestamp": "2026-08-28T12:05:52Z",
+            "name": "downstream-stub.18cff6a1f9cf33a8",
+            "namespace": "payment-api",
+            "resourceVersion": "1434",
+            "uid": "87c0ccd8-89e5-4c44-82b0-aab8147d050e"
+          },
+          "reason": "ScalingReplicaSet",
+          "reportingComponent": "deployment-controller",
+          "reportingInstance": "",
+          "source": {
+            "component": "deployment-controller"
+          },
+          "type": "Normal"
+        },
+        {
+          "apiVersion": "v1",
+          "count": 1,
+          "eventTime": null,
+          "firstTimestamp": "2026-08-28T12:04:14Z",
+          "involvedObject": {
+            "apiVersion": "v1",
+            "kind": "Pod",
+            "name": "payment-api-54f988c7b8-4mg66",
+            "namespace": "payment-api",
+            "resourceVersion": "452",
+            "uid": "3df57a9e-76de-4b63-a3c4-d0ece1427040"
+          },
+          "kind": "Event",
+          "lastTimestamp": "2026-08-28T12:04:14Z",
+          "message": "0/1 nodes are available: 1 node(s) had untolerated taint {node.kubernetes.io/not-ready: }. preemption: 0/1 nodes are available: 1 Preemption is not helpful for scheduling.",
+          "metadata": {
+            "creationTimestamp": "2026-08-28T12:04:14Z",
+            "name": "payment-api-54f988c7b8-4mg66.18cff68b1578238c",
+            "namespace": "payment-api",
+            "resourceVersion": "457",
+            "uid": "84bdb0a8-2023-43bf-b317-1d5bbeac0b5f"
+          },
+          "reason": "FailedScheduling",
+          "reportingComponent": "default-scheduler",
+          "reportingInstance": "",
+          "source": {
+            "component": "default-scheduler"
+          },
+          "type": "Warning"
+        },
+        {
+          "apiVersion": "v1",
+          "count": 1,
+          "eventTime": null,
+          "firstTimestamp": "2026-08-28T12:04:22Z",
+          "involvedObject": {
+            "apiVersion": "v1",
+            "kind": "Pod",
+            "name": "payment-api-54f988c7b8-4mg66",
+            "namespace": "payment-api",
+            "resourceVersion": "459",
+            "uid": "3df57a9e-76de-4b63-a3c4-d0ece1427040"
+          },
+          "kind": "Event",
+          "lastTimestamp": "2026-08-28T12:04:22Z",
+          "message": "Successfully assigned payment-api/payment-api-54f988c7b8-4mg66 to helix-sandbox-control-plane",
+          "metadata": {
+            "creationTimestamp": "2026-08-28T12:04:22Z",
+            "name": "payment-api-54f988c7b8-4mg66.18cff68d06398cf6",
+            "namespace": "payment-api",
+            "resourceVersion": "487",
+            "uid": "d26c9975-b7b9-49fc-ad39-6435e945ad17"
+          },
+          "reason": "Scheduled",
+          "reportingComponent": "default-scheduler",
+          "reportingInstance": "",
+          "source": {
+            "component": "default-scheduler"
+          },
+          "type": "Normal"
+        },
+        {
+          "apiVersion": "v1",
+          "count": 1,
+          "eventTime": null,
+          "firstTimestamp": "2026-08-28T12:04:23Z",
+          "involvedObject": {
+            "apiVersion": "v1",
+            "fieldPath": "spec.containers{payment-api}",
+            "kind": "Pod",
+            "name": "payment-api-54f988c7b8-4mg66",
+            "namespace": "payment-api",
+            "resourceVersion": "483",
+            "uid": "3df57a9e-76de-4b63-a3c4-d0ece1427040"
+          },
+          "kind": "Event",
+          "lastTimestamp": "2026-08-28T12:04:23Z",
+          "message": "Container image \"payment-api:kind\" already present on machine",
+          "metadata": {
+            "creationTimestamp": "2026-08-28T12:04:23Z",
+            "name": "payment-api-54f988c7b8-4mg66.18cff68d275d8906",
+            "namespace": "payment-api",
+            "resourceVersion": "502",
+            "uid": "589145c7-1483-4456-b5a5-c0dd83598042"
+          },
+          "reason": "Pulled",
+          "reportingComponent": "kubelet",
+          "reportingInstance": "helix-sandbox-control-plane",
+          "source": {
+            "component": "kubelet",
+            "host": "helix-sandbox-control-plane"
+          },
+          "type": "Normal"
+        },
+        {
+          "apiVersion": "v1",
+          "count": 1,
+          "eventTime": null,
+          "firstTimestamp": "2026-08-28T12:04:23Z",
+          "involvedObject": {
+            "apiVersion": "v1",
+            "fieldPath": "spec.containers{payment-api}",
+            "kind": "Pod",
+            "name": "payment-api-54f988c7b8-4mg66",
+            "namespace": "payment-api",
+            "resourceVersion": "483",
+            "uid": "3df57a9e-76de-4b63-a3c4-d0ece1427040"
+          },
+          "kind": "Event",
+          "lastTimestamp": "2026-08-28T12:04:23Z",
+          "message": "Created container: payment-api",
+          "metadata": {
+            "creationTimestamp": "2026-08-28T12:04:23Z",
+            "name": "payment-api-54f988c7b8-4mg66.18cff68d2d05d966",
+            "namespace": "payment-api",
+            "resourceVersion": "504",
+            "uid": "4d75112d-3d31-4fde-ba14-1ce28372fd72"
+          },
+          "reason": "Created",
+          "reportingComponent": "kubelet",
+          "reportingInstance": "helix-sandbox-control-plane",
+          "source": {
+            "component": "kubelet",
+            "host": "helix-sandbox-control-plane"
+          },
+          "type": "Normal"
+        },
+        {
+          "apiVersion": "v1",
+          "count": 1,
+          "eventTime": null,
+          "firstTimestamp": "2026-08-28T12:04:23Z",
+          "involvedObject": {
+            "apiVersion": "v1",
+            "fieldPath": "spec.containers{payment-api}",
+            "kind": "Pod",
+            "name": "payment-api-54f988c7b8-4mg66",
+            "namespace": "payment-api",
+            "resourceVersion": "483",
+            "uid": "3df57a9e-76de-4b63-a3c4-d0ece1427040"
+          },
+          "kind": "Event",
+          "lastTimestamp": "2026-08-28T12:04:23Z",
+          "message": "Started container payment-api",
+          "metadata": {
+            "creationTimestamp": "2026-08-28T12:04:23Z",
+            "name": "payment-api-54f988c7b8-4mg66.18cff68d3192e07c",
+            "namespace": "payment-api",
+            "resourceVersion": "507",
+            "uid": "15142f95-43b1-4193-bd2d-f759a33fe977"
+          },
+          "reason": "Started",
+          "reportingComponent": "kubelet",
+          "reportingInstance": "helix-sandbox-control-plane",
+          "source": {
+            "component": "kubelet",
+            "host": "helix-sandbox-control-plane"
+          },
+          "type": "Normal"
+        },
+        {
+          "apiVersion": "v1",
+          "count": 1,
+          "eventTime": null,
+          "firstTimestamp": "2026-08-28T12:05:55Z",
+          "involvedObject": {
+            "apiVersion": "v1",
+            "fieldPath": "spec.containers{payment-api}",
+            "kind": "Pod",
+            "name": "payment-api-54f988c7b8-4mg66",
+            "namespace": "payment-api",
+            "resourceVersion": "483",
+            "uid": "3df57a9e-76de-4b63-a3c4-d0ece1427040"
+          },
+          "kind": "Event",
+          "lastTimestamp": "2026-08-28T12:05:55Z",
+          "message": "Readiness probe failed: HTTP probe failed with statuscode: 503",
+          "metadata": {
+            "creationTimestamp": "2026-08-28T12:05:55Z",
+            "name": "payment-api-54f988c7b8-4mg66.18cff6a28c7c3008",
+            "namespace": "payment-api",
+            "resourceVersion": "733",
+            "uid": "36c45f32-bba9-47cf-84c6-6640eba00f85"
+          },
+          "reason": "Unhealthy",
+          "reportingComponent": "kubelet",
+          "reportingInstance": "helix-sandbox-control-plane",
+          "source": {
+            "component": "kubelet",
+            "host": "helix-sandbox-control-plane"
+          },
+          "type": "Warning"
+        },
+        {
+          "apiVersion": "v1",
+          "count": 1,
+          "eventTime": null,
+          "firstTimestamp": "2026-08-28T12:07:36Z",
+          "involvedObject": {
+            "apiVersion": "v1",
+            "fieldPath": "spec.containers{payment-api}",
+            "kind": "Pod",
+            "name": "payment-api-54f988c7b8-4mg66",
+            "namespace": "payment-api",
+            "resourceVersion": "483",
+            "uid": "3df57a9e-76de-4b63-a3c4-d0ece1427040"
+          },
+          "kind": "Event",
+          "lastTimestamp": "2026-08-28T12:07:36Z",
+          "message": "Stopping container payment-api",
+          "metadata": {
+            "creationTimestamp": "2026-08-28T12:07:36Z",
+            "name": "payment-api-54f988c7b8-4mg66.18cff6ba2bf46ec2",
+            "namespace": "payment-api",
+            "resourceVersion": "1022",
+            "uid": "af6fcb22-f7e9-4495-8fa5-937a752b2243"
+          },
+          "reason": "Killing",
+          "reportingComponent": "kubelet",
+          "reportingInstance": "helix-sandbox-control-plane",
+          "source": {
+            "component": "kubelet",
+            "host": "helix-sandbox-control-plane"
+          },
+          "type": "Normal"
+        },
+        {
+          "apiVersion": "v1",
+          "count": 1,
+          "eventTime": null,
+          "firstTimestamp": "2026-08-28T12:04:14Z",
+          "involvedObject": {
+            "apiVersion": "apps/v1",
+            "kind": "ReplicaSet",
+            "name": "payment-api-54f988c7b8",
+            "namespace": "payment-api",
+            "resourceVersion": "450",
+            "uid": "b724e020-de27-4679-8356-0ef1af481749"
+          },
+          "kind": "Event",
+          "lastTimestamp": "2026-08-28T12:04:14Z",
+          "message": "Created pod: payment-api-54f988c7b8-4mg66",
+          "metadata": {
+            "creationTimestamp": "2026-08-28T12:04:14Z",
+            "name": "payment-api-54f988c7b8.18cff68b15732fc5",
+            "namespace": "payment-api",
+            "resourceVersion": "456",
+            "uid": "f806438a-c537-4567-abd3-aaacaf4f411b"
+          },
+          "reason": "SuccessfulCreate",
+          "reportingComponent": "replicaset-controller",
+          "reportingInstance": "",
+          "source": {
+            "component": "replicaset-controller"
+          },
+          "type": "Normal"
+        },
+        {
+          "apiVersion": "v1",
+          "count": 1,
+          "eventTime": null,
+          "firstTimestamp": "2026-08-28T12:07:36Z",
+          "involvedObject": {
+            "apiVersion": "apps/v1",
+            "kind": "ReplicaSet",
+            "name": "payment-api-54f988c7b8",
+            "namespace": "payment-api",
+            "resourceVersion": "1014",
+            "uid": "b724e020-de27-4679-8356-0ef1af481749"
+          },
+          "kind": "Event",
+          "lastTimestamp": "2026-08-28T12:07:36Z",
+          "message": "Deleted pod: payment-api-54f988c7b8-4mg66",
+          "metadata": {
+            "creationTimestamp": "2026-08-28T12:07:36Z",
+            "name": "payment-api-54f988c7b8.18cff6ba2bdd66ae",
+            "namespace": "payment-api",
+            "resourceVersion": "1019",
+            "uid": "e8499e33-a3ba-4498-852f-7415702912c6"
+          },
+          "reason": "SuccessfulDelete",
+          "reportingComponent": "replicaset-controller",
+          "reportingInstance": "",
+          "source": {
+            "component": "replicaset-controller"
+          },
+          "type": "Normal"
+        },
+        {
+          "apiVersion": "v1",
+          "count": 1,
+          "eventTime": null,
+          "firstTimestamp": "2026-08-28T12:11:54Z",
+          "involvedObject": {
+            "apiVersion": "v1",
+            "kind": "Pod",
+            "name": "payment-api-5d8c4bcc69-jjjnd",
+            "namespace": "payment-api",
+            "resourceVersion": "1541",
+            "uid": "bcf81d00-045d-4c95-9164-277981b50bab"
+          },
+          "kind": "Event",
+          "lastTimestamp": "2026-08-28T12:11:54Z",
+          "message": "Successfully assigned payment-api/payment-api-5d8c4bcc69-jjjnd to helix-sandbox-control-plane",
+          "metadata": {
+            "creationTimestamp": "2026-08-28T12:11:54Z",
+            "name": "payment-api-5d8c4bcc69-jjjnd.18cff6f62fdc19af",
+            "namespace": "payment-api",
+            "resourceVersion": "1547",
+            "uid": "002e0886-7e56-40c2-aa14-e2e518f391da"
+          },
+          "reason": "Scheduled",
+          "reportingComponent": "default-scheduler",
+          "reportingInstance": "",
+          "source": {
+            "component": "default-scheduler"
+          },
+          "type": "Normal"
+        },
+        {
+          "apiVersion": "v1",
+          "count": 1,
+          "eventTime": null,
+          "firstTimestamp": "2026-08-28T12:11:54Z",
+          "involvedObject": {
+            "apiVersion": "v1",
+            "fieldPath": "spec.containers{payment-api}",
+            "kind": "Pod",
+            "name": "payment-api-5d8c4bcc69-jjjnd",
+            "namespace": "payment-api",
+            "resourceVersion": "1545",
+            "uid": "bcf81d00-045d-4c95-9164-277981b50bab"
+          },
+          "kind": "Event",
+          "lastTimestamp": "2026-08-28T12:11:54Z",
+          "message": "Container image \"payment-api:kind\" already present on machine",
+          "metadata": {
+            "creationTimestamp": "2026-08-28T12:11:54Z",
+            "name": "payment-api-5d8c4bcc69-jjjnd.18cff6f6477b8452",
+            "namespace": "payment-api",
+            "resourceVersion": "1552",
+            "uid": "0c7fbcf6-8973-49ee-8beb-83fe95cbaeb5"
+          },
+          "reason": "Pulled",
+          "reportingComponent": "kubelet",
+          "reportingInstance": "helix-sandbox-control-plane",
+          "source": {
+            "component": "kubelet",
+            "host": "helix-sandbox-control-plane"
+          },
+          "type": "Normal"
+        },
+        {
+          "apiVersion": "v1",
+          "count": 1,
+          "eventTime": null,
+          "firstTimestamp": "2026-08-28T12:11:54Z",
+          "involvedObject": {
+            "apiVersion": "v1",
+            "fieldPath": "spec.containers{payment-api}",
+            "kind": "Pod",
+            "name": "payment-api-5d8c4bcc69-jjjnd",
+            "namespace": "payment-api",
+            "resourceVersion": "1545",
+            "uid": "bcf81d00-045d-4c95-9164-277981b50bab"
+          },
+          "kind": "Event",
+          "lastTimestamp": "2026-08-28T12:11:54Z",
+          "message": "Created container: payment-api",
+          "metadata": {
+            "creationTimestamp": "2026-08-28T12:11:54Z",
+            "name": "payment-api-5d8c4bcc69-jjjnd.18cff6f648d13006",
+            "namespace": "payment-api",
+            "resourceVersion": "1553",
+            "uid": "2fb43b09-f884-4d18-85b5-a949a24ed5e0"
+          },
+          "reason": "Created",
+          "reportingComponent": "kubelet",
+          "reportingInstance": "helix-sandbox-control-plane",
+          "source": {
+            "component": "kubelet",
+            "host": "helix-sandbox-control-plane"
+          },
+          "type": "Normal"
+        },
+        {
+          "apiVersion": "v1",
+          "count": 1,
+          "eventTime": null,
+          "firstTimestamp": "2026-08-28T12:11:54Z",
+          "involvedObject": {
+            "apiVersion": "v1",
+            "fieldPath": "spec.containers{payment-api}",
+            "kind": "Pod",
+            "name": "payment-api-5d8c4bcc69-jjjnd",
+            "namespace": "payment-api",
+            "resourceVersion": "1545",
+            "uid": "bcf81d00-045d-4c95-9164-277981b50bab"
+          },
+          "kind": "Event",
+          "lastTimestamp": "2026-08-28T12:11:54Z",
+          "message": "Started container payment-api",
+          "metadata": {
+            "creationTimestamp": "2026-08-28T12:11:54Z",
+            "name": "payment-api-5d8c4bcc69-jjjnd.18cff6f64d23ce2f",
+            "namespace": "payment-api",
+            "resourceVersion": "1554",
+            "uid": "492e19ab-16c1-4a54-b113-913374907178"
+          },
+          "reason": "Started",
+          "reportingComponent": "kubelet",
+          "reportingInstance": "helix-sandbox-control-plane",
+          "source": {
+            "component": "kubelet",
+            "host": "helix-sandbox-control-plane"
+          },
+          "type": "Normal"
+        },
+        {
+          "apiVersion": "v1",
+          "count": 13,
+          "eventTime": null,
+          "firstTimestamp": "2026-08-28T12:12:00Z",
+          "involvedObject": {
+            "apiVersion": "v1",
+            "fieldPath": "spec.containers{payment-api}",
+            "kind": "Pod",
+            "name": "payment-api-5d8c4bcc69-jjjnd",
+            "namespace": "payment-api",
+            "resourceVersion": "1545",
+            "uid": "bcf81d00-045d-4c95-9164-277981b50bab"
+          },
+          "kind": "Event",
+          "lastTimestamp": "2026-08-28T12:13:00Z",
+          "message": "Readiness probe failed: HTTP probe failed with statuscode: 503",
+          "metadata": {
+            "creationTimestamp": "2026-08-28T12:12:00Z",
+            "name": "payment-api-5d8c4bcc69-jjjnd.18cff6f7bdabf47b",
+            "namespace": "payment-api",
+            "resourceVersion": "1669",
+            "uid": "f8c8e7dc-a6bc-4568-882c-56e61c1c7a8d"
+          },
+          "reason": "Unhealthy",
+          "reportingComponent": "kubelet",
+          "reportingInstance": "helix-sandbox-control-plane",
+          "source": {
+            "component": "kubelet",
+            "host": "helix-sandbox-control-plane"
+          },
+          "type": "Warning"
+        },
+        {
+          "apiVersion": "v1",
+          "count": 1,
+          "eventTime": null,
+          "firstTimestamp": "2026-08-28T12:13:00Z",
+          "involvedObject": {
+            "apiVersion": "v1",
+            "fieldPath": "spec.containers{payment-api}",
+            "kind": "Pod",
+            "name": "payment-api-5d8c4bcc69-jjjnd",
+            "namespace": "payment-api",
+            "resourceVersion": "1545",
+            "uid": "bcf81d00-045d-4c95-9164-277981b50bab"
+          },
+          "kind": "Event",
+          "lastTimestamp": "2026-08-28T12:13:00Z",
+          "message": "Stopping container payment-api",
+          "metadata": {
+            "creationTimestamp": "2026-08-28T12:13:00Z",
+            "name": "payment-api-5d8c4bcc69-jjjnd.18cff7059135427a",
+            "namespace": "payment-api",
+            "resourceVersion": "1666",
+            "uid": "3f9ca9dc-052e-4452-9ad8-a199b2f79510"
+          },
+          "reason": "Killing",
+          "reportingComponent": "kubelet",
+          "reportingInstance": "helix-sandbox-control-plane",
+          "source": {
+            "component": "kubelet",
+            "host": "helix-sandbox-control-plane"
+          },
+          "type": "Normal"
+        },
+        {
+          "apiVersion": "v1",
+          "count": 1,
+          "eventTime": null,
+          "firstTimestamp": "2026-08-28T12:11:54Z",
+          "involvedObject": {
+            "apiVersion": "apps/v1",
+            "kind": "ReplicaSet",
+            "name": "payment-api-5d8c4bcc69",
+            "namespace": "payment-api",
+            "resourceVersion": "1540",
+            "uid": "208cac05-5339-4949-994a-f60c92127197"
+          },
+          "kind": "Event",
+          "lastTimestamp": "2026-08-28T12:11:54Z",
+          "message": "Created pod: payment-api-5d8c4bcc69-jjjnd",
+          "metadata": {
+            "creationTimestamp": "2026-08-28T12:11:54Z",
+            "name": "payment-api-5d8c4bcc69.18cff6f62f77f357",
+            "namespace": "payment-api",
+            "resourceVersion": "1544",
+            "uid": "f81fe9fa-6302-45b6-b3e1-563524190968"
+          },
+          "reason": "SuccessfulCreate",
+          "reportingComponent": "replicaset-controller",
+          "reportingInstance": "",
+          "source": {
+            "component": "replicaset-controller"
+          },
+          "type": "Normal"
+        },
+        {
+          "apiVersion": "v1",
+          "count": 1,
+          "eventTime": null,
+          "firstTimestamp": "2026-08-28T12:13:00Z",
+          "involvedObject": {
+            "apiVersion": "apps/v1",
+            "kind": "ReplicaSet",
+            "name": "payment-api-5d8c4bcc69",
+            "namespace": "payment-api",
+            "resourceVersion": "1658",
+            "uid": "208cac05-5339-4949-994a-f60c92127197"
+          },
+          "kind": "Event",
+          "lastTimestamp": "2026-08-28T12:13:00Z",
+          "message": "Deleted pod: payment-api-5d8c4bcc69-jjjnd",
+          "metadata": {
+            "creationTimestamp": "2026-08-28T12:13:00Z",
+            "name": "payment-api-5d8c4bcc69.18cff705911cea22",
+            "namespace": "payment-api",
+            "resourceVersion": "1662",
+            "uid": "802b07ca-e334-45cc-b479-be612158a156"
+          },
+          "reason": "SuccessfulDelete",
+          "reportingComponent": "replicaset-controller",
+          "reportingInstance": "",
+          "source": {
+            "component": "replicaset-controller"
+          },
+          "type": "Normal"
+        },
+        {
+          "apiVersion": "v1",
+          "count": 1,
+          "eventTime": null,
+          "firstTimestamp": "2026-08-28T12:09:33Z",
+          "involvedObject": {
+            "apiVersion": "v1",
+            "kind": "Pod",
+            "name": "payment-api-5f8c7899c6-gh8jd",
+            "namespace": "payment-api",
+            "resourceVersion": "1240",
+            "uid": "ae6e69a5-237e-45af-82fa-5ef4e00aadd0"
+          },
+          "kind": "Event",
+          "lastTimestamp": "2026-08-28T12:09:33Z",
+          "message": "Successfully assigned payment-api/payment-api-5f8c7899c6-gh8jd to helix-sandbox-control-plane",
+          "metadata": {
+            "creationTimestamp": "2026-08-28T12:09:33Z",
+            "name": "payment-api-5f8c7899c6-gh8jd.18cff6d566fe1f9a",
+            "namespace": "payment-api",
+            "resourceVersion": "1245",
+            "uid": "680e04ae-4854-4eb9-b204-00bf1b29310d"
+          },
+          "reason": "Scheduled",
+          "reportingComponent": "default-scheduler",
+          "reportingInstance": "",
+          "source": {
+            "component": "default-scheduler"
+          },
+          "type": "Normal"
+        },
+        {
+          "apiVersion": "v1",
+          "count": 4,
+          "eventTime": null,
+          "firstTimestamp": "2026-08-28T12:09:33Z",
+          "involvedObject": {
+            "apiVersion": "v1",
+            "fieldPath": "spec.containers{payment-api}",
+            "kind": "Pod",
+            "name": "payment-api-5f8c7899c6-gh8jd",
+            "namespace": "payment-api",
+            "resourceVersion": "1242",
+            "uid": "ae6e69a5-237e-45af-82fa-5ef4e00aadd0"
+          },
+          "kind": "Event",
+          "lastTimestamp": "2026-08-28T12:10:26Z",
+          "message": "Container image \"payment-api:kind\" already present on machine",
+          "metadata": {
+            "creationTimestamp": "2026-08-28T12:09:33Z",
+            "name": "payment-api-5f8c7899c6-gh8jd.18cff6d57f22a40a",
+            "namespace": "payment-api",
+            "resourceVersion": "1343",
+            "uid": "8cbf0eb5-867a-45a4-93ac-e9abdce64096"
+          },
+          "reason": "Pulled",
+          "reportingComponent": "kubelet",
+          "reportingInstance": "helix-sandbox-control-plane",
+          "source": {
+            "component": "kubelet",
+            "host": "helix-sandbox-control-plane"
+          },
+          "type": "Normal"
+        },
+        {
+          "apiVersion": "v1",
+          "count": 4,
+          "eventTime": null,
+          "firstTimestamp": "2026-08-28T12:09:33Z",
+          "involvedObject": {
+            "apiVersion": "v1",
+            "fieldPath": "spec.containers{payment-api}",
+            "kind": "Pod",
+            "name": "payment-api-5f8c7899c6-gh8jd",
+            "namespace": "payment-api",
+            "resourceVersion": "1242",
+            "uid": "ae6e69a5-237e-45af-82fa-5ef4e00aadd0"
+          },
+          "kind": "Event",
+          "lastTimestamp": "2026-08-28T12:10:26Z",
+          "message": "Created container: payment-api",
+          "metadata": {
+            "creationTimestamp": "2026-08-28T12:09:33Z",
+            "name": "payment-api-5f8c7899c6-gh8jd.18cff6d58088db89",
+            "namespace": "payment-api",
+            "resourceVersion": "1344",
+            "uid": "3abcf694-422f-4b98-91c4-57acaa4148ec"
+          },
+          "reason": "Created",
+          "reportingComponent": "kubelet",
+          "reportingInstance": "helix-sandbox-control-plane",
+          "source": {
+            "component": "kubelet",
+            "host": "helix-sandbox-control-plane"
+          },
+          "type": "Normal"
+        },
+        {
+          "apiVersion": "v1",
+          "count": 4,
+          "eventTime": null,
+          "firstTimestamp": "2026-08-28T12:09:34Z",
+          "involvedObject": {
+            "apiVersion": "v1",
+            "fieldPath": "spec.containers{payment-api}",
+            "kind": "Pod",
+            "name": "payment-api-5f8c7899c6-gh8jd",
+            "namespace": "payment-api",
+            "resourceVersion": "1242",
+            "uid": "ae6e69a5-237e-45af-82fa-5ef4e00aadd0"
+          },
+          "kind": "Event",
+          "lastTimestamp": "2026-08-28T12:10:26Z",
+          "message": "Started container payment-api",
+          "metadata": {
+            "creationTimestamp": "2026-08-28T12:09:34Z",
+            "name": "payment-api-5f8c7899c6-gh8jd.18cff6d5847879c5",
+            "namespace": "payment-api",
+            "resourceVersion": "1345",
+            "uid": "1bcf9575-2ebf-400c-828b-33cfb9613f11"
+          },
+          "reason": "Started",
+          "reportingComponent": "kubelet",
+          "reportingInstance": "helix-sandbox-control-plane",
+          "source": {
+            "component": "kubelet",
+            "host": "helix-sandbox-control-plane"
+          },
+          "type": "Normal"
+        },
+        {
+          "apiVersion": "v1",
+          "count": 7,
+          "eventTime": null,
+          "firstTimestamp": "2026-08-28T12:09:37Z",
+          "involvedObject": {
+            "apiVersion": "v1",
+            "fieldPath": "spec.containers{payment-api}",
+            "kind": "Pod",
+            "name": "payment-api-5f8c7899c6-gh8jd",
+            "namespace": "payment-api",
+            "resourceVersion": "1242",
+            "uid": "ae6e69a5-237e-45af-82fa-5ef4e00aadd0"
+          },
+          "kind": "Event",
+          "lastTimestamp": "2026-08-28T12:10:14Z",
+          "message": "Back-off restarting failed container payment-api in pod payment-api-5f8c7899c6-gh8jd_payment-api(ae6e69a5-237e-45af-82fa-5ef4e00aadd0)",
+          "metadata": {
+            "creationTimestamp": "2026-08-28T12:09:37Z",
+            "name": "payment-api-5f8c7899c6-gh8jd.18cff6d65fc53c86",
+            "namespace": "payment-api",
+            "resourceVersion": "1327",
+            "uid": "6d8b7e65-70e7-42e5-97e5-04f8d62a5807"
+          },
+          "reason": "BackOff",
+          "reportingComponent": "kubelet",
+          "reportingInstance": "helix-sandbox-control-plane",
+          "source": {
+            "component": "kubelet",
+            "host": "helix-sandbox-control-plane"
+          },
+          "type": "Warning"
+        },
+        {
+          "apiVersion": "v1",
+          "count": 7,
+          "eventTime": null,
+          "firstTimestamp": "2026-08-28T12:11:17Z",
+          "involvedObject": {
+            "apiVersion": "v1",
+            "fieldPath": "spec.containers{payment-api}",
+            "kind": "Pod",
+            "name": "payment-api-5f8c7899c6-gh8jd",
+            "namespace": "payment-api",
+            "resourceVersion": "1242",
+            "uid": "ae6e69a5-237e-45af-82fa-5ef4e00aadd0"
+          },
+          "kind": "Event",
+          "lastTimestamp": "2026-08-28T12:11:42Z",
+          "message": "Readiness probe failed: HTTP probe failed with statuscode: 503",
+          "metadata": {
+            "creationTimestamp": "2026-08-28T12:11:17Z",
+            "name": "payment-api-5f8c7899c6-gh8jd.18cff6edae15ea1a",
+            "namespace": "payment-api",
+            "resourceVersion": "1512",
+            "uid": "faccc4fa-10d1-467c-98d6-3ecc16be9fd2"
+          },
+          "reason": "Unhealthy",
+          "reportingComponent": "kubelet",
+          "reportingInstance": "helix-sandbox-control-plane",
+          "source": {
+            "component": "kubelet",
+            "host": "helix-sandbox-control-plane"
+          },
+          "type": "Warning"
+        },
+        {
+          "apiVersion": "v1",
+          "count": 1,
+          "eventTime": null,
+          "firstTimestamp": "2026-08-28T12:14:13Z",
+          "involvedObject": {
+            "apiVersion": "v1",
+            "fieldPath": "spec.containers{payment-api}",
+            "kind": "Pod",
+            "name": "payment-api-5f8c7899c6-gh8jd",
+            "namespace": "payment-api",
+            "resourceVersion": "1242",
+            "uid": "ae6e69a5-237e-45af-82fa-5ef4e00aadd0"
+          },
+          "kind": "Event",
+          "lastTimestamp": "2026-08-28T12:14:13Z",
+          "message": "Stopping container payment-api",
+          "metadata": {
+            "creationTimestamp": "2026-08-28T12:14:13Z",
+            "name": "payment-api-5f8c7899c6-gh8jd.18cff71689d8f9bf",
+            "namespace": "payment-api",
+            "resourceVersion": "1864",
+            "uid": "50af2d94-2b6a-4701-99ec-87589d75d665"
+          },
+          "reason": "Killing",
+          "reportingComponent": "kubelet",
+          "reportingInstance": "helix-sandbox-control-plane",
+          "source": {
+            "component": "kubelet",
+            "host": "helix-sandbox-control-plane"
+          },
+          "type": "Normal"
+        },
+        {
+          "apiVersion": "v1",
+          "count": 1,
+          "eventTime": null,
+          "firstTimestamp": "2026-08-28T12:09:33Z",
+          "involvedObject": {
+            "apiVersion": "apps/v1",
+            "kind": "ReplicaSet",
+            "name": "payment-api-5f8c7899c6",
+            "namespace": "payment-api",
+            "resourceVersion": "1237",
+            "uid": "9ccb7f9c-59e5-4104-85fb-6b26e1ed6765"
+          },
+          "kind": "Event",
+          "lastTimestamp": "2026-08-28T12:09:33Z",
+          "message": "Created pod: payment-api-5f8c7899c6-gh8jd",
+          "metadata": {
+            "creationTimestamp": "2026-08-28T12:09:33Z",
+            "name": "payment-api-5f8c7899c6.18cff6d5669f44f8",
+            "namespace": "payment-api",
+            "resourceVersion": "1241",
+            "uid": "89609406-9042-41a7-bcf8-6d9398b7f081"
+          },
+          "reason": "SuccessfulCreate",
+          "reportingComponent": "replicaset-controller",
+          "reportingInstance": "",
+          "source": {
+            "component": "replicaset-controller"
+          },
+          "type": "Normal"
+        },
+        {
+          "apiVersion": "v1",
+          "count": 1,
+          "eventTime": null,
+          "firstTimestamp": "2026-08-28T12:14:13Z",
+          "involvedObject": {
+            "apiVersion": "apps/v1",
+            "kind": "ReplicaSet",
+            "name": "payment-api-5f8c7899c6",
+            "namespace": "payment-api",
+            "resourceVersion": "1856",
+            "uid": "9ccb7f9c-59e5-4104-85fb-6b26e1ed6765"
+          },
+          "kind": "Event",
+          "lastTimestamp": "2026-08-28T12:14:13Z",
+          "message": "Deleted pod: payment-api-5f8c7899c6-gh8jd",
+          "metadata": {
+            "creationTimestamp": "2026-08-28T12:14:13Z",
+            "name": "payment-api-5f8c7899c6.18cff71689a063de",
+            "namespace": "payment-api",
+            "resourceVersion": "1860",
+            "uid": "6224ebf2-a7fe-49ea-9f3c-ca8f3cc534eb"
+          },
+          "reason": "SuccessfulDelete",
+          "reportingComponent": "replicaset-controller",
+          "reportingInstance": "",
+          "source": {
+            "component": "replicaset-controller"
+          },
+          "type": "Normal"
+        },
+        {
+          "apiVersion": "v1",
+          "count": 1,
+          "eventTime": null,
+          "firstTimestamp": "2026-08-28T12:07:43Z",
+          "involvedObject": {
+            "apiVersion": "v1",
+            "kind": "Pod",
+            "name": "payment-api-5fd66b5fc5-h2zd5",
+            "namespace": "payment-api",
+            "resourceVersion": "1042",
+            "uid": "8b9a5cca-7c20-4b40-a87f-87e077eb9833"
+          },
+          "kind": "Event",
+          "lastTimestamp": "2026-08-28T12:07:43Z",
+          "message": "Successfully assigned payment-api/payment-api-5fd66b5fc5-h2zd5 to helix-sandbox-control-plane",
+          "metadata": {
+            "creationTimestamp": "2026-08-28T12:07:43Z",
+            "name": "payment-api-5fd66b5fc5-h2zd5.18cff6bbc42d387a",
+            "namespace": "payment-api",
+            "resourceVersion": "1047",
+            "uid": "6d7e7dc6-2601-447b-a6d5-859dd99e0887"
+          },
+          "reason": "Scheduled",
+          "reportingComponent": "default-scheduler",
+          "reportingInstance": "",
+          "source": {
+            "component": "default-scheduler"
+          },
+          "type": "Normal"
+        },
+        {
+          "apiVersion": "v1",
+          "count": 3,
+          "eventTime": null,
+          "firstTimestamp": "2026-08-28T12:07:43Z",
+          "involvedObject": {
+            "apiVersion": "v1",
+            "fieldPath": "spec.containers{payment-api}",
+            "kind": "Pod",
+            "name": "payment-api-5fd66b5fc5-h2zd5",
+            "namespace": "payment-api",
+            "resourceVersion": "1043",
+            "uid": "8b9a5cca-7c20-4b40-a87f-87e077eb9833"
+          },
+          "kind": "Event",
+          "lastTimestamp": "2026-08-28T12:08:04Z",
+          "message": "Container image \"payment-api:kind\" already present on machine",
+          "metadata": {
+            "creationTimestamp": "2026-08-28T12:07:43Z",
+            "name": "payment-api-5fd66b5fc5-h2zd5.18cff6bbdc8777b3",
+            "namespace": "payment-api",
+            "resourceVersion": "1094",
+            "uid": "b9b31607-015f-4c20-bd69-675ebc097e56"
+          },
+          "reason": "Pulled",
+          "reportingComponent": "kubelet",
+          "reportingInstance": "helix-sandbox-control-plane",
+          "source": {
+            "component": "kubelet",
+            "host": "helix-sandbox-control-plane"
+          },
+          "type": "Normal"
+        },
+        {
+          "apiVersion": "v1",
+          "count": 3,
+          "eventTime": null,
+          "firstTimestamp": "2026-08-28T12:07:43Z",
+          "involvedObject": {
+            "apiVersion": "v1",
+            "fieldPath": "spec.containers{payment-api}",
+            "kind": "Pod",
+            "name": "payment-api-5fd66b5fc5-h2zd5",
+            "namespace": "payment-api",
+            "resourceVersion": "1043",
+            "uid": "8b9a5cca-7c20-4b40-a87f-87e077eb9833"
+          },
+          "kind": "Event",
+          "lastTimestamp": "2026-08-28T12:08:04Z",
+          "message": "Created container: payment-api",
+          "metadata": {
+            "creationTimestamp": "2026-08-28T12:07:43Z",
+            "name": "payment-api-5fd66b5fc5-h2zd5.18cff6bbdde71d38",
+            "namespace": "payment-api",
+            "resourceVersion": "1095",
+            "uid": "21baa1c6-db37-42f4-91df-d4764097f6d4"
+          },
+          "reason": "Created",
+          "reportingComponent": "kubelet",
+          "reportingInstance": "helix-sandbox-control-plane",
+          "source": {
+            "component": "kubelet",
+            "host": "helix-sandbox-control-plane"
+          },
+          "type": "Normal"
+        },
+        {
+          "apiVersion": "v1",
+          "count": 3,
+          "eventTime": null,
+          "firstTimestamp": "2026-08-28T12:07:43Z",
+          "involvedObject": {
+            "apiVersion": "v1",
+            "fieldPath": "spec.containers{payment-api}",
+            "kind": "Pod",
+            "name": "payment-api-5fd66b5fc5-h2zd5",
+            "namespace": "payment-api",
+            "resourceVersion": "1043",
+            "uid": "8b9a5cca-7c20-4b40-a87f-87e077eb9833"
+          },
+          "kind": "Event",
+          "lastTimestamp": "2026-08-28T12:08:04Z",
+          "message": "Started container payment-api",
+          "metadata": {
+            "creationTimestamp": "2026-08-28T12:07:43Z",
+            "name": "payment-api-5fd66b5fc5-h2zd5.18cff6bbe21b4826",
+            "namespace": "payment-api",
+            "resourceVersion": "1096",
+            "uid": "78e20330-d4f4-4705-b7ce-2c96a26dd7a7"
+          },
+          "reason": "Started",
+          "reportingComponent": "kubelet",
+          "reportingInstance": "helix-sandbox-control-plane",
+          "source": {
+            "component": "kubelet",
+            "host": "helix-sandbox-control-plane"
+          },
+          "type": "Normal"
+        },
+        {
+          "apiVersion": "v1",
+          "count": 3,
+          "eventTime": null,
+          "firstTimestamp": "2026-08-28T12:07:47Z",
+          "involvedObject": {
+            "apiVersion": "v1",
+            "fieldPath": "spec.containers{payment-api}",
+            "kind": "Pod",
+            "name": "payment-api-5fd66b5fc5-h2zd5",
+            "namespace": "payment-api",
+            "resourceVersion": "1043",
+            "uid": "8b9a5cca-7c20-4b40-a87f-87e077eb9833"
+          },
+          "kind": "Event",
+          "lastTimestamp": "2026-08-28T12:07:49Z",
+          "message": "Back-off restarting failed container payment-api in pod payment-api-5fd66b5fc5-h2zd5_payment-api(8b9a5cca-7c20-4b40-a87f-87e077eb9833)",
+          "metadata": {
+            "creationTimestamp": "2026-08-28T12:07:47Z",
+            "name": "payment-api-5fd66b5fc5-h2zd5.18cff6bcb759f424",
+            "namespace": "payment-api",
+            "resourceVersion": "1073",
+            "uid": "07387c1f-a119-422d-be20-fe378a55f7a0"
+          },
+          "reason": "BackOff",
+          "reportingComponent": "kubelet",
+          "reportingInstance": "helix-sandbox-control-plane",
+          "source": {
+            "component": "kubelet",
+            "host": "helix-sandbox-control-plane"
+          },
+          "type": "Warning"
+        },
+        {
+          "apiVersion": "v1",
+          "count": 1,
+          "eventTime": null,
+          "firstTimestamp": "2026-08-28T12:10:32Z",
+          "involvedObject": {
+            "apiVersion": "v1",
+            "fieldPath": "spec.containers{payment-api}",
+            "kind": "Pod",
+            "name": "payment-api-5fd66b5fc5-h2zd5",
+            "namespace": "payment-api",
+            "resourceVersion": "1043",
+            "uid": "8b9a5cca-7c20-4b40-a87f-87e077eb9833"
+          },
+          "kind": "Event",
+          "lastTimestamp": "2026-08-28T12:10:32Z",
+          "message": "Stopping container payment-api",
+          "metadata": {
+            "creationTimestamp": "2026-08-28T12:10:32Z",
+            "name": "payment-api-5fd66b5fc5-h2zd5.18cff6e3395a1973",
+            "namespace": "payment-api",
+            "resourceVersion": "1367",
+            "uid": "e04ec8f6-8ca2-4bff-ad4d-3505354cd704"
+          },
+          "reason": "Killing",
+          "reportingComponent": "kubelet",
+          "reportingInstance": "helix-sandbox-control-plane",
+          "source": {
+            "component": "kubelet",
+            "host": "helix-sandbox-control-plane"
+          },
+          "type": "Normal"
+        },
+        {
+          "apiVersion": "v1",
+          "count": 1,
+          "eventTime": null,
+          "firstTimestamp": "2026-08-28T12:07:43Z",
+          "involvedObject": {
+            "apiVersion": "apps/v1",
+            "kind": "ReplicaSet",
+            "name": "payment-api-5fd66b5fc5",
+            "namespace": "payment-api",
+            "resourceVersion": "1039",
+            "uid": "67acae25-5ab4-496b-9f2a-47edda84f03b"
+          },
+          "kind": "Event",
+          "lastTimestamp": "2026-08-28T12:07:43Z",
+          "message": "Created pod: payment-api-5fd66b5fc5-h2zd5",
+          "metadata": {
+            "creationTimestamp": "2026-08-28T12:07:43Z",
+            "name": "payment-api-5fd66b5fc5.18cff6bbc3b4361b",
+            "namespace": "payment-api",
+            "resourceVersion": "1044",
+            "uid": "da5ae2db-314c-4b8d-bc3b-01b38101141e"
+          },
+          "reason": "SuccessfulCreate",
+          "reportingComponent": "replicaset-controller",
+          "reportingInstance": "",
+          "source": {
+            "component": "replicaset-controller"
+          },
+          "type": "Normal"
+        },
+        {
+          "apiVersion": "v1",
+          "count": 1,
+          "eventTime": null,
+          "firstTimestamp": "2026-08-28T12:10:32Z",
+          "involvedObject": {
+            "apiVersion": "apps/v1",
+            "kind": "ReplicaSet",
+            "name": "payment-api-5fd66b5fc5",
+            "namespace": "payment-api",
+            "resourceVersion": "1359",
+            "uid": "67acae25-5ab4-496b-9f2a-47edda84f03b"
+          },
+          "kind": "Event",
+          "lastTimestamp": "2026-08-28T12:10:32Z",
+          "message": "Deleted pod: payment-api-5fd66b5fc5-h2zd5",
+          "metadata": {
+            "creationTimestamp": "2026-08-28T12:10:32Z",
+            "name": "payment-api-5fd66b5fc5.18cff6e339472ac2",
+            "namespace": "payment-api",
+            "resourceVersion": "1363",
+            "uid": "34e89819-caec-4520-90dd-3ed113601e7a"
+          },
+          "reason": "SuccessfulDelete",
+          "reportingComponent": "replicaset-controller",
+          "reportingInstance": "",
+          "source": {
+            "component": "replicaset-controller"
+          },
+          "type": "Normal"
+        },
+        {
+          "apiVersion": "v1",
+          "count": 1,
+          "eventTime": null,
+          "firstTimestamp": "2026-08-28T12:07:15Z",
+          "involvedObject": {
+            "apiVersion": "v1",
+            "kind": "Pod",
+            "name": "payment-api-6887db6c78-4dkff",
+            "namespace": "payment-api",
+            "resourceVersion": "959",
+            "uid": "2cb3d4a2-545c-4158-8782-92c51d09bdb4"
+          },
+          "kind": "Event",
+          "lastTimestamp": "2026-08-28T12:07:15Z",
+          "message": "Successfully assigned payment-api/payment-api-6887db6c78-4dkff to helix-sandbox-control-plane",
+          "metadata": {
+            "creationTimestamp": "2026-08-28T12:07:15Z",
+            "name": "payment-api-6887db6c78-4dkff.18cff6b560509fca",
+            "namespace": "payment-api",
+            "resourceVersion": "965",
+            "uid": "832a2671-4151-4fa7-949c-6772e836c63b"
+          },
+          "reason": "Scheduled",
+          "reportingComponent": "default-scheduler",
+          "reportingInstance": "",
+          "source": {
+            "component": "default-scheduler"
+          },
+          "type": "Normal"
+        },
+        {
+          "apiVersion": "v1",
+          "count": 3,
+          "eventTime": null,
+          "firstTimestamp": "2026-08-28T12:07:16Z",
+          "involvedObject": {
+            "apiVersion": "v1",
+            "fieldPath": "spec.containers{payment-api}",
+            "kind": "Pod",
+            "name": "payment-api-6887db6c78-4dkff",
+            "namespace": "payment-api",
+            "resourceVersion": "962",
+            "uid": "2cb3d4a2-545c-4158-8782-92c51d09bdb4"
+          },
+          "kind": "Event",
+          "lastTimestamp": "2026-08-28T12:07:30Z",
+          "message": "Container image \"payment-api:kind\" already present on machine",
+          "metadata": {
+            "creationTimestamp": "2026-08-28T12:07:16Z",
+            "name": "payment-api-6887db6c78-4dkff.18cff6b5791c1e5f",
+            "namespace": "payment-api",
+            "resourceVersion": "997",
+            "uid": "9ecda759-970c-4283-9f4c-8b2016317199"
+          },
+          "reason": "Pulled",
+          "reportingComponent": "kubelet",
+          "reportingInstance": "helix-sandbox-control-plane",
+          "source": {
+            "component": "kubelet",
+            "host": "helix-sandbox-control-plane"
+          },
+          "type": "Normal"
+        },
+        {
+          "apiVersion": "v1",
+          "count": 2,
+          "eventTime": null,
+          "firstTimestamp": "2026-08-28T12:07:16Z",
+          "involvedObject": {
+            "apiVersion": "v1",
+            "fieldPath": "spec.containers{payment-api}",
+            "kind": "Pod",
+            "name": "payment-api-6887db6c78-4dkff",
+            "namespace": "payment-api",
+            "resourceVersion": "962",
+            "uid": "2cb3d4a2-545c-4158-8782-92c51d09bdb4"
+          },
+          "kind": "Event",
+          "lastTimestamp": "2026-08-28T12:07:16Z",
+          "message": "Error: secret \"payment-api-secret\" not found",
+          "metadata": {
+            "creationTimestamp": "2026-08-28T12:07:16Z",
+            "name": "payment-api-6887db6c78-4dkff.18cff6b5791da03e",
+            "namespace": "payment-api",
+            "resourceVersion": "975",
+            "uid": "48d1b46c-a793-4fef-b27d-e0025dd5a5d8"
+          },
+          "reason": "Failed",
+          "reportingComponent": "kubelet",
+          "reportingInstance": "helix-sandbox-control-plane",
+          "source": {
+            "component": "kubelet",
+            "host": "helix-sandbox-control-plane"
+          },
+          "type": "Warning"
+        },
+        {
+          "apiVersion": "v1",
+          "count": 1,
+          "eventTime": null,
+          "firstTimestamp": "2026-08-28T12:07:30Z",
+          "involvedObject": {
+            "apiVersion": "v1",
+            "fieldPath": "spec.containers{payment-api}",
+            "kind": "Pod",
+            "name": "payment-api-6887db6c78-4dkff",
+            "namespace": "payment-api",
+            "resourceVersion": "962",
+            "uid": "2cb3d4a2-545c-4158-8782-92c51d09bdb4"
+          },
+          "kind": "Event",
+          "lastTimestamp": "2026-08-28T12:07:30Z",
+          "message": "Created container: payment-api",
+          "metadata": {
+            "creationTimestamp": "2026-08-28T12:07:30Z",
+            "name": "payment-api-6887db6c78-4dkff.18cff6b8a85beacd",
+            "namespace": "payment-api",
+            "resourceVersion": "998",
+            "uid": "70647d48-9064-4162-a3b1-1fca0bb30675"
+          },
+          "reason": "Created",
+          "reportingComponent": "kubelet",
+          "reportingInstance": "helix-sandbox-control-plane",
+          "source": {
+            "component": "kubelet",
+            "host": "helix-sandbox-control-plane"
+          },
+          "type": "Normal"
+        },
+        {
+          "apiVersion": "v1",
+          "count": 1,
+          "eventTime": null,
+          "firstTimestamp": "2026-08-28T12:07:30Z",
+          "involvedObject": {
+            "apiVersion": "v1",
+            "fieldPath": "spec.containers{payment-api}",
+            "kind": "Pod",
+            "name": "payment-api-6887db6c78-4dkff",
+            "namespace": "payment-api",
+            "resourceVersion": "962",
+            "uid": "2cb3d4a2-545c-4158-8782-92c51d09bdb4"
+          },
+          "kind": "Event",
+          "lastTimestamp": "2026-08-28T12:07:30Z",
+          "message": "Started container payment-api",
+          "metadata": {
+            "creationTimestamp": "2026-08-28T12:07:30Z",
+            "name": "payment-api-6887db6c78-4dkff.18cff6b8ac6067e1",
+            "namespace": "payment-api",
+            "resourceVersion": "999",
+            "uid": "9f4619db-471e-42b5-8164-ab291b016c01"
+          },
+          "reason": "Started",
+          "reportingComponent": "kubelet",
+          "reportingInstance": "helix-sandbox-control-plane",
+          "source": {
+            "component": "kubelet",
+            "host": "helix-sandbox-control-plane"
+          },
+          "type": "Normal"
+        },
+        {
+          "apiVersion": "v1",
+          "count": 1,
+          "eventTime": null,
+          "firstTimestamp": "2026-08-28T12:08:10Z",
+          "involvedObject": {
+            "apiVersion": "v1",
+            "fieldPath": "spec.containers{payment-api}",
+            "kind": "Pod",
+            "name": "payment-api-6887db6c78-4dkff",
+            "namespace": "payment-api",
+            "resourceVersion": "962",
+            "uid": "2cb3d4a2-545c-4158-8782-92c51d09bdb4"
+          },
+          "kind": "Event",
+          "lastTimestamp": "2026-08-28T12:08:10Z",
+          "message": "Stopping container payment-api",
+          "metadata": {
+            "creationTimestamp": "2026-08-28T12:08:10Z",
+            "name": "payment-api-6887db6c78-4dkff.18cff6c219db7394",
+            "namespace": "payment-api",
+            "resourceVersion": "1118",
+            "uid": "50afcaa1-a79d-4a66-9b05-1727b3cf874d"
+          },
+          "reason": "Killing",
+          "reportingComponent": "kubelet",
+          "reportingInstance": "helix-sandbox-control-plane",
+          "source": {
+            "component": "kubelet",
+            "host": "helix-sandbox-control-plane"
+          },
+          "type": "Normal"
+        },
+        {
+          "apiVersion": "v1",
+          "count": 1,
+          "eventTime": null,
+          "firstTimestamp": "2026-08-28T12:07:15Z",
+          "involvedObject": {
+            "apiVersion": "apps/v1",
+            "kind": "ReplicaSet",
+            "name": "payment-api-6887db6c78",
+            "namespace": "payment-api",
+            "resourceVersion": "957",
+            "uid": "efb5ab5c-f9c7-466a-ada7-f71d3bfdcfa5"
+          },
+          "kind": "Event",
+          "lastTimestamp": "2026-08-28T12:07:15Z",
+          "message": "Created pod: payment-api-6887db6c78-4dkff",
+          "metadata": {
+            "creationTimestamp": "2026-08-28T12:07:15Z",
+            "name": "payment-api-6887db6c78.18cff6b5601105ad",
+            "namespace": "payment-api",
+            "resourceVersion": "961",
+            "uid": "d3a7b746-ce12-4f80-bc58-fa9e0417ebde"
+          },
+          "reason": "SuccessfulCreate",
+          "reportingComponent": "replicaset-controller",
+          "reportingInstance": "",
+          "source": {
+            "component": "replicaset-controller"
+          },
+          "type": "Normal"
+        },
+        {
+          "apiVersion": "v1",
+          "count": 1,
+          "eventTime": null,
+          "firstTimestamp": "2026-08-28T12:08:10Z",
+          "involvedObject": {
+            "apiVersion": "apps/v1",
+            "kind": "ReplicaSet",
+            "name": "payment-api-6887db6c78",
+            "namespace": "payment-api",
+            "resourceVersion": "1111",
+            "uid": "efb5ab5c-f9c7-466a-ada7-f71d3bfdcfa5"
+          },
+          "kind": "Event",
+          "lastTimestamp": "2026-08-28T12:08:10Z",
+          "message": "Deleted pod: payment-api-6887db6c78-4dkff",
+          "metadata": {
+            "creationTimestamp": "2026-08-28T12:08:10Z",
+            "name": "payment-api-6887db6c78.18cff6c219c2159f",
+            "namespace": "payment-api",
+            "resourceVersion": "1116",
+            "uid": "83dbd04c-0881-4846-8595-8aaebeb42191"
+          },
+          "reason": "SuccessfulDelete",
+          "reportingComponent": "replicaset-controller",
+          "reportingInstance": "",
+          "source": {
+            "component": "replicaset-controller"
+          },
+          "type": "Normal"
+        },
+        {
+          "apiVersion": "v1",
+          "count": 1,
+          "eventTime": null,
+          "firstTimestamp": "2026-08-28T12:13:07Z",
+          "involvedObject": {
+            "apiVersion": "v1",
+            "kind": "Pod",
+            "name": "payment-api-6d9fcdc9c-khb8l",
+            "namespace": "payment-api",
+            "resourceVersion": "1686",
+            "uid": "c0382597-11ae-4595-a147-99e0ecfbc0c5"
+          },
+          "kind": "Event",
+          "lastTimestamp": "2026-08-28T12:13:07Z",
+          "message": "Successfully assigned payment-api/payment-api-6d9fcdc9c-khb8l to helix-sandbox-control-plane",
+          "metadata": {
+            "creationTimestamp": "2026-08-28T12:13:07Z",
+            "name": "payment-api-6d9fcdc9c-khb8l.18cff7072d636e67",
+            "namespace": "payment-api",
+            "resourceVersion": "1691",
+            "uid": "b8b7a7d3-8b63-40cd-bc18-218ef618971a"
+          },
+          "reason": "Scheduled",
+          "reportingComponent": "default-scheduler",
+          "reportingInstance": "",
+          "source": {
+            "component": "default-scheduler"
+          },
+          "type": "Normal"
+        },
+        {
+          "apiVersion": "v1",
+          "count": 3,
+          "eventTime": null,
+          "firstTimestamp": "2026-08-28T12:13:07Z",
+          "involvedObject": {
+            "apiVersion": "v1",
+            "fieldPath": "spec.containers{payment-api}",
+            "kind": "Pod",
+            "name": "payment-api-6d9fcdc9c-khb8l",
+            "namespace": "payment-api",
+            "resourceVersion": "1690",
+            "uid": "c0382597-11ae-4595-a147-99e0ecfbc0c5"
+          },
+          "kind": "Event",
+          "lastTimestamp": "2026-08-28T12:13:25Z",
+          "message": "Container image \"payment-api:kind\" already present on machine",
+          "metadata": {
+            "creationTimestamp": "2026-08-28T12:13:07Z",
+            "name": "payment-api-6d9fcdc9c-khb8l.18cff70745960d32",
+            "namespace": "payment-api",
+            "resourceVersion": "1735",
+            "uid": "3a2fe42b-0fb7-47eb-b8cf-27fc059a14ab"
+          },
+          "reason": "Pulled",
+          "reportingComponent": "kubelet",
+          "reportingInstance": "helix-sandbox-control-plane",
+          "source": {
+            "component": "kubelet",
+            "host": "helix-sandbox-control-plane"
+          },
+          "type": "Normal"
+        },
+        {
+          "apiVersion": "v1",
+          "count": 3,
+          "eventTime": null,
+          "firstTimestamp": "2026-08-28T12:13:07Z",
+          "involvedObject": {
+            "apiVersion": "v1",
+            "fieldPath": "spec.containers{payment-api}",
+            "kind": "Pod",
+            "name": "payment-api-6d9fcdc9c-khb8l",
+            "namespace": "payment-api",
+            "resourceVersion": "1690",
+            "uid": "c0382597-11ae-4595-a147-99e0ecfbc0c5"
+          },
+          "kind": "Event",
+          "lastTimestamp": "2026-08-28T12:13:25Z",
+          "message": "Created container: payment-api",
+          "metadata": {
+            "creationTimestamp": "2026-08-28T12:13:07Z",
+            "name": "payment-api-6d9fcdc9c-khb8l.18cff70746f1fc0e",
+            "namespace": "payment-api",
+            "resourceVersion": "1736",
+            "uid": "4a39827b-77cc-4df5-9d94-9faf1833c593"
+          },
+          "reason": "Created",
+          "reportingComponent": "kubelet",
+          "reportingInstance": "helix-sandbox-control-plane",
+          "source": {
+            "component": "kubelet",
+            "host": "helix-sandbox-control-plane"
+          },
+          "type": "Normal"
+        },
+        {
+          "apiVersion": "v1",
+          "count": 3,
+          "eventTime": null,
+          "firstTimestamp": "2026-08-28T12:13:07Z",
+          "involvedObject": {
+            "apiVersion": "v1",
+            "fieldPath": "spec.containers{payment-api}",
+            "kind": "Pod",
+            "name": "payment-api-6d9fcdc9c-khb8l",
+            "namespace": "payment-api",
+            "resourceVersion": "1690",
+            "uid": "c0382597-11ae-4595-a147-99e0ecfbc0c5"
+          },
+          "kind": "Event",
+          "lastTimestamp": "2026-08-28T12:13:25Z",
+          "message": "Started container payment-api",
+          "metadata": {
+            "creationTimestamp": "2026-08-28T12:13:07Z",
+            "name": "payment-api-6d9fcdc9c-khb8l.18cff7074a745264",
+            "namespace": "payment-api",
+            "resourceVersion": "1737",
+            "uid": "3945067a-948d-45cb-aee0-1e0497424d9f"
+          },
+          "reason": "Started",
+          "reportingComponent": "kubelet",
+          "reportingInstance": "helix-sandbox-control-plane",
+          "source": {
+            "component": "kubelet",
+            "host": "helix-sandbox-control-plane"
+          },
+          "type": "Normal"
+        },
+        {
+          "apiVersion": "v1",
+          "count": 6,
+          "eventTime": null,
+          "firstTimestamp": "2026-08-28T12:13:12Z",
+          "involvedObject": {
+            "apiVersion": "v1",
+            "fieldPath": "spec.containers{payment-api}",
+            "kind": "Pod",
+            "name": "payment-api-6d9fcdc9c-khb8l",
+            "namespace": "payment-api",
+            "resourceVersion": "1690",
+            "uid": "c0382597-11ae-4595-a147-99e0ecfbc0c5"
+          },
+          "kind": "Event",
+          "lastTimestamp": "2026-08-28T12:13:29Z",
+          "message": "Back-off restarting failed container payment-api in pod payment-api-6d9fcdc9c-khb8l_payment-api(c0382597-11ae-4595-a147-99e0ecfbc0c5)",
+          "metadata": {
+            "creationTimestamp": "2026-08-28T12:13:12Z",
+            "name": "payment-api-6d9fcdc9c-khb8l.18cff7084a1e7968",
+            "namespace": "payment-api",
+            "resourceVersion": "1748",
+            "uid": "dc065827-e48c-4382-a5b9-2fd852c6d182"
+          },
+          "reason": "BackOff",
+          "reportingComponent": "kubelet",
+          "reportingInstance": "helix-sandbox-control-plane",
+          "source": {
+            "component": "kubelet",
+            "host": "helix-sandbox-control-plane"
+          },
+          "type": "Warning"
+        },
+        {
+          "apiVersion": "v1",
+          "count": 1,
+          "eventTime": null,
+          "firstTimestamp": "2026-08-28T12:13:07Z",
+          "involvedObject": {
+            "apiVersion": "apps/v1",
+            "kind": "ReplicaSet",
+            "name": "payment-api-6d9fcdc9c",
+            "namespace": "payment-api",
+            "resourceVersion": "1684",
+            "uid": "559cfde8-cef2-4bc4-9e6a-2e7eea1e43ea"
+          },
+          "kind": "Event",
+          "lastTimestamp": "2026-08-28T12:13:07Z",
+          "message": "Created pod: payment-api-6d9fcdc9c-khb8l",
+          "metadata": {
+            "creationTimestamp": "2026-08-28T12:13:07Z",
+            "name": "payment-api-6d9fcdc9c.18cff7072ced954b",
+            "namespace": "payment-api",
+            "resourceVersion": "1688",
+            "uid": "ec359269-b151-4910-bed9-9a2a897fe835"
+          },
+          "reason": "SuccessfulCreate",
+          "reportingComponent": "replicaset-controller",
+          "reportingInstance": "",
+          "source": {
+            "component": "replicaset-controller"
+          },
+          "type": "Normal"
+        },
+        {
+          "apiVersion": "v1",
+          "count": 1,
+          "eventTime": null,
+          "firstTimestamp": "2026-08-28T12:13:34Z",
+          "involvedObject": {
+            "apiVersion": "apps/v1",
+            "kind": "ReplicaSet",
+            "name": "payment-api-6d9fcdc9c",
+            "namespace": "payment-api",
+            "resourceVersion": "1760",
+            "uid": "559cfde8-cef2-4bc4-9e6a-2e7eea1e43ea"
+          },
+          "kind": "Event",
+          "lastTimestamp": "2026-08-28T12:13:34Z",
+          "message": "Deleted pod: payment-api-6d9fcdc9c-khb8l",
+          "metadata": {
+            "creationTimestamp": "2026-08-28T12:13:34Z",
+            "name": "payment-api-6d9fcdc9c.18cff70d82a66c14",
+            "namespace": "payment-api",
+            "resourceVersion": "1763",
+            "uid": "603c9d1e-29c9-4711-a54e-4bbbc90d45a1"
+          },
+          "reason": "SuccessfulDelete",
+          "reportingComponent": "replicaset-controller",
+          "reportingInstance": "",
+          "source": {
+            "component": "replicaset-controller"
+          },
+          "type": "Normal"
+        },
+        {
+          "apiVersion": "v1",
+          "count": 1,
+          "eventTime": null,
+          "firstTimestamp": "2026-08-28T12:06:05Z",
+          "involvedObject": {
+            "apiVersion": "v1",
+            "kind": "Pod",
+            "name": "payment-api-768f4498d9-vw8qm",
+            "namespace": "payment-api",
+            "resourceVersion": "774",
+            "uid": "3b7d216f-463f-4b38-9bc2-7b02b6de48be"
+          },
+          "kind": "Event",
+          "lastTimestamp": "2026-08-28T12:06:05Z",
+          "message": "Successfully assigned payment-api/payment-api-768f4498d9-vw8qm to helix-sandbox-control-plane",
+          "metadata": {
+            "creationTimestamp": "2026-08-28T12:06:05Z",
+            "name": "payment-api-768f4498d9-vw8qm.18cff6a4dde8d169",
+            "namespace": "payment-api",
+            "resourceVersion": "780",
+            "uid": "972999f1-c80d-4c09-9039-462e15ebefe7"
+          },
+          "reason": "Scheduled",
+          "reportingComponent": "default-scheduler",
+          "reportingInstance": "",
+          "source": {
+            "component": "default-scheduler"
+          },
+          "type": "Normal"
+        },
+        {
+          "apiVersion": "v1",
+          "count": 1,
+          "eventTime": null,
+          "firstTimestamp": "2026-08-28T12:06:05Z",
+          "involvedObject": {
+            "apiVersion": "v1",
+            "fieldPath": "spec.containers{payment-api}",
+            "kind": "Pod",
+            "name": "payment-api-768f4498d9-vw8qm",
+            "namespace": "payment-api",
+            "resourceVersion": "778",
+            "uid": "3b7d216f-463f-4b38-9bc2-7b02b6de48be"
+          },
+          "kind": "Event",
+          "lastTimestamp": "2026-08-28T12:06:05Z",
+          "message": "Container image \"payment-api:kind\" already present on machine",
+          "metadata": {
+            "creationTimestamp": "2026-08-28T12:06:05Z",
+            "name": "payment-api-768f4498d9-vw8qm.18cff6a4f657847d",
+            "namespace": "payment-api",
+            "resourceVersion": "786",
+            "uid": "f5dcf603-822d-469e-b867-af43425e5df3"
+          },
+          "reason": "Pulled",
+          "reportingComponent": "kubelet",
+          "reportingInstance": "helix-sandbox-control-plane",
+          "source": {
+            "component": "kubelet",
+            "host": "helix-sandbox-control-plane"
+          },
+          "type": "Normal"
+        },
+        {
+          "apiVersion": "v1",
+          "count": 1,
+          "eventTime": null,
+          "firstTimestamp": "2026-08-28T12:06:05Z",
+          "involvedObject": {
+            "apiVersion": "v1",
+            "fieldPath": "spec.containers{payment-api}",
+            "kind": "Pod",
+            "name": "payment-api-768f4498d9-vw8qm",
+            "namespace": "payment-api",
+            "resourceVersion": "778",
+            "uid": "3b7d216f-463f-4b38-9bc2-7b02b6de48be"
+          },
+          "kind": "Event",
+          "lastTimestamp": "2026-08-28T12:06:05Z",
+          "message": "Created container: payment-api",
+          "metadata": {
+            "creationTimestamp": "2026-08-28T12:06:05Z",
+            "name": "payment-api-768f4498d9-vw8qm.18cff6a4f7f62056",
+            "namespace": "payment-api",
+            "resourceVersion": "787",
+            "uid": "6a1020df-7ae2-4bf3-91df-3f3180ae7bfd"
+          },
+          "reason": "Created",
+          "reportingComponent": "kubelet",
+          "reportingInstance": "helix-sandbox-control-plane",
+          "source": {
+            "component": "kubelet",
+            "host": "helix-sandbox-control-plane"
+          },
+          "type": "Normal"
+        },
+        {
+          "apiVersion": "v1",
+          "count": 1,
+          "eventTime": null,
+          "firstTimestamp": "2026-08-28T12:06:05Z",
+          "involvedObject": {
+            "apiVersion": "v1",
+            "fieldPath": "spec.containers{payment-api}",
+            "kind": "Pod",
+            "name": "payment-api-768f4498d9-vw8qm",
+            "namespace": "payment-api",
+            "resourceVersion": "778",
+            "uid": "3b7d216f-463f-4b38-9bc2-7b02b6de48be"
+          },
+          "kind": "Event",
+          "lastTimestamp": "2026-08-28T12:06:05Z",
+          "message": "Started container payment-api",
+          "metadata": {
+            "creationTimestamp": "2026-08-28T12:06:05Z",
+            "name": "payment-api-768f4498d9-vw8qm.18cff6a4fc1a67db",
+            "namespace": "payment-api",
+            "resourceVersion": "788",
+            "uid": "cefeaa58-effd-44c4-b68f-1bf11b369841"
+          },
+          "reason": "Started",
+          "reportingComponent": "kubelet",
+          "reportingInstance": "helix-sandbox-control-plane",
+          "source": {
+            "component": "kubelet",
+            "host": "helix-sandbox-control-plane"
+          },
+          "type": "Normal"
+        },
+        {
+          "apiVersion": "v1",
+          "count": 9,
+          "eventTime": null,
+          "firstTimestamp": "2026-08-28T12:06:12Z",
+          "involvedObject": {
+            "apiVersion": "v1",
+            "fieldPath": "spec.containers{payment-api}",
+            "kind": "Pod",
+            "name": "payment-api-768f4498d9-vw8qm",
+            "namespace": "payment-api",
+            "resourceVersion": "778",
+            "uid": "3b7d216f-463f-4b38-9bc2-7b02b6de48be"
+          },
+          "kind": "Event",
+          "lastTimestamp": "2026-08-28T12:06:51Z",
+          "message": "Readiness probe failed: HTTP probe failed with statuscode: 503",
+          "metadata": {
+            "creationTimestamp": "2026-08-28T12:06:12Z",
+            "name": "payment-api-768f4498d9-vw8qm.18cff6a69226d459",
+            "namespace": "payment-api",
+            "resourceVersion": "872",
+            "uid": "73d732a4-94e0-4a94-9be0-94b305dcc554"
+          },
+          "reason": "Unhealthy",
+          "reportingComponent": "kubelet",
+          "reportingInstance": "helix-sandbox-control-plane",
+          "source": {
+            "component": "kubelet",
+            "host": "helix-sandbox-control-plane"
+          },
+          "type": "Warning"
+        },
+        {
+          "apiVersion": "v1",
+          "count": 1,
+          "eventTime": null,
+          "firstTimestamp": "2026-08-28T12:06:51Z",
+          "involvedObject": {
+            "apiVersion": "v1",
+            "fieldPath": "spec.containers{payment-api}",
+            "kind": "Pod",
+            "name": "payment-api-768f4498d9-vw8qm",
+            "namespace": "payment-api",
+            "resourceVersion": "778",
+            "uid": "3b7d216f-463f-4b38-9bc2-7b02b6de48be"
+          },
+          "kind": "Event",
+          "lastTimestamp": "2026-08-28T12:06:51Z",
+          "message": "Stopping container payment-api",
+          "metadata": {
+            "creationTimestamp": "2026-08-28T12:06:51Z",
+            "name": "payment-api-768f4498d9-vw8qm.18cff6af990275e6",
+            "namespace": "payment-api",
+            "resourceVersion": "868",
+            "uid": "acc1194a-806d-452a-862b-8225e3d9d4ef"
+          },
+          "reason": "Killing",
+          "reportingComponent": "kubelet",
+          "reportingInstance": "helix-sandbox-control-plane",
+          "source": {
+            "component": "kubelet",
+            "host": "helix-sandbox-control-plane"
+          },
+          "type": "Normal"
+        },
+        {
+          "apiVersion": "v1",
+          "count": 1,
+          "eventTime": null,
+          "firstTimestamp": "2026-08-28T12:06:05Z",
+          "involvedObject": {
+            "apiVersion": "apps/v1",
+            "kind": "ReplicaSet",
+            "name": "payment-api-768f4498d9",
+            "namespace": "payment-api",
+            "resourceVersion": "773",
+            "uid": "85933bea-4751-4ddf-a672-aee807f8dd6f"
+          },
+          "kind": "Event",
+          "lastTimestamp": "2026-08-28T12:06:05Z",
+          "message": "Created pod: payment-api-768f4498d9-vw8qm",
+          "metadata": {
+            "creationTimestamp": "2026-08-28T12:06:05Z",
+            "name": "payment-api-768f4498d9.18cff6a4dd6c2b42",
+            "namespace": "payment-api",
+            "resourceVersion": "777",
+            "uid": "ac9c46ae-8aa0-40ef-a951-76371567bd88"
+          },
+          "reason": "SuccessfulCreate",
+          "reportingComponent": "replicaset-controller",
+          "reportingInstance": "",
+          "source": {
+            "component": "replicaset-controller"
+          },
+          "type": "Normal"
+        },
+        {
+          "apiVersion": "v1",
+          "count": 1,
+          "eventTime": null,
+          "firstTimestamp": "2026-08-28T12:06:51Z",
+          "involvedObject": {
+            "apiVersion": "apps/v1",
+            "kind": "ReplicaSet",
+            "name": "payment-api-768f4498d9",
+            "namespace": "payment-api",
+            "resourceVersion": "861",
+            "uid": "85933bea-4751-4ddf-a672-aee807f8dd6f"
+          },
+          "kind": "Event",
+          "lastTimestamp": "2026-08-28T12:06:51Z",
+          "message": "Deleted pod: payment-api-768f4498d9-vw8qm",
+          "metadata": {
+            "creationTimestamp": "2026-08-28T12:06:51Z",
+            "name": "payment-api-768f4498d9.18cff6af98f2f166",
+            "namespace": "payment-api",
+            "resourceVersion": "864",
+            "uid": "d87a857d-0073-440d-bcae-ba63a7785685"
+          },
+          "reason": "SuccessfulDelete",
+          "reportingComponent": "replicaset-controller",
+          "reportingInstance": "",
+          "source": {
+            "component": "replicaset-controller"
+          },
+          "type": "Normal"
+        },
+        {
+          "apiVersion": "v1",
+          "count": 1,
+          "eventTime": null,
+          "firstTimestamp": "2026-08-28T12:13:41Z",
+          "involvedObject": {
+            "apiVersion": "v1",
+            "kind": "Pod",
+            "name": "payment-api-7c886558c8-f29pk",
+            "namespace": "payment-api",
+            "resourceVersion": "1787",
+            "uid": "2376d814-86b4-4384-a374-0c25bb142b11"
+          },
+          "kind": "Event",
+          "lastTimestamp": "2026-08-28T12:13:41Z",
+          "message": "Successfully assigned payment-api/payment-api-7c886558c8-f29pk to helix-sandbox-control-plane",
+          "metadata": {
+            "creationTimestamp": "2026-08-28T12:13:41Z",
+            "name": "payment-api-7c886558c8-f29pk.18cff70f1bdbb63d",
+            "namespace": "payment-api",
+            "resourceVersion": "1793",
+            "uid": "c467ee64-3561-4dc9-8d9b-9bdf4a09a8b6"
+          },
+          "reason": "Scheduled",
+          "reportingComponent": "default-scheduler",
+          "reportingInstance": "",
+          "source": {
+            "component": "default-scheduler"
+          },
+          "type": "Normal"
+        },
+        {
+          "apiVersion": "v1",
+          "count": 4,
+          "eventTime": null,
+          "firstTimestamp": "2026-08-28T12:13:41Z",
+          "involvedObject": {
+            "apiVersion": "v1",
+            "fieldPath": "spec.containers{payment-api}",
+            "kind": "Pod",
+            "name": "payment-api-7c886558c8-f29pk",
+            "namespace": "payment-api",
+            "resourceVersion": "1789",
+            "uid": "2376d814-86b4-4384-a374-0c25bb142b11"
+          },
+          "kind": "Event",
+          "lastTimestamp": "2026-08-28T12:14:07Z",
+          "message": "Container image \"payment-api:kind\" already present on machine",
+          "metadata": {
+            "creationTimestamp": "2026-08-28T12:13:41Z",
+            "name": "payment-api-7c886558c8-f29pk.18cff70f34c6a2be",
+            "namespace": "payment-api",
+            "resourceVersion": "1841",
+            "uid": "44a963e7-cd7e-40f7-914c-6bb30c660b08"
+          },
+          "reason": "Pulled",
+          "reportingComponent": "kubelet",
+          "reportingInstance": "helix-sandbox-control-plane",
+          "source": {
+            "component": "kubelet",
+            "host": "helix-sandbox-control-plane"
+          },
+          "type": "Normal"
+        },
+        {
+          "apiVersion": "v1",
+          "count": 3,
+          "eventTime": null,
+          "firstTimestamp": "2026-08-28T12:13:41Z",
+          "involvedObject": {
+            "apiVersion": "v1",
+            "fieldPath": "spec.containers{payment-api}",
+            "kind": "Pod",
+            "name": "payment-api-7c886558c8-f29pk",
+            "namespace": "payment-api",
+            "resourceVersion": "1789",
+            "uid": "2376d814-86b4-4384-a374-0c25bb142b11"
+          },
+          "kind": "Event",
+          "lastTimestamp": "2026-08-28T12:13:53Z",
+          "message": "Error: secret \"payment-api-secret\" not found",
+          "metadata": {
+            "creationTimestamp": "2026-08-28T12:13:41Z",
+            "name": "payment-api-7c886558c8-f29pk.18cff70f34c87b6a",
+            "namespace": "payment-api",
+            "resourceVersion": "1819",
+            "uid": "54723dce-f354-4963-b51b-74ec4159cc59"
+          },
+          "reason": "Failed",
+          "reportingComponent": "kubelet",
+          "reportingInstance": "helix-sandbox-control-plane",
+          "source": {
+            "component": "kubelet",
+            "host": "helix-sandbox-control-plane"
+          },
+          "type": "Warning"
+        },
+        {
+          "apiVersion": "v1",
+          "count": 1,
+          "eventTime": null,
+          "firstTimestamp": "2026-08-28T12:14:07Z",
+          "involvedObject": {
+            "apiVersion": "v1",
+            "fieldPath": "spec.containers{payment-api}",
+            "kind": "Pod",
+            "name": "payment-api-7c886558c8-f29pk",
+            "namespace": "payment-api",
+            "resourceVersion": "1789",
+            "uid": "2376d814-86b4-4384-a374-0c25bb142b11"
+          },
+          "kind": "Event",
+          "lastTimestamp": "2026-08-28T12:14:07Z",
+          "message": "Created container: payment-api",
+          "metadata": {
+            "creationTimestamp": "2026-08-28T12:14:07Z",
+            "name": "payment-api-7c886558c8-f29pk.18cff715173f35c9",
+            "namespace": "payment-api",
+            "resourceVersion": "1843",
+            "uid": "306da6eb-2b90-408b-b8d6-19d341e28420"
+          },
+          "reason": "Created",
+          "reportingComponent": "kubelet",
+          "reportingInstance": "helix-sandbox-control-plane",
+          "source": {
+            "component": "kubelet",
+            "host": "helix-sandbox-control-plane"
+          },
+          "type": "Normal"
+        },
+        {
+          "apiVersion": "v1",
+          "count": 1,
+          "eventTime": null,
+          "firstTimestamp": "2026-08-28T12:14:07Z",
+          "involvedObject": {
+            "apiVersion": "v1",
+            "fieldPath": "spec.containers{payment-api}",
+            "kind": "Pod",
+            "name": "payment-api-7c886558c8-f29pk",
+            "namespace": "payment-api",
+            "resourceVersion": "1789",
+            "uid": "2376d814-86b4-4384-a374-0c25bb142b11"
+          },
+          "kind": "Event",
+          "lastTimestamp": "2026-08-28T12:14:07Z",
+          "message": "Started container payment-api",
+          "metadata": {
+            "creationTimestamp": "2026-08-28T12:14:07Z",
+            "name": "payment-api-7c886558c8-f29pk.18cff7151b5739a5",
+            "namespace": "payment-api",
+            "resourceVersion": "1844",
+            "uid": "062455a7-b637-4de0-9b67-a3f4867771c9"
+          },
+          "reason": "Started",
+          "reportingComponent": "kubelet",
+          "reportingInstance": "helix-sandbox-control-plane",
+          "source": {
+            "component": "kubelet",
+            "host": "helix-sandbox-control-plane"
+          },
+          "type": "Normal"
+        },
+        {
+          "apiVersion": "v1",
+          "count": 1,
+          "eventTime": null,
+          "firstTimestamp": "2026-08-28T12:13:41Z",
+          "involvedObject": {
+            "apiVersion": "apps/v1",
+            "kind": "ReplicaSet",
+            "name": "payment-api-7c886558c8",
+            "namespace": "payment-api",
+            "resourceVersion": "1784",
+            "uid": "8b7236aa-c919-4c8b-a394-bb6ffb305bf7"
+          },
+          "kind": "Event",
+          "lastTimestamp": "2026-08-28T12:13:41Z",
+          "message": "Created pod: payment-api-7c886558c8-f29pk",
+          "metadata": {
+            "creationTimestamp": "2026-08-28T12:13:41Z",
+            "name": "payment-api-7c886558c8.18cff70f1b06db51",
+            "namespace": "payment-api",
+            "resourceVersion": "1788",
+            "uid": "abe1b690-973a-4598-a6de-286ed6ba4f68"
+          },
+          "reason": "SuccessfulCreate",
+          "reportingComponent": "replicaset-controller",
+          "reportingInstance": "",
+          "source": {
+            "component": "replicaset-controller"
+          },
+          "type": "Normal"
+        },
+        {
+          "apiVersion": "v1",
+          "count": 1,
+          "eventTime": null,
+          "firstTimestamp": "2026-08-28T12:14:20Z",
+          "involvedObject": {
+            "apiVersion": "v1",
+            "kind": "Pod",
+            "name": "payment-api-98867c74d-h6j8v",
+            "namespace": "payment-api",
+            "resourceVersion": "1886",
+            "uid": "5dd1b62d-42ae-4c12-b0b3-9db353bddae0"
+          },
+          "kind": "Event",
+          "lastTimestamp": "2026-08-28T12:14:20Z",
+          "message": "Successfully assigned payment-api/payment-api-98867c74d-h6j8v to helix-sandbox-control-plane",
+          "metadata": {
+            "creationTimestamp": "2026-08-28T12:14:20Z",
+            "name": "payment-api-98867c74d-h6j8v.18cff718352b7a7c",
+            "namespace": "payment-api",
+            "resourceVersion": "1890",
+            "uid": "61b50f91-12c7-4cbb-8131-b92ca2bb1f76"
+          },
+          "reason": "Scheduled",
+          "reportingComponent": "default-scheduler",
+          "reportingInstance": "",
+          "source": {
+            "component": "default-scheduler"
+          },
+          "type": "Normal"
+        },
+        {
+          "apiVersion": "v1",
+          "count": 2,
+          "eventTime": null,
+          "firstTimestamp": "2026-08-28T12:14:20Z",
+          "involvedObject": {
+            "apiVersion": "v1",
+            "fieldPath": "spec.containers{payment-api}",
+            "kind": "Pod",
+            "name": "payment-api-98867c74d-h6j8v",
+            "namespace": "payment-api",
+            "resourceVersion": "1888",
+            "uid": "5dd1b62d-42ae-4c12-b0b3-9db353bddae0"
+          },
+          "kind": "Event",
+          "lastTimestamp": "2026-08-28T12:14:23Z",
+          "message": "Container image \"payment-api:kind\" already present on machine",
+          "metadata": {
+            "creationTimestamp": "2026-08-28T12:14:20Z",
+            "name": "payment-api-98867c74d-h6j8v.18cff7184d35ce9f",
+            "namespace": "payment-api",
+            "resourceVersion": "1904",
+            "uid": "a6226c3a-c171-4ff2-948c-2e0710c689ac"
+          },
+          "reason": "Pulled",
+          "reportingComponent": "kubelet",
+          "reportingInstance": "helix-sandbox-control-plane",
+          "source": {
+            "component": "kubelet",
+            "host": "helix-sandbox-control-plane"
+          },
+          "type": "Normal"
+        },
+        {
+          "apiVersion": "v1",
+          "count": 2,
+          "eventTime": null,
+          "firstTimestamp": "2026-08-28T12:14:20Z",
+          "involvedObject": {
+            "apiVersion": "v1",
+            "fieldPath": "spec.containers{payment-api}",
+            "kind": "Pod",
+            "name": "payment-api-98867c74d-h6j8v",
+            "namespace": "payment-api",
+            "resourceVersion": "1888",
+            "uid": "5dd1b62d-42ae-4c12-b0b3-9db353bddae0"
+          },
+          "kind": "Event",
+          "lastTimestamp": "2026-08-28T12:14:23Z",
+          "message": "Created container: payment-api",
+          "metadata": {
+            "creationTimestamp": "2026-08-28T12:14:20Z",
+            "name": "payment-api-98867c74d-h6j8v.18cff7184f40315e",
+            "namespace": "payment-api",
+            "resourceVersion": "1906",
+            "uid": "140e955b-af59-4db9-898f-bfcb084ebf61"
+          },
+          "reason": "Created",
+          "reportingComponent": "kubelet",
+          "reportingInstance": "helix-sandbox-control-plane",
+          "source": {
+            "component": "kubelet",
+            "host": "helix-sandbox-control-plane"
+          },
+          "type": "Normal"
+        },
+        {
+          "apiVersion": "v1",
+          "count": 2,
+          "eventTime": null,
+          "firstTimestamp": "2026-08-28T12:14:20Z",
+          "involvedObject": {
+            "apiVersion": "v1",
+            "fieldPath": "spec.containers{payment-api}",
+            "kind": "Pod",
+            "name": "payment-api-98867c74d-h6j8v",
+            "namespace": "payment-api",
+            "resourceVersion": "1888",
+            "uid": "5dd1b62d-42ae-4c12-b0b3-9db353bddae0"
+          },
+          "kind": "Event",
+          "lastTimestamp": "2026-08-28T12:14:23Z",
+          "message": "Started container payment-api",
+          "metadata": {
+            "creationTimestamp": "2026-08-28T12:14:20Z",
+            "name": "payment-api-98867c74d-h6j8v.18cff718535ae9a2",
+            "namespace": "payment-api",
+            "resourceVersion": "1907",
+            "uid": "be934a2d-a629-4347-aa49-3292cf93b663"
+          },
+          "reason": "Started",
+          "reportingComponent": "kubelet",
+          "reportingInstance": "helix-sandbox-control-plane",
+          "source": {
+            "component": "kubelet",
+            "host": "helix-sandbox-control-plane"
+          },
+          "type": "Normal"
+        },
+        {
+          "apiVersion": "v1",
+          "count": 2,
+          "eventTime": null,
+          "firstTimestamp": "2026-08-28T12:14:25Z",
+          "involvedObject": {
+            "apiVersion": "v1",
+            "fieldPath": "spec.containers{payment-api}",
+            "kind": "Pod",
+            "name": "payment-api-98867c74d-h6j8v",
+            "namespace": "payment-api",
+            "resourceVersion": "1888",
+            "uid": "5dd1b62d-42ae-4c12-b0b3-9db353bddae0"
+          },
+          "kind": "Event",
+          "lastTimestamp": "2026-08-28T12:14:26Z",
+          "message": "Back-off restarting failed container payment-api in pod payment-api-98867c74d-h6j8v_payment-api(5dd1b62d-42ae-4c12-b0b3-9db353bddae0)",
+          "metadata": {
+            "creationTimestamp": "2026-08-28T12:14:25Z",
+            "name": "payment-api-98867c74d-h6j8v.18cff71951ba0b48",
+            "namespace": "payment-api",
+            "resourceVersion": "1916",
+            "uid": "007b8125-7c10-44d6-bb60-98562b1fb697"
+          },
+          "reason": "BackOff",
+          "reportingComponent": "kubelet",
+          "reportingInstance": "helix-sandbox-control-plane",
+          "source": {
+            "component": "kubelet",
+            "host": "helix-sandbox-control-plane"
+          },
+          "type": "Warning"
+        },
+        {
+          "apiVersion": "v1",
+          "count": 1,
+          "eventTime": null,
+          "firstTimestamp": "2026-08-28T12:14:20Z",
+          "involvedObject": {
+            "apiVersion": "apps/v1",
+            "kind": "ReplicaSet",
+            "name": "payment-api-98867c74d",
+            "namespace": "payment-api",
+            "resourceVersion": "1883",
+            "uid": "25815b1a-1857-4a0c-bee5-1f2e4b8244b5"
+          },
+          "kind": "Event",
+          "lastTimestamp": "2026-08-28T12:14:20Z",
+          "message": "Created pod: payment-api-98867c74d-h6j8v",
+          "metadata": {
+            "creationTimestamp": "2026-08-28T12:14:20Z",
+            "name": "payment-api-98867c74d.18cff71834c27cb2",
+            "namespace": "payment-api",
+            "resourceVersion": "1887",
+            "uid": "776714bb-14f4-40d7-a53d-d2b9171918ed"
+          },
+          "reason": "SuccessfulCreate",
+          "reportingComponent": "replicaset-controller",
+          "reportingInstance": "",
+          "source": {
+            "component": "replicaset-controller"
+          },
+          "type": "Normal"
+        },
+        {
+          "apiVersion": "v1",
+          "count": 1,
+          "eventTime": null,
+          "firstTimestamp": "2026-08-28T12:06:59Z",
+          "involvedObject": {
+            "apiVersion": "v1",
+            "kind": "Pod",
+            "name": "payment-api-dfcb87b65-6db8h",
+            "namespace": "payment-api",
+            "resourceVersion": "892",
+            "uid": "db97b7d8-a17c-4504-bdc3-2b8e2eaeb95e"
+          },
+          "kind": "Event",
+          "lastTimestamp": "2026-08-28T12:06:59Z",
+          "message": "Successfully assigned payment-api/payment-api-dfcb87b65-6db8h to helix-sandbox-control-plane",
+          "metadata": {
+            "creationTimestamp": "2026-08-28T12:06:59Z",
+            "name": "payment-api-dfcb87b65-6db8h.18cff6b17cc4562d",
+            "namespace": "payment-api",
+            "resourceVersion": "896",
+            "uid": "a746af6a-6f1e-47e8-884e-5faf99b6cfce"
+          },
+          "reason": "Scheduled",
+          "reportingComponent": "default-scheduler",
+          "reportingInstance": "",
+          "source": {
+            "component": "default-scheduler"
+          },
+          "type": "Normal"
+        },
+        {
+          "apiVersion": "v1",
+          "count": 2,
+          "eventTime": null,
+          "firstTimestamp": "2026-08-28T12:06:59Z",
+          "involvedObject": {
+            "apiVersion": "v1",
+            "fieldPath": "spec.containers{payment-api}",
+            "kind": "Pod",
+            "name": "payment-api-dfcb87b65-6db8h",
+            "namespace": "payment-api",
+            "resourceVersion": "893",
+            "uid": "db97b7d8-a17c-4504-bdc3-2b8e2eaeb95e"
+          },
+          "kind": "Event",
+          "lastTimestamp": "2026-08-28T12:07:02Z",
+          "message": "Container image \"payment-api:kind\" already present on machine",
+          "metadata": {
+            "creationTimestamp": "2026-08-28T12:06:59Z",
+            "name": "payment-api-dfcb87b65-6db8h.18cff6b195b29a3a",
+            "namespace": "payment-api",
+            "resourceVersion": "911",
+            "uid": "ca2c1556-9b3b-460f-b82e-d44ed2f824f6"
+          },
+          "reason": "Pulled",
+          "reportingComponent": "kubelet",
+          "reportingInstance": "helix-sandbox-control-plane",
+          "source": {
+            "component": "kubelet",
+            "host": "helix-sandbox-control-plane"
+          },
+          "type": "Normal"
+        },
+        {
+          "apiVersion": "v1",
+          "count": 2,
+          "eventTime": null,
+          "firstTimestamp": "2026-08-28T12:06:59Z",
+          "involvedObject": {
+            "apiVersion": "v1",
+            "fieldPath": "spec.containers{payment-api}",
+            "kind": "Pod",
+            "name": "payment-api-dfcb87b65-6db8h",
+            "namespace": "payment-api",
+            "resourceVersion": "893",
+            "uid": "db97b7d8-a17c-4504-bdc3-2b8e2eaeb95e"
+          },
+          "kind": "Event",
+          "lastTimestamp": "2026-08-28T12:07:02Z",
+          "message": "Created container: payment-api",
+          "metadata": {
+            "creationTimestamp": "2026-08-28T12:06:59Z",
+            "name": "payment-api-dfcb87b65-6db8h.18cff6b19726217a",
+            "namespace": "payment-api",
+            "resourceVersion": "913",
+            "uid": "85b24eef-b364-4f80-9e6b-371afa84b6b6"
+          },
+          "reason": "Created",
+          "reportingComponent": "kubelet",
+          "reportingInstance": "helix-sandbox-control-plane",
+          "source": {
+            "component": "kubelet",
+            "host": "helix-sandbox-control-plane"
+          },
+          "type": "Normal"
+        },
+        {
+          "apiVersion": "v1",
+          "count": 2,
+          "eventTime": null,
+          "firstTimestamp": "2026-08-28T12:06:59Z",
+          "involvedObject": {
+            "apiVersion": "v1",
+            "fieldPath": "spec.containers{payment-api}",
+            "kind": "Pod",
+            "name": "payment-api-dfcb87b65-6db8h",
+            "namespace": "payment-api",
+            "resourceVersion": "893",
+            "uid": "db97b7d8-a17c-4504-bdc3-2b8e2eaeb95e"
+          },
+          "kind": "Event",
+          "lastTimestamp": "2026-08-28T12:07:02Z",
+          "message": "Started container payment-api",
+          "metadata": {
+            "creationTimestamp": "2026-08-28T12:06:59Z",
+            "name": "payment-api-dfcb87b65-6db8h.18cff6b19b48aede",
+            "namespace": "payment-api",
+            "resourceVersion": "914",
+            "uid": "87423910-1407-4738-9f50-4ff86f43668d"
+          },
+          "reason": "Started",
+          "reportingComponent": "kubelet",
+          "reportingInstance": "helix-sandbox-control-plane",
+          "source": {
+            "component": "kubelet",
+            "host": "helix-sandbox-control-plane"
+          },
+          "type": "Normal"
+        },
+        {
+          "apiVersion": "v1",
+          "count": 3,
+          "eventTime": null,
+          "firstTimestamp": "2026-08-28T12:07:04Z",
+          "involvedObject": {
+            "apiVersion": "v1",
+            "fieldPath": "spec.containers{payment-api}",
+            "kind": "Pod",
+            "name": "payment-api-dfcb87b65-6db8h",
+            "namespace": "payment-api",
+            "resourceVersion": "893",
+            "uid": "db97b7d8-a17c-4504-bdc3-2b8e2eaeb95e"
+          },
+          "kind": "Event",
+          "lastTimestamp": "2026-08-28T12:07:06Z",
+          "message": "Back-off restarting failed container payment-api in pod payment-api-dfcb87b65-6db8h_payment-api(db97b7d8-a17c-4504-bdc3-2b8e2eaeb95e)",
+          "metadata": {
+            "creationTimestamp": "2026-08-28T12:07:04Z",
+            "name": "payment-api-dfcb87b65-6db8h.18cff6b2af679e68",
+            "namespace": "payment-api",
+            "resourceVersion": "925",
+            "uid": "c911b836-edd3-44d2-9043-fc999f94e7f1"
+          },
+          "reason": "BackOff",
+          "reportingComponent": "kubelet",
+          "reportingInstance": "helix-sandbox-control-plane",
+          "source": {
+            "component": "kubelet",
+            "host": "helix-sandbox-control-plane"
+          },
+          "type": "Warning"
+        },
+        {
+          "apiVersion": "v1",
+          "count": 1,
+          "eventTime": null,
+          "firstTimestamp": "2026-08-28T12:06:59Z",
+          "involvedObject": {
+            "apiVersion": "apps/v1",
+            "kind": "ReplicaSet",
+            "name": "payment-api-dfcb87b65",
+            "namespace": "payment-api",
+            "resourceVersion": "889",
+            "uid": "2370626c-bb5b-4178-90bd-f5a276a3938d"
+          },
+          "kind": "Event",
+          "lastTimestamp": "2026-08-28T12:06:59Z",
+          "message": "Created pod: payment-api-dfcb87b65-6db8h",
+          "metadata": {
+            "creationTimestamp": "2026-08-28T12:06:59Z",
+            "name": "payment-api-dfcb87b65.18cff6b17c769109",
+            "namespace": "payment-api",
+            "resourceVersion": "894",
+            "uid": "c667bc28-e3ce-4994-80fd-cbcc3d8d919c"
+          },
+          "reason": "SuccessfulCreate",
+          "reportingComponent": "replicaset-controller",
+          "reportingInstance": "",
+          "source": {
+            "component": "replicaset-controller"
+          },
+          "type": "Normal"
+        },
+        {
+          "apiVersion": "v1",
+          "count": 1,
+          "eventTime": null,
+          "firstTimestamp": "2026-08-28T12:07:09Z",
+          "involvedObject": {
+            "apiVersion": "apps/v1",
+            "kind": "ReplicaSet",
+            "name": "payment-api-dfcb87b65",
+            "namespace": "payment-api",
+            "resourceVersion": "933",
+            "uid": "2370626c-bb5b-4178-90bd-f5a276a3938d"
+          },
+          "kind": "Event",
+          "lastTimestamp": "2026-08-28T12:07:09Z",
+          "message": "Deleted pod: payment-api-dfcb87b65-6db8h",
+          "metadata": {
+            "creationTimestamp": "2026-08-28T12:07:09Z",
+            "name": "payment-api-dfcb87b65.18cff6b3da7b43ef",
+            "namespace": "payment-api",
+            "resourceVersion": "937",
+            "uid": "b852c89d-c7c3-47bf-8fc2-ba789663eeb8"
+          },
+          "reason": "SuccessfulDelete",
+          "reportingComponent": "replicaset-controller",
+          "reportingInstance": "",
+          "source": {
+            "component": "replicaset-controller"
+          },
+          "type": "Normal"
+        },
+        {
+          "apiVersion": "v1",
+          "count": 1,
+          "eventTime": null,
+          "firstTimestamp": "2026-08-28T12:04:14Z",
+          "involvedObject": {
+            "apiVersion": "apps/v1",
+            "kind": "Deployment",
+            "name": "payment-api",
+            "namespace": "payment-api",
+            "resourceVersion": "449",
+            "uid": "75df94a0-b111-4d00-8a4c-ba198061ec8d"
+          },
+          "kind": "Event",
+          "lastTimestamp": "2026-08-28T12:04:14Z",
+          "message": "Scaled up replica set payment-api-54f988c7b8 from 0 to 1",
+          "metadata": {
+            "creationTimestamp": "2026-08-28T12:04:14Z",
+            "name": "payment-api.18cff68b152a94ff",
+            "namespace": "payment-api",
+            "resourceVersion": "451",
+            "uid": "0fdce6e9-37b2-4fe5-83b6-041583054e7f"
+          },
+          "reason": "ScalingReplicaSet",
+          "reportingComponent": "deployment-controller",
+          "reportingInstance": "",
+          "source": {
+            "component": "deployment-controller"
+          },
+          "type": "Normal"
+        },
+        {
+          "apiVersion": "v1",
+          "count": 1,
+          "eventTime": null,
+          "firstTimestamp": "2026-08-28T12:06:05Z",
+          "involvedObject": {
+            "apiVersion": "apps/v1",
+            "kind": "Deployment",
+            "name": "payment-api",
+            "namespace": "payment-api",
+            "resourceVersion": "772",
+            "uid": "75df94a0-b111-4d00-8a4c-ba198061ec8d"
+          },
+          "kind": "Event",
+          "lastTimestamp": "2026-08-28T12:06:05Z",
+          "message": "Scaled up replica set payment-api-768f4498d9 from 0 to 1",
+          "metadata": {
+            "creationTimestamp": "2026-08-28T12:06:05Z",
+            "name": "payment-api.18cff6a4dd1cd287",
+            "namespace": "payment-api",
+            "resourceVersion": "776",
+            "uid": "4aeb132a-f09d-4afd-9d50-1e1a1ac2c73b"
+          },
+          "reason": "ScalingReplicaSet",
+          "reportingComponent": "deployment-controller",
+          "reportingInstance": "",
+          "source": {
+            "component": "deployment-controller"
+          },
+          "type": "Normal"
+        },
+        {
+          "apiVersion": "v1",
+          "count": 1,
+          "eventTime": null,
+          "firstTimestamp": "2026-08-28T12:06:51Z",
+          "involvedObject": {
+            "apiVersion": "apps/v1",
+            "kind": "Deployment",
+            "name": "payment-api",
+            "namespace": "payment-api",
+            "resourceVersion": "858",
+            "uid": "75df94a0-b111-4d00-8a4c-ba198061ec8d"
+          },
+          "kind": "Event",
+          "lastTimestamp": "2026-08-28T12:06:51Z",
+          "message": "Scaled down replica set payment-api-768f4498d9 from 1 to 0",
+          "metadata": {
+            "creationTimestamp": "2026-08-28T12:06:51Z",
+            "name": "payment-api.18cff6af98a13953",
+            "namespace": "payment-api",
+            "resourceVersion": "862",
+            "uid": "44f53d94-90a2-4ef2-8f8d-c1ca47afb3e9"
+          },
+          "reason": "ScalingReplicaSet",
+          "reportingComponent": "deployment-controller",
+          "reportingInstance": "",
+          "source": {
+            "component": "deployment-controller"
+          },
+          "type": "Normal"
+        },
+        {
+          "apiVersion": "v1",
+          "count": 1,
+          "eventTime": null,
+          "firstTimestamp": "2026-08-28T12:06:59Z",
+          "involvedObject": {
+            "apiVersion": "apps/v1",
+            "kind": "Deployment",
+            "name": "payment-api",
+            "namespace": "payment-api",
+            "resourceVersion": "888",
+            "uid": "75df94a0-b111-4d00-8a4c-ba198061ec8d"
+          },
+          "kind": "Event",
+          "lastTimestamp": "2026-08-28T12:06:59Z",
+          "message": "Scaled up replica set payment-api-dfcb87b65 from 0 to 1",
+          "metadata": {
+            "creationTimestamp": "2026-08-28T12:06:59Z",
+            "name": "payment-api.18cff6b17c003fa8",
+            "namespace": "payment-api",
+            "resourceVersion": "890",
+            "uid": "15f3d5a7-3ffa-45b0-9f07-5934a3179a9a"
+          },
+          "reason": "ScalingReplicaSet",
+          "reportingComponent": "deployment-controller",
+          "reportingInstance": "",
+          "source": {
+            "component": "deployment-controller"
+          },
+          "type": "Normal"
+        },
+        {
+          "apiVersion": "v1",
+          "count": 1,
+          "eventTime": null,
+          "firstTimestamp": "2026-08-28T12:07:09Z",
+          "involvedObject": {
+            "apiVersion": "apps/v1",
+            "kind": "Deployment",
+            "name": "payment-api",
+            "namespace": "payment-api",
+            "resourceVersion": "930",
+            "uid": "75df94a0-b111-4d00-8a4c-ba198061ec8d"
+          },
+          "kind": "Event",
+          "lastTimestamp": "2026-08-28T12:07:09Z",
+          "message": "Scaled down replica set payment-api-dfcb87b65 from 1 to 0",
+          "metadata": {
+            "creationTimestamp": "2026-08-28T12:07:09Z",
+            "name": "payment-api.18cff6b3da3a929d",
+            "namespace": "payment-api",
+            "resourceVersion": "934",
+            "uid": "d3e536ce-2517-4af7-b7a9-8f313cbdbb56"
+          },
+          "reason": "ScalingReplicaSet",
+          "reportingComponent": "deployment-controller",
+          "reportingInstance": "",
+          "source": {
+            "component": "deployment-controller"
+          },
+          "type": "Normal"
+        },
+        {
+          "apiVersion": "v1",
+          "count": 1,
+          "eventTime": null,
+          "firstTimestamp": "2026-08-28T12:07:15Z",
+          "involvedObject": {
+            "apiVersion": "apps/v1",
+            "kind": "Deployment",
+            "name": "payment-api",
+            "namespace": "payment-api",
+            "resourceVersion": "956",
+            "uid": "75df94a0-b111-4d00-8a4c-ba198061ec8d"
+          },
+          "kind": "Event",
+          "lastTimestamp": "2026-08-28T12:07:15Z",
+          "message": "Scaled up replica set payment-api-6887db6c78 from 0 to 1",
+          "metadata": {
+            "creationTimestamp": "2026-08-28T12:07:15Z",
+            "name": "payment-api.18cff6b55fa1d1e8",
+            "namespace": "payment-api",
+            "resourceVersion": "958",
+            "uid": "aec27bb0-7cce-4e95-bc38-d3ceff85429e"
+          },
+          "reason": "ScalingReplicaSet",
+          "reportingComponent": "deployment-controller",
+          "reportingInstance": "",
+          "source": {
+            "component": "deployment-controller"
+          },
+          "type": "Normal"
+        },
+        {
+          "apiVersion": "v1",
+          "count": 1,
+          "eventTime": null,
+          "firstTimestamp": "2026-08-28T12:07:36Z",
+          "involvedObject": {
+            "apiVersion": "apps/v1",
+            "kind": "Deployment",
+            "name": "payment-api",
+            "namespace": "payment-api",
+            "resourceVersion": "970",
+            "uid": "75df94a0-b111-4d00-8a4c-ba198061ec8d"
+          },
+          "kind": "Event",
+          "lastTimestamp": "2026-08-28T12:07:36Z",
+          "message": "Scaled down replica set payment-api-54f988c7b8 from 1 to 0",
+          "metadata": {
+            "creationTimestamp": "2026-08-28T12:07:36Z",
+            "name": "payment-api.18cff6ba2b8a2839",
+            "namespace": "payment-api",
+            "resourceVersion": "1015",
+            "uid": "ca7392ff-7977-409e-bf5b-424d207c96cb"
+          },
+          "reason": "ScalingReplicaSet",
+          "reportingComponent": "deployment-controller",
+          "reportingInstance": "",
+          "source": {
+            "component": "deployment-controller"
+          },
+          "type": "Normal"
+        },
+        {
+          "apiVersion": "v1",
+          "count": 1,
+          "eventTime": null,
+          "firstTimestamp": "2026-08-28T12:07:43Z",
+          "involvedObject": {
+            "apiVersion": "apps/v1",
+            "kind": "Deployment",
+            "name": "payment-api",
+            "namespace": "payment-api",
+            "resourceVersion": "1038",
+            "uid": "75df94a0-b111-4d00-8a4c-ba198061ec8d"
+          },
+          "kind": "Event",
+          "lastTimestamp": "2026-08-28T12:07:43Z",
+          "message": "Scaled up replica set payment-api-5fd66b5fc5 from 0 to 1",
+          "metadata": {
+            "creationTimestamp": "2026-08-28T12:07:43Z",
+            "name": "payment-api.18cff6bbc302afd8",
+            "namespace": "payment-api",
+            "resourceVersion": "1040",
+            "uid": "3e306ec2-abbd-4ce2-bdb9-148d50dcd53e"
+          },
+          "reason": "ScalingReplicaSet",
+          "reportingComponent": "deployment-controller",
+          "reportingInstance": "",
+          "source": {
+            "component": "deployment-controller"
+          },
+          "type": "Normal"
+        },
+        {
+          "apiVersion": "v1",
+          "count": 1,
+          "eventTime": null,
+          "firstTimestamp": "2026-08-28T12:08:10Z",
+          "involvedObject": {
+            "apiVersion": "apps/v1",
+            "kind": "Deployment",
+            "name": "payment-api",
+            "namespace": "payment-api",
+            "resourceVersion": "1050",
+            "uid": "75df94a0-b111-4d00-8a4c-ba198061ec8d"
+          },
+          "kind": "Event",
+          "lastTimestamp": "2026-08-28T12:08:10Z",
+          "message": "Scaled down replica set payment-api-6887db6c78 from 1 to 0",
+          "metadata": {
+            "creationTimestamp": "2026-08-28T12:08:10Z",
+            "name": "payment-api.18cff6c21959e346",
+            "namespace": "payment-api",
+            "resourceVersion": "1114",
+            "uid": "80d423d3-f2bd-4430-a08b-7bcf121efbba"
+          },
+          "reason": "ScalingReplicaSet",
+          "reportingComponent": "deployment-controller",
+          "reportingInstance": "",
+          "source": {
+            "component": "deployment-controller"
+          },
+          "type": "Normal"
+        },
+        {
+          "apiVersion": "v1",
+          "count": 9,
+          "eventTime": null,
+          "firstTimestamp": "2026-08-28T12:09:33Z",
+          "involvedObject": {
+            "apiVersion": "apps/v1",
+            "kind": "Deployment",
+            "name": "payment-api",
+            "namespace": "payment-api",
+            "resourceVersion": "1236",
+            "uid": "75df94a0-b111-4d00-8a4c-ba198061ec8d"
+          },
+          "kind": "Event",
+          "lastTimestamp": "2026-08-28T12:14:20Z",
+          "message": "(combined from similar events): Scaled up replica set payment-api-98867c74d from 0 to 1",
+          "metadata": {
+            "creationTimestamp": "2026-08-28T12:09:33Z",
+            "name": "payment-api.18cff6d566325a5e",
+            "namespace": "payment-api",
+            "resourceVersion": "1884",
+            "uid": "1bb6ba7e-5810-460e-a106-7a2e5e735c93"
+          },
+          "reason": "ScalingReplicaSet",
+          "reportingComponent": "",
+          "reportingInstance": "",
+          "source": {
+            "component": "deployment-controller"
+          },
+          "type": "Normal"
+        }
+      ],
+      "kind": "List",
+      "metadata": {
+        "resourceVersion": ""
+      }
+    },
+    "logs_payment_api": [
+      "2026-08-28T12:11:47.787Z [payment-api-5f8c7899c6-gh8jd] INFO:httpx:HTTP Request: GET http://downstream-stub.payment-api.svc.cluster.local \"HTTP/1.1 200 OK\"",
+      "2026-08-28T12:11:47.788Z [payment-api-5f8c7899c6-gh8jd] INFO:     10.244.0.1:35192 - \"GET /ready HTTP/1.1\" 200 OK",
+      "2026-08-28T12:11:48.813Z [payment-api-5f8c7899c6-gh8jd] INFO:     10.244.0.1:35196 - \"GET /health HTTP/1.1\" 200 OK",
+      "2026-08-28T12:11:48.839Z [payment-api-5f8c7899c6-gh8jd] INFO:httpx:HTTP Request: GET http://downstream-stub.payment-api.svc.cluster.local \"HTTP/1.1 200 OK\"",
+      "2026-08-28T12:11:48.840Z [payment-api-5f8c7899c6-gh8jd] INFO:     127.0.0.1:44232 - \"GET /ready HTTP/1.1\" 200 OK",
+      "2026-08-28T12:11:52.789Z [payment-api-5f8c7899c6-gh8jd] INFO:httpx:HTTP Request: GET http://downstream-stub.payment-api.svc.cluster.local \"HTTP/1.1 200 OK\"",
+      "2026-08-28T12:11:52.789Z [payment-api-5f8c7899c6-gh8jd] INFO:     10.244.0.1:41928 - \"GET /ready HTTP/1.1\" 200 OK",
+      "2026-08-28T12:11:53.814Z [payment-api-5f8c7899c6-gh8jd] INFO:     10.244.0.1:41944 - \"GET /health HTTP/1.1\" 200 OK",
+      "2026-08-28T12:11:54.239Z [payment-api-5f8c7899c6-gh8jd] INFO:httpx:HTTP Request: GET http://downstream-stub.payment-api.svc.cluster.local \"HTTP/1.1 200 OK\"",
+      "2026-08-28T12:11:54.240Z [payment-api-5f8c7899c6-gh8jd] INFO:     127.0.0.1:53732 - \"GET /ready HTTP/1.1\" 200 OK",
+      "2026-08-28T12:11:56.092Z [payment-api-5d8c4bcc69-jjjnd] INFO:     Started server process [1]",
+      "2026-08-28T12:11:56.092Z [payment-api-5d8c4bcc69-jjjnd] INFO:     Waiting for application startup.",
+      "2026-08-28T12:11:56.092Z [payment-api-5d8c4bcc69-jjjnd] INFO:     Application startup complete.",
+      "2026-08-28T12:11:56.093Z [payment-api-5d8c4bcc69-jjjnd] INFO:     Uvicorn running on http://0.0.0.0:8000 (Press CTRL+C to quit)",
+      "2026-08-28T12:11:57.787Z [payment-api-5f8c7899c6-gh8jd] INFO:httpx:HTTP Request: GET http://downstream-stub.payment-api.svc.cluster.local \"HTTP/1.1 200 OK\"",
+      "2026-08-28T12:11:57.787Z [payment-api-5f8c7899c6-gh8jd] INFO:     10.244.0.1:41946 - \"GET /ready HTTP/1.1\" 200 OK",
+      "2026-08-28T12:11:58.813Z [payment-api-5f8c7899c6-gh8jd] INFO:     10.244.0.1:41956 - \"GET /health HTTP/1.1\" 200 OK",
+      "2026-08-28T12:11:59.643Z [payment-api-5d8c4bcc69-jjjnd] INFO:     10.244.0.1:53186 - \"GET /health HTTP/1.1\" 200 OK",
+      "2026-08-28T12:12:00.988Z [payment-api-5d8c4bcc69-jjjnd] INFO:     10.244.0.1:53196 - \"GET /ready HTTP/1.1\" 503 Service Unavailable",
+      "2026-08-28T12:12:02.790Z [payment-api-5f8c7899c6-gh8jd] INFO:httpx:HTTP Request: GET http://downstream-stub.payment-api.svc.cluster.local \"HTTP/1.1 200 OK\"",
+      "2026-08-28T12:12:02.792Z [payment-api-5f8c7899c6-gh8jd] INFO:     10.244.0.1:46164 - \"GET /ready HTTP/1.1\" 200 OK",
+      "2026-08-28T12:12:03.814Z [payment-api-5f8c7899c6-gh8jd] INFO:     10.244.0.1:46174 - \"GET /health HTTP/1.1\" 200 OK",
+      "2026-08-28T12:12:04.622Z [payment-api-5d8c4bcc69-jjjnd] INFO:     10.244.0.1:53202 - \"GET /health HTTP/1.1\" 200 OK",
+      "2026-08-28T12:12:05.929Z [payment-api-5d8c4bcc69-jjjnd] INFO:     10.244.0.1:53214 - \"GET /ready HTTP/1.1\" 503 Service Unavailable",
+      "2026-08-28T12:12:07.786Z [payment-api-5f8c7899c6-gh8jd] INFO:httpx:HTTP Request: GET http://downstream-stub.payment-api.svc.cluster.local \"HTTP/1.1 200 OK\"",
+      "2026-08-28T12:12:07.787Z [payment-api-5f8c7899c6-gh8jd] INFO:     10.244.0.1:46184 - \"GET /ready HTTP/1.1\" 200 OK",
+      "2026-08-28T12:12:08.814Z [payment-api-5f8c7899c6-gh8jd] INFO:     10.244.0.1:46190 - \"GET /health HTTP/1.1\" 200 OK",
+      "2026-08-28T12:12:09.622Z [payment-api-5d8c4bcc69-jjjnd] INFO:     10.244.0.1:34736 - \"GET /health HTTP/1.1\" 200 OK",
+      "2026-08-28T12:12:10.928Z [payment-api-5d8c4bcc69-jjjnd] INFO:     10.244.0.1:34742 - \"GET /ready HTTP/1.1\" 503 Service Unavailable",
+      "2026-08-28T12:12:12.786Z [payment-api-5f8c7899c6-gh8jd] INFO:httpx:HTTP Request: GET http://downstream-stub.payment-api.svc.cluster.local \"HTTP/1.1 200 OK\"",
+      "2026-08-28T12:12:12.787Z [payment-api-5f8c7899c6-gh8jd] INFO:     10.244.0.1:38630 - \"GET /ready HTTP/1.1\" 200 OK",
+      "2026-08-28T12:12:13.814Z [payment-api-5f8c7899c6-gh8jd] INFO:     10.244.0.1:38632 - \"GET /health HTTP/1.1\" 200 OK",
+      "2026-08-28T12:12:14.622Z [payment-api-5d8c4bcc69-jjjnd] INFO:     10.244.0.1:34754 - \"GET /health HTTP/1.1\" 200 OK",
+      "2026-08-28T12:12:15.927Z [payment-api-5d8c4bcc69-jjjnd] INFO:     10.244.0.1:34756 - \"GET /ready HTTP/1.1\" 503 Service Unavailable",
+      "2026-08-28T12:12:17.787Z [payment-api-5f8c7899c6-gh8jd] INFO:httpx:HTTP Request: GET http://downstream-stub.payment-api.svc.cluster.local \"HTTP/1.1 200 OK\"",
+      "2026-08-28T12:12:17.788Z [payment-api-5f8c7899c6-gh8jd] INFO:     10.244.0.1:38640 - \"GET /ready HTTP/1.1\" 200 OK",
+      "2026-08-28T12:12:18.814Z [payment-api-5f8c7899c6-gh8jd] INFO:     10.244.0.1:38646 - \"GET /health HTTP/1.1\" 200 OK",
+      "2026-08-28T12:12:19.622Z [payment-api-5d8c4bcc69-jjjnd] INFO:     10.244.0.1:42174 - \"GET /health HTTP/1.1\" 200 OK",
+      "2026-08-28T12:12:20.925Z [payment-api-5d8c4bcc69-jjjnd] INFO:     10.244.0.1:42184 - \"GET /ready HTTP/1.1\" 503 Service Unavailable",
+      "2026-08-28T12:12:22.787Z [payment-api-5f8c7899c6-gh8jd] INFO:httpx:HTTP Request: GET http://downstream-stub.payment-api.svc.cluster.local \"HTTP/1.1 200 OK\"",
+      "2026-08-28T12:12:22.788Z [payment-api-5f8c7899c6-gh8jd] INFO:     10.244.0.1:57518 - \"GET /ready HTTP/1.1\" 200 OK",
+      "2026-08-28T12:12:23.814Z [payment-api-5f8c7899c6-gh8jd] INFO:     10.244.0.1:57532 - \"GET /health HTTP/1.1\" 200 OK",
+      "2026-08-28T12:12:24.622Z [payment-api-5d8c4bcc69-jjjnd] INFO:     10.244.0.1:42196 - \"GET /health HTTP/1.1\" 200 OK",
+      "2026-08-28T12:12:25.925Z [payment-api-5d8c4bcc69-jjjnd] INFO:     10.244.0.1:42200 - \"GET /ready HTTP/1.1\" 503 Service Unavailable",
+      "2026-08-28T12:12:27.787Z [payment-api-5f8c7899c6-gh8jd] INFO:httpx:HTTP Request: GET http://downstream-stub.payment-api.svc.cluster.local \"HTTP/1.1 200 OK\"",
+      "2026-08-28T12:12:27.788Z [payment-api-5f8c7899c6-gh8jd] INFO:     10.244.0.1:57544 - \"GET /ready HTTP/1.1\" 200 OK",
+      "2026-08-28T12:12:28.813Z [payment-api-5f8c7899c6-gh8jd] INFO:     10.244.0.1:57552 - \"GET /health HTTP/1.1\" 200 OK",
+      "2026-08-28T12:12:29.625Z [payment-api-5d8c4bcc69-jjjnd] INFO:     10.244.0.1:34494 - \"GET /health HTTP/1.1\" 200 OK",
+      "2026-08-28T12:12:30.923Z [payment-api-5d8c4bcc69-jjjnd] INFO:     10.244.0.1:34506 - \"GET /ready HTTP/1.1\" 503 Service Unavailable",
+      "2026-08-28T12:12:32.791Z [payment-api-5f8c7899c6-gh8jd] INFO:httpx:HTTP Request: GET http://downstream-stub.payment-api.svc.cluster.local \"HTTP/1.1 200 OK\"",
+      "2026-08-28T12:12:32.792Z [payment-api-5f8c7899c6-gh8jd] INFO:     10.244.0.1:46718 - \"GET /ready HTTP/1.1\" 200 OK",
+      "2026-08-28T12:12:33.813Z [payment-api-5f8c7899c6-gh8jd] INFO:     10.244.0.1:46724 - \"GET /health HTTP/1.1\" 200 OK",
+      "2026-08-28T12:12:34.623Z [payment-api-5d8c4bcc69-jjjnd] INFO:     10.244.0.1:34514 - \"GET /health HTTP/1.1\" 200 OK",
+      "2026-08-28T12:12:35.929Z [payment-api-5d8c4bcc69-jjjnd] INFO:     10.244.0.1:34528 - \"GET /ready HTTP/1.1\" 503 Service Unavailable",
+      "2026-08-28T12:12:37.786Z [payment-api-5f8c7899c6-gh8jd] INFO:httpx:HTTP Request: GET http://downstream-stub.payment-api.svc.cluster.local \"HTTP/1.1 200 OK\"",
+      "2026-08-28T12:12:37.787Z [payment-api-5f8c7899c6-gh8jd] INFO:     10.244.0.1:46740 - \"GET /ready HTTP/1.1\" 200 OK",
+      "2026-08-28T12:12:38.814Z [payment-api-5f8c7899c6-gh8jd] INFO:     10.244.0.1:46742 - \"GET /health HTTP/1.1\" 200 OK",
+      "2026-08-28T12:12:39.622Z [payment-api-5d8c4bcc69-jjjnd] INFO:     10.244.0.1:58204 - \"GET /health HTTP/1.1\" 200 OK",
+      "2026-08-28T12:12:40.926Z [payment-api-5d8c4bcc69-jjjnd] INFO:     10.244.0.1:58220 - \"GET /ready HTTP/1.1\" 503 Service Unavailable",
+      "2026-08-28T12:12:42.786Z [payment-api-5f8c7899c6-gh8jd] INFO:httpx:HTTP Request: GET http://downstream-stub.payment-api.svc.cluster.local \"HTTP/1.1 200 OK\"",
+      "2026-08-28T12:12:42.787Z [payment-api-5f8c7899c6-gh8jd] INFO:     10.244.0.1:48552 - \"GET /ready HTTP/1.1\" 200 OK",
+      "2026-08-28T12:12:43.814Z [payment-api-5f8c7899c6-gh8jd] INFO:     10.244.0.1:48562 - \"GET /health HTTP/1.1\" 200 OK",
+      "2026-08-28T12:12:44.626Z [payment-api-5d8c4bcc69-jjjnd] INFO:     10.244.0.1:58222 - \"GET /health HTTP/1.1\" 200 OK",
+      "2026-08-28T12:12:45.928Z [payment-api-5d8c4bcc69-jjjnd] INFO:     10.244.0.1:58226 - \"GET /ready HTTP/1.1\" 503 Service Unavailable",
+      "2026-08-28T12:12:47.791Z [payment-api-5f8c7899c6-gh8jd] INFO:httpx:HTTP Request: GET http://downstream-stub.payment-api.svc.cluster.local \"HTTP/1.1 200 OK\"",
+      "2026-08-28T12:12:47.792Z [payment-api-5f8c7899c6-gh8jd] INFO:     10.244.0.1:48570 - \"GET /ready HTTP/1.1\" 200 OK",
+      "2026-08-28T12:12:48.813Z [payment-api-5f8c7899c6-gh8jd] INFO:     10.244.0.1:48582 - \"GET /health HTTP/1.1\" 200 OK",
+      "2026-08-28T12:12:49.622Z [payment-api-5d8c4bcc69-jjjnd] INFO:     10.244.0.1:35364 - \"GET /health HTTP/1.1\" 200 OK",
+      "2026-08-28T12:12:50.926Z [payment-api-5d8c4bcc69-jjjnd] INFO:     10.244.0.1:35372 - \"GET /ready HTTP/1.1\" 503 Service Unavailable",
+      "2026-08-28T12:12:52.785Z [payment-api-5f8c7899c6-gh8jd] INFO:httpx:HTTP Request: GET http://downstream-stub.payment-api.svc.cluster.local \"HTTP/1.1 200 OK\"",
+      "2026-08-28T12:12:52.786Z [payment-api-5f8c7899c6-gh8jd] INFO:     10.244.0.1:44314 - \"GET /ready HTTP/1.1\" 200 OK",
+      "2026-08-28T12:12:53.813Z [payment-api-5f8c7899c6-gh8jd] INFO:     10.244.0.1:44320 - \"GET /health HTTP/1.1\" 200 OK",
+      "2026-08-28T12:12:54.622Z [payment-api-5d8c4bcc69-jjjnd] INFO:     10.244.0.1:35374 - \"GET /health HTTP/1.1\" 200 OK",
+      "2026-08-28T12:12:55.933Z [payment-api-5d8c4bcc69-jjjnd] INFO:     10.244.0.1:35382 - \"GET /ready HTTP/1.1\" 503 Service Unavailable",
+      "2026-08-28T12:12:57.786Z [payment-api-5f8c7899c6-gh8jd] INFO:httpx:HTTP Request: GET http://downstream-stub.payment-api.svc.cluster.local \"HTTP/1.1 200 OK\"",
+      "2026-08-28T12:12:57.787Z [payment-api-5f8c7899c6-gh8jd] INFO:     10.244.0.1:44336 - \"GET /ready HTTP/1.1\" 200 OK",
+      "2026-08-28T12:12:58.814Z [payment-api-5f8c7899c6-gh8jd] INFO:     10.244.0.1:44344 - \"GET /health HTTP/1.1\" 200 OK",
+      "2026-08-28T12:12:59.628Z [payment-api-5d8c4bcc69-jjjnd] INFO:     10.244.0.1:43760 - \"GET /health HTTP/1.1\" 200 OK",
+      "2026-08-28T12:13:00.389Z [payment-api-5d8c4bcc69-jjjnd] INFO:     10.244.0.1:43768 - \"GET /ready HTTP/1.1\" 503 Service Unavailable",
+      "2026-08-28T12:13:00.483Z [payment-api-5d8c4bcc69-jjjnd] INFO:     Shutting down",
+      "2026-08-28T12:13:00.584Z [payment-api-5d8c4bcc69-jjjnd] INFO:     Waiting for application shutdown.",
+      "2026-08-28T12:13:00.584Z [payment-api-5d8c4bcc69-jjjnd] INFO:     Application shutdown complete.",
+      "2026-08-28T12:13:00.584Z [payment-api-5d8c4bcc69-jjjnd] INFO:     Finished server process [1]",
+      "2026-08-28T12:13:01.541Z [payment-api-5f8c7899c6-gh8jd] INFO:httpx:HTTP Request: GET http://downstream-stub.payment-api.svc.cluster.local \"HTTP/1.1 200 OK\"",
+      "2026-08-28T12:13:01.542Z [payment-api-5f8c7899c6-gh8jd] INFO:     127.0.0.1:34932 - \"GET /ready HTTP/1.1\" 200 OK",
+      "2026-08-28T12:13:02.788Z [payment-api-5f8c7899c6-gh8jd] INFO:httpx:HTTP Request: GET http://downstream-stub.payment-api.svc.cluster.local \"HTTP/1.1 200 OK\"",
+      "2026-08-28T12:13:02.789Z [payment-api-5f8c7899c6-gh8jd] INFO:     10.244.0.1:58274 - \"GET /ready HTTP/1.1\" 200 OK",
+      "2026-08-28T12:13:03.813Z [payment-api-5f8c7899c6-gh8jd] INFO:     10.244.0.1:58276 - \"GET /health HTTP/1.1\" 200 OK",
+      "2026-08-28T12:13:07.202Z [payment-api-5f8c7899c6-gh8jd] INFO:httpx:HTTP Request: GET http://downstream-stub.payment-api.svc.cluster.local \"HTTP/1.1 200 OK\"",
+      "2026-08-28T12:13:07.202Z [payment-api-5f8c7899c6-gh8jd] INFO:     127.0.0.1:34946 - \"GET /ready HTTP/1.1\" 200 OK",
+      "2026-08-28T12:13:07.787Z [payment-api-5f8c7899c6-gh8jd] INFO:httpx:HTTP Request: GET http://downstream-stub.payment-api.svc.cluster.local \"HTTP/1.1 200 OK\"",
+      "2026-08-28T12:13:07.788Z [payment-api-5f8c7899c6-gh8jd] INFO:     10.244.0.1:58278 - \"GET /ready HTTP/1.1\" 200 OK",
+      "2026-08-28T12:13:08.814Z [payment-api-5f8c7899c6-gh8jd] INFO:     10.244.0.1:58292 - \"GET /health HTTP/1.1\" 200 OK",
+      "2026-08-28T12:13:12.786Z [payment-api-5f8c7899c6-gh8jd] INFO:httpx:HTTP Request: GET http://downstream-stub.payment-api.svc.cluster.local \"HTTP/1.1 200 OK\"",
+      "2026-08-28T12:13:12.787Z [payment-api-5f8c7899c6-gh8jd] INFO:     10.244.0.1:59996 - \"GET /ready HTTP/1.1\" 200 OK",
+      "2026-08-28T12:13:13.814Z [payment-api-5f8c7899c6-gh8jd] INFO:     10.244.0.1:60008 - \"GET /health HTTP/1.1\" 200 OK",
+      "2026-08-28T12:13:17.786Z [payment-api-5f8c7899c6-gh8jd] INFO:httpx:HTTP Request: GET http://downstream-stub.payment-api.svc.cluster.local \"HTTP/1.1 200 OK\"",
+      "2026-08-28T12:13:17.787Z [payment-api-5f8c7899c6-gh8jd] INFO:     10.244.0.1:60018 - \"GET /ready HTTP/1.1\" 200 OK",
+      "2026-08-28T12:13:18.813Z [payment-api-5f8c7899c6-gh8jd] INFO:     10.244.0.1:60034 - \"GET /health HTTP/1.1\" 200 OK",
+      "2026-08-28T12:13:22.788Z [payment-api-5f8c7899c6-gh8jd] INFO:httpx:HTTP Request: GET http://downstream-stub.payment-api.svc.cluster.local \"HTTP/1.1 200 OK\"",
+      "2026-08-28T12:13:22.788Z [payment-api-5f8c7899c6-gh8jd] INFO:     10.244.0.1:51168 - \"GET /ready HTTP/1.1\" 200 OK",
+      "2026-08-28T12:13:23.814Z [payment-api-5f8c7899c6-gh8jd] INFO:     10.244.0.1:51180 - \"GET /health HTTP/1.1\" 200 OK",
+      "2026-08-28T12:13:27.786Z [payment-api-5f8c7899c6-gh8jd] INFO:httpx:HTTP Request: GET http://downstream-stub.payment-api.svc.cluster.local \"HTTP/1.1 200 OK\"",
+      "2026-08-28T12:13:27.787Z [payment-api-5f8c7899c6-gh8jd] INFO:     10.244.0.1:51188 - \"GET /ready HTTP/1.1\" 200 OK",
+      "2026-08-28T12:13:28.814Z [payment-api-5f8c7899c6-gh8jd] INFO:     10.244.0.1:51202 - \"GET /health HTTP/1.1\" 200 OK",
+      "2026-08-28T12:13:32.790Z [payment-api-5f8c7899c6-gh8jd] INFO:httpx:HTTP Request: GET http://downstream-stub.payment-api.svc.cluster.local \"HTTP/1.1 200 OK\"",
+      "2026-08-28T12:13:32.791Z [payment-api-5f8c7899c6-gh8jd] INFO:     10.244.0.1:42376 - \"GET /ready HTTP/1.1\" 200 OK",
+      "2026-08-28T12:13:33.814Z [payment-api-5f8c7899c6-gh8jd] INFO:     10.244.0.1:42382 - \"GET /health HTTP/1.1\" 200 OK",
+      "2026-08-28T12:13:35.642Z [payment-api-5f8c7899c6-gh8jd] INFO:httpx:HTTP Request: GET http://downstream-stub.payment-api.svc.cluster.local \"HTTP/1.1 200 OK\"",
+      "2026-08-28T12:13:35.643Z [payment-api-5f8c7899c6-gh8jd] INFO:     127.0.0.1:52110 - \"GET /ready HTTP/1.1\" 200 OK",
+      "2026-08-28T12:13:37.787Z [payment-api-5f8c7899c6-gh8jd] INFO:httpx:HTTP Request: GET http://downstream-stub.payment-api.svc.cluster.local \"HTTP/1.1 200 OK\"",
+      "2026-08-28T12:13:37.787Z [payment-api-5f8c7899c6-gh8jd] INFO:     10.244.0.1:42392 - \"GET /ready HTTP/1.1\" 200 OK",
+      "2026-08-28T12:13:38.814Z [payment-api-5f8c7899c6-gh8jd] INFO:     10.244.0.1:42400 - \"GET /health HTTP/1.1\" 200 OK",
+      "2026-08-28T12:13:41.217Z [payment-api-5f8c7899c6-gh8jd] INFO:httpx:HTTP Request: GET http://downstream-stub.payment-api.svc.cluster.local \"HTTP/1.1 200 OK\"",
+      "2026-08-28T12:13:41.218Z [payment-api-5f8c7899c6-gh8jd] INFO:     127.0.0.1:51890 - \"GET /ready HTTP/1.1\" 200 OK",
+      "2026-08-28T12:13:42.787Z [payment-api-5f8c7899c6-gh8jd] INFO:httpx:HTTP Request: GET http://downstream-stub.payment-api.svc.cluster.local \"HTTP/1.1 200 OK\"",
+      "2026-08-28T12:13:42.788Z [payment-api-5f8c7899c6-gh8jd] INFO:     10.244.0.1:37196 - \"GET /ready HTTP/1.1\" 200 OK",
+      "2026-08-28T12:13:43.814Z [payment-api-5f8c7899c6-gh8jd] INFO:     10.244.0.1:37208 - \"GET /health HTTP/1.1\" 200 OK",
+      "2026-08-28T12:13:47.786Z [payment-api-5f8c7899c6-gh8jd] INFO:httpx:HTTP Request: GET http://downstream-stub.payment-api.svc.cluster.local \"HTTP/1.1 200 OK\"",
+      "2026-08-28T12:13:47.786Z [payment-api-5f8c7899c6-gh8jd] INFO:     10.244.0.1:37222 - \"GET /ready HTTP/1.1\" 200 OK",
+      "2026-08-28T12:13:48.813Z [payment-api-5f8c7899c6-gh8jd] INFO:     10.244.0.1:37226 - \"GET /health HTTP/1.1\" 200 OK",
+      "2026-08-28T12:13:52.785Z [payment-api-5f8c7899c6-gh8jd] INFO:httpx:HTTP Request: GET http://downstream-stub.payment-api.svc.cluster.local \"HTTP/1.1 200 OK\"",
+      "2026-08-28T12:13:52.785Z [payment-api-5f8c7899c6-gh8jd] INFO:     10.244.0.1:53012 - \"GET /ready HTTP/1.1\" 200 OK",
+      "2026-08-28T12:13:53.814Z [payment-api-5f8c7899c6-gh8jd] INFO:     10.244.0.1:53024 - \"GET /health HTTP/1.1\" 200 OK",
+      "2026-08-28T12:13:57.785Z [payment-api-5f8c7899c6-gh8jd] INFO:httpx:HTTP Request: GET http://downstream-stub.payment-api.svc.cluster.local \"HTTP/1.1 200 OK\"",
+      "2026-08-28T12:13:57.786Z [payment-api-5f8c7899c6-gh8jd] INFO:     10.244.0.1:53030 - \"GET /ready HTTP/1.1\" 200 OK",
+      "2026-08-28T12:13:58.813Z [payment-api-5f8c7899c6-gh8jd] INFO:     10.244.0.1:53040 - \"GET /health HTTP/1.1\" 200 OK",
+      "2026-08-28T12:14:02.788Z [payment-api-5f8c7899c6-gh8jd] INFO:httpx:HTTP Request: GET http://downstream-stub.payment-api.svc.cluster.local \"HTTP/1.1 200 OK\"",
+      "2026-08-28T12:14:02.790Z [payment-api-5f8c7899c6-gh8jd] INFO:     10.244.0.1:35728 - \"GET /ready HTTP/1.1\" 200 OK",
+      "2026-08-28T12:14:03.814Z [payment-api-5f8c7899c6-gh8jd] INFO:     10.244.0.1:35738 - \"GET /health HTTP/1.1\" 200 OK",
+      "2026-08-28T12:14:07.788Z [payment-api-5f8c7899c6-gh8jd] INFO:httpx:HTTP Request: GET http://downstream-stub.payment-api.svc.cluster.local \"HTTP/1.1 200 OK\"",
+      "2026-08-28T12:14:07.789Z [payment-api-5f8c7899c6-gh8jd] INFO:     10.244.0.1:35752 - \"GET /ready HTTP/1.1\" 200 OK",
+      "2026-08-28T12:14:08.500Z [payment-api-7c886558c8-f29pk] INFO:     Started server process [1]",
+      "2026-08-28T12:14:08.500Z [payment-api-7c886558c8-f29pk] INFO:     Waiting for application startup.",
+      "2026-08-28T12:14:08.500Z [payment-api-7c886558c8-f29pk] INFO:     Application startup complete.",
+      "2026-08-28T12:14:08.500Z [payment-api-7c886558c8-f29pk] INFO:     Uvicorn running on http://0.0.0.0:8000 (Press CTRL+C to quit)",
+      "2026-08-28T12:14:08.814Z [payment-api-5f8c7899c6-gh8jd] INFO:     10.244.0.1:35768 - \"GET /health HTTP/1.1\" 200 OK",
+      "2026-08-28T12:14:11.685Z [payment-api-7c886558c8-f29pk] INFO:     10.244.0.1:52186 - \"GET /health HTTP/1.1\" 200 OK",
+      "2026-08-28T12:14:12.785Z [payment-api-5f8c7899c6-gh8jd] INFO:httpx:HTTP Request: GET http://downstream-stub.payment-api.svc.cluster.local \"HTTP/1.1 200 OK\"",
+      "2026-08-28T12:14:12.785Z [payment-api-5f8c7899c6-gh8jd] INFO:     10.244.0.1:45398 - \"GET /ready HTTP/1.1\" 200 OK",
+      "2026-08-28T12:14:13.233Z [payment-api-7c886558c8-f29pk] INFO:httpx:HTTP Request: GET http://downstream-stub.payment-api.svc.cluster.local \"HTTP/1.1 200 OK\"",
+      "2026-08-28T12:14:13.234Z [payment-api-7c886558c8-f29pk] INFO:     10.244.0.1:52200 - \"GET /ready HTTP/1.1\" 200 OK",
+      "2026-08-28T12:14:13.286Z [payment-api-5f8c7899c6-gh8jd] INFO:     Shutting down",
+      "2026-08-28T12:14:13.387Z [payment-api-5f8c7899c6-gh8jd] INFO:     Waiting for application shutdown.",
+      "2026-08-28T12:14:13.387Z [payment-api-5f8c7899c6-gh8jd] INFO:     Application shutdown complete.",
+      "2026-08-28T12:14:13.387Z [payment-api-5f8c7899c6-gh8jd] INFO:     Finished server process [1]",
+      "2026-08-28T12:14:14.310Z [payment-api-7c886558c8-f29pk] INFO:httpx:HTTP Request: GET http://downstream-stub.payment-api.svc.cluster.local \"HTTP/1.1 200 OK\"",
+      "2026-08-28T12:14:14.310Z [payment-api-7c886558c8-f29pk] INFO:     127.0.0.1:36372 - \"GET /ready HTTP/1.1\" 200 OK",
+      "2026-08-28T12:14:16.662Z [payment-api-7c886558c8-f29pk] INFO:     10.244.0.1:52214 - \"GET /health HTTP/1.1\" 200 OK",
+      "2026-08-28T12:14:18.178Z [payment-api-7c886558c8-f29pk] INFO:httpx:HTTP Request: GET http://downstream-stub.payment-api.svc.cluster.local \"HTTP/1.1 200 OK\"",
+      "2026-08-28T12:14:18.179Z [payment-api-7c886558c8-f29pk] INFO:     10.244.0.1:52226 - \"GET /ready HTTP/1.1\" 200 OK",
+      "2026-08-28T12:14:20.315Z [payment-api-7c886558c8-f29pk] INFO:httpx:HTTP Request: GET http://downstream-stub.payment-api.svc.cluster.local \"HTTP/1.1 200 OK\"",
+      "2026-08-28T12:14:20.316Z [payment-api-7c886558c8-f29pk] INFO:     127.0.0.1:42748 - \"GET /ready HTTP/1.1\" 200 OK",
+      "2026-08-28T12:14:21.663Z [payment-api-7c886558c8-f29pk] INFO:     10.244.0.1:36282 - \"GET /health HTTP/1.1\" 200 OK",
+      "2026-08-28T12:14:22.191Z [payment-api-98867c74d-h6j8v] ERROR:payment_api:startup failed: invalid configuration: 1 validation error for Settings",
+      "2026-08-28T12:14:22.191Z [payment-api-98867c74d-h6j8v] api_key",
+      "2026-08-28T12:14:22.191Z [payment-api-98867c74d-h6j8v]   Value error, must not be empty [type=value_error, input_value='   ', input_type=str]",
+      "2026-08-28T12:14:22.191Z [payment-api-98867c74d-h6j8v]     For further information visit https://errors.pydantic.dev/2.13/v/value_error",
+      "2026-08-28T12:14:23.177Z [payment-api-7c886558c8-f29pk] INFO:httpx:HTTP Request: GET http://downstream-stub.payment-api.svc.cluster.local \"HTTP/1.1 200 OK\"",
+      "2026-08-28T12:14:23.178Z [payment-api-7c886558c8-f29pk] INFO:     10.244.0.1:36286 - \"GET /ready HTTP/1.1\" 200 OK",
+      "2026-08-28T12:14:24.452Z [payment-api-98867c74d-h6j8v] ERROR:payment_api:startup failed: invalid configuration: 1 validation error for Settings",
+      "2026-08-28T12:14:24.452Z [payment-api-98867c74d-h6j8v] api_key",
+      "2026-08-28T12:14:24.452Z [payment-api-98867c74d-h6j8v]   Value error, must not be empty [type=value_error, input_value='   ', input_type=str]",
+      "2026-08-28T12:14:24.452Z [payment-api-98867c74d-h6j8v]     For further information visit https://errors.pydantic.dev/2.13/v/value_error",
+      "2026-08-28T12:14:26.663Z [payment-api-7c886558c8-f29pk] INFO:     10.244.0.1:36302 - \"GET /health HTTP/1.1\" 200 OK",
+      "2026-08-28T12:14:28.181Z [payment-api-7c886558c8-f29pk] INFO:httpx:HTTP Request: GET http://downstream-stub.payment-api.svc.cluster.local \"HTTP/1.1 200 OK\"",
+      "2026-08-28T12:14:28.182Z [payment-api-7c886558c8-f29pk] INFO:     10.244.0.1:36304 - \"GET /ready HTTP/1.1\" 200 OK",
+      "2026-08-28T12:14:31.663Z [payment-api-7c886558c8-f29pk] INFO:     10.244.0.1:39028 - \"GET /health HTTP/1.1\" 200 OK",
+      "2026-08-28T12:14:33.177Z [payment-api-7c886558c8-f29pk] INFO:httpx:HTTP Request: GET http://downstream-stub.payment-api.svc.cluster.local \"HTTP/1.1 200 OK\"",
+      "2026-08-28T12:14:33.178Z [payment-api-7c886558c8-f29pk] INFO:     10.244.0.1:39038 - \"GET /ready HTTP/1.1\" 200 OK",
+      "2026-08-28T12:14:36.662Z [payment-api-7c886558c8-f29pk] INFO:     10.244.0.1:39052 - \"GET /health HTTP/1.1\" 200 OK",
+      "2026-08-28T12:14:38.177Z [payment-api-7c886558c8-f29pk] INFO:httpx:HTTP Request: GET http://downstream-stub.payment-api.svc.cluster.local \"HTTP/1.1 200 OK\"",
+      "2026-08-28T12:14:38.178Z [payment-api-7c886558c8-f29pk] INFO:     10.244.0.1:39066 - \"GET /ready HTTP/1.1\" 200 OK",
+      "2026-08-28T12:14:41.662Z [payment-api-7c886558c8-f29pk] INFO:     10.244.0.1:38046 - \"GET /health HTTP/1.1\" 200 OK"
+    ],
+    "logs_downstream_stub": [
+      "2026-08-28T12:11:47.787Z [downstream-stub-678f9959b9-mfxpl] 10.244.0.13 - - [28/Aug/2026:12:11:47 +0000] \"GET / HTTP/1.1\" 200 3 \"-\" \"python-httpx/0.28.1\" \"-\"",
+      "2026-08-28T12:11:48.839Z [downstream-stub-678f9959b9-mfxpl] 10.244.0.13 - - [28/Aug/2026:12:11:48 +0000] \"GET / HTTP/1.1\" 200 3 \"-\" \"python-httpx/0.28.1\" \"-\"",
+      "2026-08-28T12:11:50.889Z [downstream-stub-678f9959b9-mfxpl] 10.244.0.1 - - [28/Aug/2026:12:11:50 +0000] \"GET / HTTP/1.1\" 200 3 \"-\" \"kube-probe/1.32\" \"-\"",
+      "2026-08-28T12:11:52.788Z [downstream-stub-678f9959b9-mfxpl] 10.244.0.13 - - [28/Aug/2026:12:11:52 +0000] \"GET / HTTP/1.1\" 200 3 \"-\" \"python-httpx/0.28.1\" \"-\"",
+      "2026-08-28T12:11:54.239Z [downstream-stub-678f9959b9-mfxpl] 10.244.0.13 - - [28/Aug/2026:12:11:54 +0000] \"GET / HTTP/1.1\" 200 3 \"-\" \"python-httpx/0.28.1\" \"-\"",
+      "2026-08-28T12:11:55.888Z [downstream-stub-678f9959b9-mfxpl] 10.244.0.1 - - [28/Aug/2026:12:11:55 +0000] \"GET / HTTP/1.1\" 200 3 \"-\" \"kube-probe/1.32\" \"-\"",
+      "2026-08-28T12:11:57.786Z [downstream-stub-678f9959b9-mfxpl] 10.244.0.13 - - [28/Aug/2026:12:11:57 +0000] \"GET / HTTP/1.1\" 200 3 \"-\" \"python-httpx/0.28.1\" \"-\"",
+      "2026-08-28T12:12:00.888Z [downstream-stub-678f9959b9-mfxpl] 10.244.0.1 - - [28/Aug/2026:12:12:00 +0000] \"GET / HTTP/1.1\" 200 3 \"-\" \"kube-probe/1.32\" \"-\"",
+      "2026-08-28T12:12:02.790Z [downstream-stub-678f9959b9-mfxpl] 10.244.0.13 - - [28/Aug/2026:12:12:02 +0000] \"GET / HTTP/1.1\" 200 3 \"-\" \"python-httpx/0.28.1\" \"-\"",
+      "2026-08-28T12:12:05.888Z [downstream-stub-678f9959b9-mfxpl] 10.244.0.1 - - [28/Aug/2026:12:12:05 +0000] \"GET / HTTP/1.1\" 200 3 \"-\" \"kube-probe/1.32\" \"-\"",
+      "2026-08-28T12:12:07.786Z [downstream-stub-678f9959b9-mfxpl] 10.244.0.13 - - [28/Aug/2026:12:12:07 +0000] \"GET / HTTP/1.1\" 200 3 \"-\" \"python-httpx/0.28.1\" \"-\"",
+      "2026-08-28T12:12:10.888Z [downstream-stub-678f9959b9-mfxpl] 10.244.0.1 - - [28/Aug/2026:12:12:10 +0000] \"GET / HTTP/1.1\" 200 3 \"-\" \"kube-probe/1.32\" \"-\"",
+      "2026-08-28T12:12:12.786Z [downstream-stub-678f9959b9-mfxpl] 10.244.0.13 - - [28/Aug/2026:12:12:12 +0000] \"GET / HTTP/1.1\" 200 3 \"-\" \"python-httpx/0.28.1\" \"-\"",
+      "2026-08-28T12:12:15.888Z [downstream-stub-678f9959b9-mfxpl] 10.244.0.1 - - [28/Aug/2026:12:12:15 +0000] \"GET / HTTP/1.1\" 200 3 \"-\" \"kube-probe/1.32\" \"-\"",
+      "2026-08-28T12:12:17.787Z [downstream-stub-678f9959b9-mfxpl] 10.244.0.13 - - [28/Aug/2026:12:12:17 +0000] \"GET / HTTP/1.1\" 200 3 \"-\" \"python-httpx/0.28.1\" \"-\"",
+      "2026-08-28T12:12:20.889Z [downstream-stub-678f9959b9-mfxpl] 10.244.0.1 - - [28/Aug/2026:12:12:20 +0000] \"GET / HTTP/1.1\" 200 3 \"-\" \"kube-probe/1.32\" \"-\"",
+      "2026-08-28T12:12:22.787Z [downstream-stub-678f9959b9-mfxpl] 10.244.0.13 - - [28/Aug/2026:12:12:22 +0000] \"GET / HTTP/1.1\" 200 3 \"-\" \"python-httpx/0.28.1\" \"-\"",
+      "2026-08-28T12:12:25.888Z [downstream-stub-678f9959b9-mfxpl] 10.244.0.1 - - [28/Aug/2026:12:12:25 +0000] \"GET / HTTP/1.1\" 200 3 \"-\" \"kube-probe/1.32\" \"-\"",
+      "2026-08-28T12:12:27.787Z [downstream-stub-678f9959b9-mfxpl] 10.244.0.13 - - [28/Aug/2026:12:12:27 +0000] \"GET / HTTP/1.1\" 200 3 \"-\" \"python-httpx/0.28.1\" \"-\"",
+      "2026-08-28T12:12:30.889Z [downstream-stub-678f9959b9-mfxpl] 10.244.0.1 - - [28/Aug/2026:12:12:30 +0000] \"GET / HTTP/1.1\" 200 3 \"-\" \"kube-probe/1.32\" \"-\"",
+      "2026-08-28T12:12:32.790Z [downstream-stub-678f9959b9-mfxpl] 10.244.0.13 - - [28/Aug/2026:12:12:32 +0000] \"GET / HTTP/1.1\" 200 3 \"-\" \"python-httpx/0.28.1\" \"-\"",
+      "2026-08-28T12:12:35.888Z [downstream-stub-678f9959b9-mfxpl] 10.244.0.1 - - [28/Aug/2026:12:12:35 +0000] \"GET / HTTP/1.1\" 200 3 \"-\" \"kube-probe/1.32\" \"-\"",
+      "2026-08-28T12:12:37.786Z [downstream-stub-678f9959b9-mfxpl] 10.244.0.13 - - [28/Aug/2026:12:12:37 +0000] \"GET / HTTP/1.1\" 200 3 \"-\" \"python-httpx/0.28.1\" \"-\"",
+      "2026-08-28T12:12:40.888Z [downstream-stub-678f9959b9-mfxpl] 10.244.0.1 - - [28/Aug/2026:12:12:40 +0000] \"GET / HTTP/1.1\" 200 3 \"-\" \"kube-probe/1.32\" \"-\"",
+      "2026-08-28T12:12:42.786Z [downstream-stub-678f9959b9-mfxpl] 10.244.0.13 - - [28/Aug/2026:12:12:42 +0000] \"GET / HTTP/1.1\" 200 3 \"-\" \"python-httpx/0.28.1\" \"-\"",
+      "2026-08-28T12:12:45.888Z [downstream-stub-678f9959b9-mfxpl] 10.244.0.1 - - [28/Aug/2026:12:12:45 +0000] \"GET / HTTP/1.1\" 200 3 \"-\" \"kube-probe/1.32\" \"-\"",
+      "2026-08-28T12:12:47.790Z [downstream-stub-678f9959b9-mfxpl] 10.244.0.13 - - [28/Aug/2026:12:12:47 +0000] \"GET / HTTP/1.1\" 200 3 \"-\" \"python-httpx/0.28.1\" \"-\"",
+      "2026-08-28T12:12:50.888Z [downstream-stub-678f9959b9-mfxpl] 10.244.0.1 - - [28/Aug/2026:12:12:50 +0000] \"GET / HTTP/1.1\" 200 3 \"-\" \"kube-probe/1.32\" \"-\"",
+      "2026-08-28T12:12:52.785Z [downstream-stub-678f9959b9-mfxpl] 10.244.0.13 - - [28/Aug/2026:12:12:52 +0000] \"GET / HTTP/1.1\" 200 3 \"-\" \"python-httpx/0.28.1\" \"-\"",
+      "2026-08-28T12:12:55.889Z [downstream-stub-678f9959b9-mfxpl] 10.244.0.1 - - [28/Aug/2026:12:12:55 +0000] \"GET / HTTP/1.1\" 200 3 \"-\" \"kube-probe/1.32\" \"-\"",
+      "2026-08-28T12:12:57.786Z [downstream-stub-678f9959b9-mfxpl] 10.244.0.13 - - [28/Aug/2026:12:12:57 +0000] \"GET / HTTP/1.1\" 200 3 \"-\" \"python-httpx/0.28.1\" \"-\"",
+      "2026-08-28T12:13:00.888Z [downstream-stub-678f9959b9-mfxpl] 10.244.0.1 - - [28/Aug/2026:12:13:00 +0000] \"GET / HTTP/1.1\" 200 3 \"-\" \"kube-probe/1.32\" \"-\"",
+      "2026-08-28T12:13:01.541Z [downstream-stub-678f9959b9-mfxpl] 10.244.0.13 - - [28/Aug/2026:12:13:01 +0000] \"GET / HTTP/1.1\" 200 3 \"-\" \"python-httpx/0.28.1\" \"-\"",
+      "2026-08-28T12:13:02.787Z [downstream-stub-678f9959b9-mfxpl] 10.244.0.13 - - [28/Aug/2026:12:13:02 +0000] \"GET / HTTP/1.1\" 200 3 \"-\" \"python-httpx/0.28.1\" \"-\"",
+      "2026-08-28T12:13:05.888Z [downstream-stub-678f9959b9-mfxpl] 10.244.0.1 - - [28/Aug/2026:12:13:05 +0000] \"GET / HTTP/1.1\" 200 3 \"-\" \"kube-probe/1.32\" \"-\"",
+      "2026-08-28T12:13:07.202Z [downstream-stub-678f9959b9-mfxpl] 10.244.0.13 - - [28/Aug/2026:12:13:07 +0000] \"GET / HTTP/1.1\" 200 3 \"-\" \"python-httpx/0.28.1\" \"-\"",
+      "2026-08-28T12:13:07.787Z [downstream-stub-678f9959b9-mfxpl] 10.244.0.13 - - [28/Aug/2026:12:13:07 +0000] \"GET / HTTP/1.1\" 200 3 \"-\" \"python-httpx/0.28.1\" \"-\"",
+      "2026-08-28T12:13:10.888Z [downstream-stub-678f9959b9-mfxpl] 10.244.0.1 - - [28/Aug/2026:12:13:10 +0000] \"GET / HTTP/1.1\" 200 3 \"-\" \"kube-probe/1.32\" \"-\"",
+      "2026-08-28T12:13:12.786Z [downstream-stub-678f9959b9-mfxpl] 10.244.0.13 - - [28/Aug/2026:12:13:12 +0000] \"GET / HTTP/1.1\" 200 3 \"-\" \"python-httpx/0.28.1\" \"-\"",
+      "2026-08-28T12:13:15.889Z [downstream-stub-678f9959b9-mfxpl] 10.244.0.1 - - [28/Aug/2026:12:13:15 +0000] \"GET / HTTP/1.1\" 200 3 \"-\" \"kube-probe/1.32\" \"-\"",
+      "2026-08-28T12:13:17.786Z [downstream-stub-678f9959b9-mfxpl] 10.244.0.13 - - [28/Aug/2026:12:13:17 +0000] \"GET / HTTP/1.1\" 200 3 \"-\" \"python-httpx/0.28.1\" \"-\"",
+      "2026-08-28T12:13:20.889Z [downstream-stub-678f9959b9-mfxpl] 10.244.0.1 - - [28/Aug/2026:12:13:20 +0000] \"GET / HTTP/1.1\" 200 3 \"-\" \"kube-probe/1.32\" \"-\"",
+      "2026-08-28T12:13:22.788Z [downstream-stub-678f9959b9-mfxpl] 10.244.0.13 - - [28/Aug/2026:12:13:22 +0000] \"GET / HTTP/1.1\" 200 3 \"-\" \"python-httpx/0.28.1\" \"-\"",
+      "2026-08-28T12:13:25.888Z [downstream-stub-678f9959b9-mfxpl] 10.244.0.1 - - [28/Aug/2026:12:13:25 +0000] \"GET / HTTP/1.1\" 200 3 \"-\" \"kube-probe/1.32\" \"-\"",
+      "2026-08-28T12:13:27.786Z [downstream-stub-678f9959b9-mfxpl] 10.244.0.13 - - [28/Aug/2026:12:13:27 +0000] \"GET / HTTP/1.1\" 200 3 \"-\" \"python-httpx/0.28.1\" \"-\"",
+      "2026-08-28T12:13:30.888Z [downstream-stub-678f9959b9-mfxpl] 10.244.0.1 - - [28/Aug/2026:12:13:30 +0000] \"GET / HTTP/1.1\" 200 3 \"-\" \"kube-probe/1.32\" \"-\"",
+      "2026-08-28T12:13:32.790Z [downstream-stub-678f9959b9-mfxpl] 10.244.0.13 - - [28/Aug/2026:12:13:32 +0000] \"GET / HTTP/1.1\" 200 3 \"-\" \"python-httpx/0.28.1\" \"-\"",
+      "2026-08-28T12:13:35.641Z [downstream-stub-678f9959b9-mfxpl] 10.244.0.13 - - [28/Aug/2026:12:13:35 +0000] \"GET / HTTP/1.1\" 200 3 \"-\" \"python-httpx/0.28.1\" \"-\"",
+      "2026-08-28T12:13:35.888Z [downstream-stub-678f9959b9-mfxpl] 10.244.0.1 - - [28/Aug/2026:12:13:35 +0000] \"GET / HTTP/1.1\" 200 3 \"-\" \"kube-probe/1.32\" \"-\"",
+      "2026-08-28T12:13:37.787Z [downstream-stub-678f9959b9-mfxpl] 10.244.0.13 - - [28/Aug/2026:12:13:37 +0000] \"GET / HTTP/1.1\" 200 3 \"-\" \"python-httpx/0.28.1\" \"-\"",
+      "2026-08-28T12:13:40.888Z [downstream-stub-678f9959b9-mfxpl] 10.244.0.1 - - [28/Aug/2026:12:13:40 +0000] \"GET / HTTP/1.1\" 200 3 \"-\" \"kube-probe/1.32\" \"-\"",
+      "2026-08-28T12:13:41.216Z [downstream-stub-678f9959b9-mfxpl] 10.244.0.13 - - [28/Aug/2026:12:13:41 +0000] \"GET / HTTP/1.1\" 200 3 \"-\" \"python-httpx/0.28.1\" \"-\"",
+      "2026-08-28T12:13:42.787Z [downstream-stub-678f9959b9-mfxpl] 10.244.0.13 - - [28/Aug/2026:12:13:42 +0000] \"GET / HTTP/1.1\" 200 3 \"-\" \"python-httpx/0.28.1\" \"-\"",
+      "2026-08-28T12:13:45.888Z [downstream-stub-678f9959b9-mfxpl] 10.244.0.1 - - [28/Aug/2026:12:13:45 +0000] \"GET / HTTP/1.1\" 200 3 \"-\" \"kube-probe/1.32\" \"-\"",
+      "2026-08-28T12:13:47.786Z [downstream-stub-678f9959b9-mfxpl] 10.244.0.13 - - [28/Aug/2026:12:13:47 +0000] \"GET / HTTP/1.1\" 200 3 \"-\" \"python-httpx/0.28.1\" \"-\"",
+      "2026-08-28T12:13:50.888Z [downstream-stub-678f9959b9-mfxpl] 10.244.0.1 - - [28/Aug/2026:12:13:50 +0000] \"GET / HTTP/1.1\" 200 3 \"-\" \"kube-probe/1.32\" \"-\"",
+      "2026-08-28T12:13:52.785Z [downstream-stub-678f9959b9-mfxpl] 10.244.0.13 - - [28/Aug/2026:12:13:52 +0000] \"GET / HTTP/1.1\" 200 3 \"-\" \"python-httpx/0.28.1\" \"-\"",
+      "2026-08-28T12:13:55.888Z [downstream-stub-678f9959b9-mfxpl] 10.244.0.1 - - [28/Aug/2026:12:13:55 +0000] \"GET / HTTP/1.1\" 200 3 \"-\" \"kube-probe/1.32\" \"-\"",
+      "2026-08-28T12:13:57.785Z [downstream-stub-678f9959b9-mfxpl] 10.244.0.13 - - [28/Aug/2026:12:13:57 +0000] \"GET / HTTP/1.1\" 200 3 \"-\" \"python-httpx/0.28.1\" \"-\"",
+      "2026-08-28T12:14:00.888Z [downstream-stub-678f9959b9-mfxpl] 10.244.0.1 - - [28/Aug/2026:12:14:00 +0000] \"GET / HTTP/1.1\" 200 3 \"-\" \"kube-probe/1.32\" \"-\"",
+      "2026-08-28T12:14:02.788Z [downstream-stub-678f9959b9-mfxpl] 10.244.0.13 - - [28/Aug/2026:12:14:02 +0000] \"GET / HTTP/1.1\" 200 3 \"-\" \"python-httpx/0.28.1\" \"-\"",
+      "2026-08-28T12:14:05.889Z [downstream-stub-678f9959b9-mfxpl] 10.244.0.1 - - [28/Aug/2026:12:14:05 +0000] \"GET / HTTP/1.1\" 200 3 \"-\" \"kube-probe/1.32\" \"-\"",
+      "2026-08-28T12:14:07.788Z [downstream-stub-678f9959b9-mfxpl] 10.244.0.13 - - [28/Aug/2026:12:14:07 +0000] \"GET / HTTP/1.1\" 200 3 \"-\" \"python-httpx/0.28.1\" \"-\"",
+      "2026-08-28T12:14:10.888Z [downstream-stub-678f9959b9-mfxpl] 10.244.0.1 - - [28/Aug/2026:12:14:10 +0000] \"GET / HTTP/1.1\" 200 3 \"-\" \"kube-probe/1.32\" \"-\"",
+      "2026-08-28T12:14:12.784Z [downstream-stub-678f9959b9-mfxpl] 10.244.0.13 - - [28/Aug/2026:12:14:12 +0000] \"GET / HTTP/1.1\" 200 3 \"-\" \"python-httpx/0.28.1\" \"-\"",
+      "2026-08-28T12:14:13.233Z [downstream-stub-678f9959b9-mfxpl] 10.244.0.17 - - [28/Aug/2026:12:14:13 +0000] \"GET / HTTP/1.1\" 200 3 \"-\" \"python-httpx/0.28.1\" \"-\"",
+      "2026-08-28T12:14:14.309Z [downstream-stub-678f9959b9-mfxpl] 10.244.0.17 - - [28/Aug/2026:12:14:14 +0000] \"GET / HTTP/1.1\" 200 3 \"-\" \"python-httpx/0.28.1\" \"-\"",
+      "2026-08-28T12:14:15.888Z [downstream-stub-678f9959b9-mfxpl] 10.244.0.1 - - [28/Aug/2026:12:14:15 +0000] \"GET / HTTP/1.1\" 200 3 \"-\" \"kube-probe/1.32\" \"-\"",
+      "2026-08-28T12:14:18.178Z [downstream-stub-678f9959b9-mfxpl] 10.244.0.17 - - [28/Aug/2026:12:14:18 +0000] \"GET / HTTP/1.1\" 200 3 \"-\" \"python-httpx/0.28.1\" \"-\"",
+      "2026-08-28T12:14:20.315Z [downstream-stub-678f9959b9-mfxpl] 10.244.0.17 - - [28/Aug/2026:12:14:20 +0000] \"GET / HTTP/1.1\" 200 3 \"-\" \"python-httpx/0.28.1\" \"-\"",
+      "2026-08-28T12:14:20.888Z [downstream-stub-678f9959b9-mfxpl] 10.244.0.1 - - [28/Aug/2026:12:14:20 +0000] \"GET / HTTP/1.1\" 200 3 \"-\" \"kube-probe/1.32\" \"-\"",
+      "2026-08-28T12:14:23.177Z [downstream-stub-678f9959b9-mfxpl] 10.244.0.17 - - [28/Aug/2026:12:14:23 +0000] \"GET / HTTP/1.1\" 200 3 \"-\" \"python-httpx/0.28.1\" \"-\"",
+      "2026-08-28T12:14:25.888Z [downstream-stub-678f9959b9-mfxpl] 10.244.0.1 - - [28/Aug/2026:12:14:25 +0000] \"GET / HTTP/1.1\" 200 3 \"-\" \"kube-probe/1.32\" \"-\"",
+      "2026-08-28T12:14:28.181Z [downstream-stub-678f9959b9-mfxpl] 10.244.0.17 - - [28/Aug/2026:12:14:28 +0000] \"GET / HTTP/1.1\" 200 3 \"-\" \"python-httpx/0.28.1\" \"-\"",
+      "2026-08-28T12:14:30.888Z [downstream-stub-678f9959b9-mfxpl] 10.244.0.1 - - [28/Aug/2026:12:14:30 +0000] \"GET / HTTP/1.1\" 200 3 \"-\" \"kube-probe/1.32\" \"-\"",
+      "2026-08-28T12:14:33.177Z [downstream-stub-678f9959b9-mfxpl] 10.244.0.17 - - [28/Aug/2026:12:14:33 +0000] \"GET / HTTP/1.1\" 200 3 \"-\" \"python-httpx/0.28.1\" \"-\"",
+      "2026-08-28T12:14:35.888Z [downstream-stub-678f9959b9-mfxpl] 10.244.0.1 - - [28/Aug/2026:12:14:35 +0000] \"GET / HTTP/1.1\" 200 3 \"-\" \"kube-probe/1.32\" \"-\"",
+      "2026-08-28T12:14:38.177Z [downstream-stub-678f9959b9-mfxpl] 10.244.0.17 - - [28/Aug/2026:12:14:38 +0000] \"GET / HTTP/1.1\" 200 3 \"-\" \"python-httpx/0.28.1\" \"-\""
+    ]
+  }
+}

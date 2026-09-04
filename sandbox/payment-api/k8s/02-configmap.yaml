@@ -1,0 +1,12 @@
+# Editing PAYMENT_API_DOWNSTREAM_URL here is the config-mismatch fault: the
+# dependency stays healthy, the config points somewhere it should not.
+#
+# For the dependency-failure fault, leave this correct and scale
+# downstream-stub to zero instead. See 01-downstream-stub.yaml.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: payment-api-config
+  namespace: payment-api
+data:
+  PAYMENT_API_DOWNSTREAM_URL: "http://downstream-stub.payment-api.svc.cluster.local"

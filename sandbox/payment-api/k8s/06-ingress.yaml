@@ -1,0 +1,21 @@
+# kind-specific piece. Targeting GCP later means replacing this file only -
+# ingressClassName and host will differ (e.g. GKE's managed ingress class and
+# a real DNS name instead of payment-api.local).
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: payment-api
+  namespace: payment-api
+spec:
+  ingressClassName: nginx
+  rules:
+    - host: payment-api.local
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: payment-api
+                port:
+                  number: 8000

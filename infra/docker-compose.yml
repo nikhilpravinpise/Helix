@@ -1,0 +1,61 @@
+# Host-side log store for the kind sandbox (ticket #6).
+#
+# Elasticsearch and Kibana run in Docker ON THE HOST, not inside the kind
+# cluster. The cluster is the thing being deliberately broken by the fault
+# catalogue, so a log store that lived inside it would die with the system
+# it is supposed to be observing - same reasoning as decision D1 for
+# Jenkins. Logstash is out of scope: subphase 1.3 only needs bounded log
+# queries by service, time window and level, which Filebeat shipping
+# straight to Elasticsearch already covers.
+#
+# Security is disabled deliberately - this is a local, single-user sandbox,
+# not a shared or production deployment.
+#
+# Memory is capped explicitly. This host runs with roughly 5GB free
+# alongside a kind cluster, so the Elasticsearch JVM heap is pinned small
+# and the container is given a hard memory ceiling so it cannot balloon
+# past it.
+#
+# The project name is pinned rather than left to Compose's default, which is
+# the compose file's parent directory - "infra". That default is not unique
+# on a developer machine: another project on this host also lives at
+# <repo>/infra/docker-compose.yml and so claims the same project name, and
+# its containers showed up as orphans of this stack. Sharing a project name
+# means logging-down.sh's `down --volumes` is operating on a namespace that
+# holds someone else's containers and volumes.
+name: helix-logging
+
+services:
+  elasticsearch:
+    image: docker.elastic.co/elasticsearch/elasticsearch:8.15.3
+    container_name: helix-elasticsearch
+    environment:
+      - discovery.type=single-node
+      - xpack.security.enabled=false
+      - xpack.security.http.ssl.enabled=false
+      - ES_JAVA_OPTS=-Xms512m -Xmx512m
+    mem_limit: 1g
+    # Bound to all interfaces, not just localhost: pods inside the kind
+    # cluster reach this over the docker bridge gateway (see
+    # infra/filebeat-daemonset.yaml), which counts as an external interface
+    # from the container's point of view.
+    ports:
+      - "9200:9200"
+    healthcheck:
+      test: ["CMD-SHELL", "curl -sf http://localhost:9200/_cluster/health || exit 1"]
+      interval: 5s
+      timeout: 5s
+      retries: 40
+
+  kibana:
+    image: docker.elastic.co/kibana/kibana:8.15.3
+    container_name: helix-kibana
+    environment:
+      - ELASTICSEARCH_HOSTS=http://elasticsearch:9200
+      - XPACK_SECURITY_ENABLED=false
+    mem_limit: 768m
+    ports:
+      - "127.0.0.1:5601:5601"
+    depends_on:
+      elasticsearch:
+        condition: service_healthy

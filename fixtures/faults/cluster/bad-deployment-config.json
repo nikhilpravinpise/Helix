@@ -1,0 +1,268 @@
+{
+  "fault": "bad-deployment-config",
+  "layer": "cluster",
+  "note": "This fault is rejected synchronously by the API server's schema validation before admission. No pod, no ReplicaSet, no Kubernetes event, and no application log line is ever produced - the evidence lives entirely at the apply/kubectl layer, captured below as fault_script_output. pods_payment_api_after is included only to show it is byte-for-byte the pre-fault state (no new pod created).",
+  "captured_at": "2026-08-28T12:17:09Z",
+  "trigger": "kubectl patch deployment/payment-api --type=json, replacing spec.template.spec.containers[0].resources.limits.memory with the invalid quantity string \"not-a-quantity\"",
+  "fault_script": "faults/bad-deployment-config.sh",
+  "fault_script_exit_code": 0,
+  "fault_script_output": "[bad-deployment-config] patching memory limit to an invalid quantity\nThe request is invalid: patch: Invalid value: \"{\\\"apiVersion\\\":\\\"apps/v1\\\",\\\"kind\\\":\\\"Deployment\\\",\\\"metadata\\\":{\\\"name\\\":\\\"payment-api\\\",\\\"namespace\\\":\\\"payment-api\\\",\\\"uid\\\":\\\"75df94a0-b111-4d00-8a4c-ba198061ec8d\\\",\\\"resourceVersion\\\":\\\"2175\\\",\\\"generation\\\":16,\\\"creationTimestamp\\\":\\\"2026-08-28T12:04:14Z\\\",\\\"annotations\\\":{\\\"deployment.kubernetes.io/revision\\\":\\\"16\\\",\\\"kubectl.kubernetes.io/last-applied-configuration\\\":\\\"{\\\\\\\"apiVersion\\\\\\\":\\\\\\\"apps/v1\\\\\\\",\\\\\\\"kind\\\\\\\":\\\\\\\"Deployment\\\\\\\",\\\\\\\"metadata\\\\\\\":{\\\\\\\"annotations\\\\\\\":{},\\\\\\\"name\\\\\\\":\\\\\\\"payment-api\\\\\\\",\\\\\\\"namespace\\\\\\\":\\\\\\\"payment-api\\\\\\\"},\\\\\\\"spec\\\\\\\":{\\\\\\\"replicas\\\\\\\":1,\\\\\\\"selector\\\\\\\":{\\\\\\\"matchLabels\\\\\\\":{\\\\\\\"app\\\\\\\":\\\\\\\"payment-api\\\\\\\"}},\\\\\\\"template\\\\\\\":{\\\\\\\"metadata\\\\\\\":{\\\\\\\"labels\\\\\\\":{\\\\\\\"app\\\\\\\":\\\\\\\"payment-api\\\\\\\"}},\\\\\\\"spec\\\\\\\":{\\\\\\\"containers\\\\\\\":[{\\\\\\\"envFrom\\\\\\\":[{\\\\\\\"configMapRef\\\\\\\":{\\\\\\\"name\\\\\\\":\\\\\\\"payment-api-config\\\\\\\"}},{\\\\\\\"secretRef\\\\\\\":{\\\\\\\"name\\\\\\\":\\\\\\\"payment-api-secret\\\\\\\"}}],\\\\\\\"image\\\\\\\":\\\\\\\"payment-api:kind\\\\\\\",\\\\\\\"imagePullPolicy\\\\\\\":\\\\\\\"IfNotPresent\\\\\\\",\\\\\\\"livenessProbe\\\\\\\":{\\\\\\\"httpGet\\\\\\\":{\\\\\\\"path\\\\\\\":\\\\\\\"/health\\\\\\\",\\\\\\\"port\\\\\\\":8000},\\\\\\\"initialDelaySeconds\\\\\\\":3,\\\\\\\"periodSeconds\\\\\\\":5},\\\\\\\"name\\\\\\\":\\\\\\\"payment-api\\\\\\\",\\\\\\\"ports\\\\\\\":[{\\\\\\\"containerPort\\\\\\\":8000}],\\\\\\\"readinessProbe\\\\\\\":{\\\\\\\"httpGet\\\\\\\":{\\\\\\\"path\\\\\\\":\\\\\\\"/ready\\\\\\\",\\\\\\\"port\\\\\\\":8000},\\\\\\\"initialDelaySeconds\\\\\\\":3,\\\\\\\"periodSeconds\\\\\\\":5},\\\\\\\"resources\\\\\\\":{\\\\\\\"limits\\\\\\\":{\\\\\\\"memory\\\\\\\":\\\\\\\"128Mi\\\\\\\"},\\\\\\\"requests\\\\\\\":{\\\\\\\"cpu\\\\\\\":\\\\\\\"100m\\\\\\\",\\\\\\\"memory\\\\\\\":\\\\\\\"64Mi\\\\\\\"}}}]}}}}\\\\n\\\"},\\\"managedFields\\\":[{\\\"manager\\\":\\\"kubectl-rollout\\\",\\\"operation\\\":\\\"Update\\\",\\\"apiVersion\\\":\\\"apps/v1\\\",\\\"time\\\":\\\"2026-08-28T12:14:20Z\\\",\\\"fieldsType\\\":\\\"FieldsV1\\\",\\\"fieldsV1\\\":{\\\"f:spec\\\":{\\\"f:template\\\":{\\\"f:metadata\\\":{\\\"f:annotations\\\":{\\\".\\\":{},\\\"f:kubectl.kubernetes.io/restartedAt\\\":{}}}}}}},{\\\"manager\\\":\\\"kube-controller-manager\\\",\\\"operation\\\":\\\"Update\\\",\\\"apiVersion\\\":\\\"apps/v1\\\",\\\"time\\\":\\\"2026-08-28T12:16:40Z\\\",\\\"fieldsType\\\":\\\"FieldsV1\\\",\\\"fieldsV1\\\":{\\\"f:metadata\\\":{\\\"f:annotations\\\":{\\\"f:deployment.kubernetes.io/revision\\\":{}}},\\\"f:status\\\":{\\\"f:availableReplicas\\\":{},\\\"f:conditions\\\":{\\\".\\\":{},\\\"k:{\\\\\\\"type\\\\\\\":\\\\\\\"Available\\\\\\\"}\\\":{\\\".\\\":{},\\\"f:lastTransitionTime\\\":{},\\\"f:lastUpdateTime\\\":{},\\\"f:message\\\":{},\\\"f:reason\\\":{},\\\"f:status\\\":{},\\\"f:type\\\":{}},\\\"k:{\\\\\\\"type\\\\\\\":\\\\\\\"Progressing\\\\\\\"}\\\":{\\\".\\\":{},\\\"f:lastTransitionTime\\\":{},\\\"f:lastUpdateTime\\\":{},\\\"f:message\\\":{},\\\"f:reason\\\":{},\\\"f:status\\\":{},\\\"f:type\\\":{}}},\\\"f:observedGeneration\\\":{},\\\"f:readyReplicas\\\":{},\\\"f:replicas\\\":{},\\\"f:updatedReplicas\\\":{}}},\\\"subresource\\\":\\\"status\\\"},{\\\"manager\\\":\\\"kubectl-client-side-apply\\\",\\\"operation\\\":\\\"Update\\\",\\\"apiVersion\\\":\\\"apps/v1\\\",\\\"time\\\":\\\"2026-08-28T12:16:40Z\\\",\\\"fieldsType\\\":\\\"FieldsV1\\\",\\\"fieldsV1\\\":{\\\"f:metadata\\\":{\\\"f:annotations\\\":{\\\".\\\":{},\\\"f:kubectl.kubernetes.io/last-applied-configuration\\\":{}}},\\\"f:spec\\\":{\\\"f:progressDeadlineSeconds\\\":{},\\\"f:replicas\\\":{},\\\"f:revisionHistoryLimit\\\":{},\\\"f:selector\\\":{},\\\"f:strategy\\\":{\\\"f:rollingUpdate\\\":{\\\".\\\":{},\\\"f:maxSurge\\\":{},\\\"f:maxUnavailable\\\":{}},\\\"f:type\\\":{}},\\\"f:template\\\":{\\\"f:metadata\\\":{\\\"f:labels\\\":{\\\".\\\":{},\\\"f:app\\\":{}}},\\\"f:spec\\\":{\\\"f:containers\\\":{\\\"k:{\\\\\\\"name\\\\\\\":\\\\\\\"payment-api\\\\\\\"}\\\":{\\\".\\\":{},\\\"f:envFrom\\\":{},\\\"f:image\\\":{},\\\"f:imagePullPolicy\\\":{},\\\"f:livenessProbe\\\":{\\\".\\\":{},\\\"f:failureThreshold\\\":{},\\\"f:httpGet\\\":{\\\".\\\":{},\\\"f:path\\\":{},\\\"f:port\\\":{},\\\"f:scheme\\\":{}},\\\"f:initialDelaySeconds\\\":{},\\\"f:periodSeconds\\\":{},\\\"f:successThreshold\\\":{},\\\"f:timeoutSeconds\\\":{}},\\\"f:name\\\":{},\\\"f:ports\\\":{\\\".\\\":{},\\\"k:{\\\\\\\"containerPort\\\\\\\":8000,\\\\\\\"protocol\\\\\\\":\\\\\\\"TCP\\\\\\\"}\\\":{\\\".\\\":{},\\\"f:containerPort\\\":{},\\\"f:protocol\\\":{}}},\\\"f:readinessProbe\\\":{\\\".\\\":{},\\\"f:failureThreshold\\\":{},\\\"f:httpGet\\\":{\\\".\\\":{},\\\"f:path\\\":{},\\\"f:port\\\":{},\\\"f:scheme\\\":{}},\\\"f:initialDelaySeconds\\\":{},\\\"f:periodSeconds\\\":{},\\\"f:successThreshold\\\":{},\\\"f:timeoutSeconds\\\":{}},\\\"f:resources\\\":{\\\".\\\":{},\\\"f:limits\\\":{\\\".\\\":{},\\\"f:memory\\\":{}},\\\"f:requests\\\":{\\\".\\\":{},\\\"f:cpu\\\":{},\\\"f:memory\\\":{}}},\\\"f:terminationMessagePath\\\":{},\\\"f:terminationMessagePolicy\\\":{}}},\\\"f:dnsPolicy\\\":{},\\\"f:restartPolicy\\\":{},\\\"f:schedulerName\\\":{},\\\"f:securityContext\\\":{},\\\"f:terminationGracePeriodSeconds\\\":{}}}}}}]},\\\"spec\\\":{\\\"progressDeadlineSeconds\\\":600,\\\"replicas\\\":1,\\\"revisionHistoryLimit\\\":10,\\\"selector\\\":{\\\"matchLabels\\\":{\\\"app\\\":\\\"payment-api\\\"}},\\\"strategy\\\":{\\\"type\\\":\\\"RollingUpdate\\\",\\\"rollingUpdate\\\":{\\\"maxUnavailable\\\":\\\"25%\\\",\\\"maxSurge\\\":\\\"25%\\\"}},\\\"template\\\":{\\\"metadata\\\":{\\\"creationTimestamp\\\":null,\\\"labels\\\":{\\\"app\\\":\\\"payment-api\\\"},\\\"annotations\\\":{\\\"kubectl.kubernetes.io/restartedAt\\\":\\\"2026-08-28T17:44:20+05:30\\\"}},\\\"spec\\\":{\\\"containers\\\":[{\\\"envFrom\\\":[{\\\"configMapRef\\\":{\\\"name\\\":\\\"payment-api-config\\\"}},{\\\"secretRef\\\":{\\\"name\\\":\\\"payment-api-secret\\\"}}],\\\"image\\\":\\\"payment-api:kind\\\",\\\"imagePullPolicy\\\":\\\"IfNotPresent\\\",\\\"livenessProbe\\\":{\\\"httpGet\\\":{\\\"path\\\":\\\"/health\\\",\\\"port\\\":8000,\\\"scheme\\\":\\\"HTTP\\\"},\\\"initialDelaySeconds\\\":3,\\\"timeoutSeconds\\\":1,\\\"periodSeconds\\\":5,\\\"successThreshold\\\":1,\\\"failureThreshold\\\":3},\\\"name\\\":\\\"payment-api\\\",\\\"ports\\\":[{\\\"containerPort\\\":8000,\\\"protocol\\\":\\\"TCP\\\"}],\\\"readinessProbe\\\":{\\\"httpGet\\\":{\\\"path\\\":\\\"/ready\\\",\\\"port\\\":8000,\\\"scheme\\\":\\\"HTTP\\\"},\\\"initialDelaySeconds\\\":3,\\\"timeoutSeconds\\\":1,\\\"periodSeconds\\\":5,\\\"successThreshold\\\":1,\\\"failureThreshold\\\":3},\\\"resources\\\":{\\\"limits\\\":{\\\"memory\\\":\\\"not-a-quantity\\\"},\\\"requests\\\":{\\\"cpu\\\":\\\"100m\\\",\\\"memory\\\":\\\"64Mi\\\"}},\\\"terminationMessagePath\\\":\\\"/dev/termination-log\\\",\\\"terminationMessagePolicy\\\":\\\"File\\\"}],\\\"dnsPolicy\\\":\\\"ClusterFirst\\\",\\\"restartPolicy\\\":\\\"Always\\\",\\\"schedulerName\\\":\\\"default-scheduler\\\",\\\"securityContext\\\":{},\\\"terminationGracePeriodSeconds\\\":30}}},\\\"status\\\":{\\\"observedGeneration\\\":16,\\\"replicas\\\":1,\\\"updatedReplicas\\\":1,\\\"readyReplicas\\\":1,\\\"availableReplicas\\\":1,\\\"conditions\\\":[{\\\"type\\\":\\\"Available\\\",\\\"status\\\":\\\"True\\\",\\\"lastUpdateTime\\\":\\\"2026-08-28T12:11:47Z\\\",\\\"lastTransitionTime\\\":\\\"2026-08-28T12:11:47Z\\\",\\\"reason\\\":\\\"MinimumReplicasAvailable\\\",\\\"message\\\":\\\"Deployment has minimum availability.\\\"},{\\\"type\\\":\\\"Progressing\\\",\\\"status\\\":\\\"True\\\",\\\"lastUpdateTime\\\":\\\"2026-08-28T12:16:40Z\\\",\\\"lastTransitionTime\\\":\\\"2026-08-28T12:04:14Z\\\",\\\"reason\\\":\\\"NewReplicaSetAvailable\\\",\\\"message\\\":\\\"ReplicaSet \\\\\\\"payment-api-98867c74d\\\\\\\" has successfully progressed.\\\"}]}}\": quantities must match the regular expression '^([+-]?[0-9.]+)([eEinumkKMGTP]*[-+]?[0-9]*)$'\n[bad-deployment-config] evidence: patch rejected (exit 1)\n[bad-deployment-config] evidence: memory limit unchanged (128Mi)\n[bad-deployment-config] PASS\n",
+  "evidence": {
+    "memory_limit_before_patch_attempt": "128Mi",
+    "memory_limit_after_patch_attempt": "128Mi",
+    "pods_payment_api_after": {
+      "apiVersion": "v1",
+      "items": [
+        {
+          "apiVersion": "v1",
+          "kind": "Pod",
+          "metadata": {
+            "annotations": {
+              "kubectl.kubernetes.io/restartedAt": "2026-08-28T17:44:20+05:30"
+            },
+            "creationTimestamp": "2026-08-28T12:14:20Z",
+            "generateName": "payment-api-98867c74d-",
+            "labels": {
+              "app": "payment-api",
+              "pod-template-hash": "98867c74d"
+            },
+            "name": "payment-api-98867c74d-h6j8v",
+            "namespace": "payment-api",
+            "ownerReferences": [
+              {
+                "apiVersion": "apps/v1",
+                "blockOwnerDeletion": true,
+                "controller": true,
+                "kind": "ReplicaSet",
+                "name": "payment-api-98867c74d",
+                "uid": "25815b1a-1857-4a0c-bee5-1f2e4b8244b5"
+              }
+            ],
+            "resourceVersion": "2002",
+            "uid": "5dd1b62d-42ae-4c12-b0b3-9db353bddae0"
+          },
+          "spec": {
+            "containers": [
+              {
+                "envFrom": [
+                  {
+                    "configMapRef": {
+                      "name": "payment-api-config"
+                    }
+                  },
+                  {
+                    "secretRef": {
+                      "name": "payment-api-secret"
+                    }
+                  }
+                ],
+                "image": "payment-api:kind",
+                "imagePullPolicy": "IfNotPresent",
+                "livenessProbe": {
+                  "failureThreshold": 3,
+                  "httpGet": {
+                    "path": "/health",
+                    "port": 8000,
+                    "scheme": "HTTP"
+                  },
+                  "initialDelaySeconds": 3,
+                  "periodSeconds": 5,
+                  "successThreshold": 1,
+                  "timeoutSeconds": 1
+                },
+                "name": "payment-api",
+                "ports": [
+                  {
+                    "containerPort": 8000,
+                    "protocol": "TCP"
+                  }
+                ],
+                "readinessProbe": {
+                  "failureThreshold": 3,
+                  "httpGet": {
+                    "path": "/ready",
+                    "port": 8000,
+                    "scheme": "HTTP"
+                  },
+                  "initialDelaySeconds": 3,
+                  "periodSeconds": 5,
+                  "successThreshold": 1,
+                  "timeoutSeconds": 1
+                },
+                "resources": {
+                  "limits": {
+                    "memory": "128Mi"
+                  },
+                  "requests": {
+                    "cpu": "100m",
+                    "memory": "64Mi"
+                  }
+                },
+                "terminationMessagePath": "/dev/termination-log",
+                "terminationMessagePolicy": "File",
+                "volumeMounts": [
+                  {
+                    "mountPath": "/var/run/secrets/kubernetes.io/serviceaccount",
+                    "name": "kube-api-access-882m5",
+                    "readOnly": true
+                  }
+                ]
+              }
+            ],
+            "dnsPolicy": "ClusterFirst",
+            "enableServiceLinks": true,
+            "nodeName": "helix-sandbox-control-plane",
+            "preemptionPolicy": "PreemptLowerPriority",
+            "priority": 0,
+            "restartPolicy": "Always",
+            "schedulerName": "default-scheduler",
+            "securityContext": {},
+            "serviceAccount": "default",
+            "serviceAccountName": "default",
+            "terminationGracePeriodSeconds": 30,
+            "tolerations": [
+              {
+                "effect": "NoExecute",
+                "key": "node.kubernetes.io/not-ready",
+                "operator": "Exists",
+                "tolerationSeconds": 300
+              },
+              {
+                "effect": "NoExecute",
+                "key": "node.kubernetes.io/unreachable",
+                "operator": "Exists",
+                "tolerationSeconds": 300
+              }
+            ],
+            "volumes": [
+              {
+                "name": "kube-api-access-882m5",
+                "projected": {
+                  "defaultMode": 420,
+                  "sources": [
+                    {
+                      "serviceAccountToken": {
+                        "expirationSeconds": 3607,
+                        "path": "token"
+                      }
+                    },
+                    {
+                      "configMap": {
+                        "items": [
+                          {
+                            "key": "ca.crt",
+                            "path": "ca.crt"
+                          }
+                        ],
+                        "name": "kube-root-ca.crt"
+                      }
+                    },
+                    {
+                      "downwardAPI": {
+                        "items": [
+                          {
+                            "fieldRef": {
+                              "apiVersion": "v1",
+                              "fieldPath": "metadata.namespace"
+                            },
+                            "path": "namespace"
+                          }
+                        ]
+                      }
+                    }
+                  ]
+                }
+              }
+            ]
+          },
+          "status": {
+            "conditions": [
+              {
+                "lastProbeTime": null,
+                "lastTransitionTime": "2026-08-28T12:14:21Z",
+                "status": "True",
+                "type": "PodReadyToStartContainers"
+              },
+              {
+                "lastProbeTime": null,
+                "lastTransitionTime": "2026-08-28T12:14:20Z",
+                "status": "True",
+                "type": "Initialized"
+              },
+              {
+                "lastProbeTime": null,
+                "lastTransitionTime": "2026-08-28T12:15:20Z",
+                "status": "True",
+                "type": "Ready"
+              },
+              {
+                "lastProbeTime": null,
+                "lastTransitionTime": "2026-08-28T12:15:20Z",
+                "status": "True",
+                "type": "ContainersReady"
+              },
+              {
+                "lastProbeTime": null,
+                "lastTransitionTime": "2026-08-28T12:14:20Z",
+                "status": "True",
+                "type": "PodScheduled"
+              }
+            ],
+            "containerStatuses": [
+              {
+                "containerID": "containerd://9e899d0f26c421d379d3eaea866c6cbe35ae88909921a234718e92c90e9b04ce",
+                "image": "docker.io/library/payment-api:kind",
+                "imageID": "sha256:d73bd3adc1e860e5a13715ba2b1c06a0f31f517269c70fbb6e3bf0a162e10d1b",
+                "lastState": {
+                  "terminated": {
+                    "containerID": "containerd://46a69ebf91d401a05357613ece2792142b703d8b0630fb8eb3580fe7ba056e9c",
+                    "exitCode": 1,
+                    "finishedAt": "2026-08-28T12:14:43Z",
+                    "reason": "Error",
+                    "startedAt": "2026-08-28T12:14:42Z"
+                  }
+                },
+                "name": "payment-api",
+                "ready": true,
+                "restartCount": 3,
+                "started": true,
+                "state": {
+                  "running": {
+                    "startedAt": "2026-08-28T12:15:14Z"
+                  }
+                },
+                "volumeMounts": [
+                  {
+                    "mountPath": "/var/run/secrets/kubernetes.io/serviceaccount",
+                    "name": "kube-api-access-882m5",
+                    "readOnly": true,
+                    "recursiveReadOnly": "Disabled"
+                  }
+                ]
+              }
+            ],
+            "hostIP": "172.28.0.2",
+            "hostIPs": [
+              {
+                "ip": "172.28.0.2"
+              }
+            ],
+            "phase": "Running",
+            "podIP": "10.244.0.18",
+            "podIPs": [
+              {
+                "ip": "10.244.0.18"
+              }
+            ],
+            "qosClass": "Burstable",
+            "startTime": "2026-08-28T12:14:20Z"
+          }
+        }
+      ],
+      "kind": "List",
+      "metadata": {
+        "resourceVersion": ""
+      }
+    }
+  }
+}

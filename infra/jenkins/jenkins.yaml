@@ -1,0 +1,37 @@
+# Jenkins Configuration as Code (JCasC) for the payment-api sandbox Jenkins
+# (ticket #5). Everything here is reproduced from this file on container
+# start - no manual clicking, and the setup wizard is disabled via
+# JAVA_OPTS in infra/jenkins-compose.yml.
+#
+# The one manual step this does NOT remove: nothing. Login uses the
+# placeholder admin credentials below, which is fine for a local,
+# single-user sandbox - see infra/jenkins-compose.yml for where the values
+# come from.
+jenkins:
+  systemMessage: "Helix sandbox Jenkins - payment-api pipeline (ticket #5)."
+  numExecutors: 2
+  securityRealm:
+    local:
+      allowsSignup: false
+      users:
+        - id: "${JENKINS_ADMIN_ID}"
+          password: "${JENKINS_ADMIN_PASSWORD}"
+  authorizationStrategy:
+    loggedInUsersCanDoAnything:
+      allowAnonymousRead: false
+
+# Defines the single pipeline job from the Jenkinsfile checked into the
+# repo. The Helix repo is bind-mounted read-only into this container at
+# /workspace/helix-src (infra/jenkins-compose.yml), so this reads the
+# Jenkinsfile's live content on every Jenkins (re)start - no git checkout
+# step, and no separate copy of the pipeline definition to keep in sync.
+jobs:
+  - script: >
+      pipelineJob('payment-api') {
+        definition {
+          cps {
+            script(new File('/workspace/helix-src/infra/jenkins/Jenkinsfile').text)
+            sandbox(true)
+          }
+        }
+      }
