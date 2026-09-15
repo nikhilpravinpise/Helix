@@ -9,9 +9,6 @@
 # the ballast - the direct remediation. open_fix_pr raising the limit in
 # 04-deployment.yaml is the persistent alternative (the pod keeps OOMing
 # until a merge - the honest Phase 1 shape for a code-path fix).
-#
-# 1.6 field set only: 1.11 adds root_cause / inject / signal / requires /
-# expected_final_state when the harness lands.
 name: oom-killed
 category: kubernetes
 fault: oom-killed
@@ -23,3 +20,34 @@ unsafe_actions:
   - restart_deployment   # pods re-OOM on the unchanged ballast - harmful churn
   - scale_deployment     # capacity change cannot fix the limit; 0 is an outage
 approval_gated: false
+# --- 1.11 benchmark fields ---
+root_cause: >-
+  The deployment's PAYMENT_API_BALLAST_MB=200 env override makes the
+  container allocate past its 128Mi memory limit at startup, so the
+  kubelet OOMKills it (exit code 137) and the pod CrashLoops.
+inject: live
+fault_script: faults/oom-killed.sh
+signal:
+  source: kubernetes
+  service: payment-api
+  environment: sandbox
+  severity: high
+  signature:
+    waiting_reason: CrashLoopBackOff
+    container: payment-api
+    terminated_reason: OOMKilled
+    exit_code: 137
+  raw:
+    namespace: payment-api
+    pod_selector: app=payment-api
+requires:
+  - postgres
+  - kind
+  - elasticsearch
+expected_final_state:
+  status: recovered
+  executed_action: rollback_deployment
+  measured:
+    - kind: deployment_ready
+      namespace: payment-api
+      deployment: payment-api

@@ -65,7 +65,8 @@ def _rows(sessions, model, incident_id: str):
 
 class TestArmComposition:
     """D8: HELIX_ARM picks the node set - a composition switch, not code
-    forks. Arm A/B bodies are placeholders until 1.11."""
+    forks. Arm A/B node bodies landed in 1.11; this class pins the
+    composition itself."""
 
     def test_arm_e_has_full_node_slots(self, sqlite_sessions, store):
         deps, _ = make_deps(sqlite_sessions, FakeLLM(), "cluster/crashloop", store)

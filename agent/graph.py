@@ -36,13 +36,13 @@ of hanging it.
 
 Arms (D8): HELIX_ARM selects node composition, not code forks.
 - E: full graph - real diagnosis + plan + validate + execute + verify.
-- B: `diagnose_and_plan` (one fused LLM call) + `execute`; no
-  validate/verify/replan nodes.
-- A: `rules_diagnosis` + `rules_plan` deterministic variants; the
-  deterministic validate node is shared with E (it is pure code - no
-  LLM); execute and verify are shared too.
-Arm A/B rule-node variants are placeholders until 1.11; the composition
-switch is what lands now.
+- B: `diagnose_and_plan` (one fused LLM call, 1.11) + `execute`; no
+  validate/verify/replan nodes - the coordinator skips straight to the
+  shared policy gate and the run parks at `verifying` as its designed
+  end state.
+- A: `rules_diagnosis` + `rules_plan` deterministic rule tables
+  (agent/rules.py, 1.11 - zero LLM calls); validate/execute/verify/
+  compensate are shared with E.
 
 Checkpointer (D13): `open_checkpointer()` yields a PostgresSaver bound to
 HELIX_DATABASE_URL (thread_id = incident_id), which is what makes a
@@ -63,9 +63,11 @@ from agent.agents.compensation import compensation_node, outstanding_compensatio
 from agent.agents.coordinator import coordinator_node, make_router
 from agent.agents.diagnosis import diagnosis_node
 from agent.agents.execution import execution_node
+from agent.agents.fused import diagnose_and_plan_node
 from agent.agents.planner import planner_node
 from agent.agents.validation import validation_node
 from agent.agents.verification import verification_node
+from agent.rules import rules_diagnosis_node, rules_plan_node
 from agent.state import WorkflowState
 from agent.validation import candidate_fingerprint
 from helix.config import get_settings
@@ -221,19 +223,27 @@ def _excluded_fingerprints(session, incident_pk: int) -> list[str]:
     return sorted({*failed, *rejected, *dead, *unverified})
 
 
-def _selected_candidate_state(session, incident: models.Incident) -> dict | None:
+def _selected_candidate_state(session, incident: models.Incident, arm: str = "E") -> dict | None:
     """On entry at `validating`/`awaiting_approval`/`executing`/`verifying`
     - resumable non-terminal statuses where a selection must already exist -
     reload the persisted selected candidate so the validate/execute/verify
     nodes have something to act on: in-memory selections do not survive
     between `helix run` invocations. Any other status starts with no
-    selection."""
-    if IncidentStatus(incident.status) not in (
+    selection.
+
+    Arm B additionally reloads at `remediation_pending` (1.11): its fused
+    `diagnose_and_plan` node produced and persisted the selection inside
+    the `diagnosing` hop, and B has no plan node to re-derive it - the
+    reload is what carries a B run from remediation_pending onward."""
+    statuses = {
         IncidentStatus.VALIDATING,
         IncidentStatus.AWAITING_APPROVAL,
         IncidentStatus.EXECUTING,
         IncidentStatus.VERIFYING,
-    ):
+    }
+    if arm == "B":
+        statuses.add(IncidentStatus.REMEDIATION_PENDING)
+    if IncidentStatus(incident.status) not in statuses:
         return None
     row = session.scalar(
         select(models.Candidate)
@@ -374,10 +384,11 @@ def _outstanding_compensation(session, incident_pk: int) -> bool:
     return outstanding_compensation(session, incident_pk)
 
 
-def _intake_node(deps: GraphDeps):
+def _intake_node(deps: GraphDeps, arm: str = "E"):
     """Load the incident (and its latest signal + prior evidence rows)
     into WorkflowState. Resets run-scoped fields so a re-run cannot
-    inherit stale node output from a checkpoint."""
+    inherit stale node output from a checkpoint. `arm` selects the
+    composition the run is resuming under (1.11)."""
 
     def _intake(state: WorkflowState) -> dict:
         with trace_workflow_step("intake"):
@@ -395,7 +406,7 @@ def _intake_node(deps: GraphDeps):
                         ]
                     }
                 latest = incident.signals[-1] if incident.signals else None
-                selected = _selected_candidate_state(session, incident)
+                selected = _selected_candidate_state(session, incident, arm)
                 execution = _latest_execution_state(session, incident, selected)
                 return {
                     "incident_pk": incident.id,
@@ -427,7 +438,15 @@ def _intake_node(deps: GraphDeps):
                     # persisted selection reloads so a re-run re-validates
                     # or re-executes it; elsewhere no selection yet.
                     "selected_action": selected,
-                    "plan_complete": False,
+                    # Arm B at remediation_pending: the fused node's work
+                    # is already done - with a persisted selection the run
+                    # proceeds to validating; without one (the fused call
+                    # escalated) plan_complete=True lets the coordinator
+                    # land the escalation instead of parking forever.
+                    "plan_complete": bool(
+                        arm == "B"
+                        and IncidentStatus(incident.status) == IncidentStatus.REMEDIATION_PENDING
+                    ),
                     "plan_failed": None,
                     "escalation_cause": None,
                     "validation": None,
@@ -562,14 +581,23 @@ def build_graph(
         raise ValueError(f"unknown HELIX_ARM {arm!r}; expected one of {sorted(_ARM_NODES)}")
 
     builder = StateGraph(WorkflowState)
-    builder.add_node("intake", _intake_node(deps))
-    builder.add_node("coordinator", coordinator_node(deps))
+    builder.add_node("intake", _intake_node(deps, arm))
+    builder.add_node("coordinator", coordinator_node(deps, arm))
     for name, subphase in _ARM_NODES[arm].items():
         node = _placeholder(name, subphase)
         if arm == "E" and name == "diagnosis":
             node = diagnosis_node(deps)
         elif arm == "E" and name == "plan":
             node = planner_node(deps)
+        elif arm == "B" and name == "diagnose_and_plan":
+            # 1.11: the fused single-call node - one complete_structured
+            # produces hypothesis + selection; no validate/verify/replan.
+            node = diagnose_and_plan_node(deps)
+        elif arm == "A" and name == "rules_diagnosis":
+            # 1.11: deterministic rule tables - zero LLM calls.
+            node = rules_diagnosis_node(deps)
+        elif arm == "A" and name == "rules_plan":
+            node = rules_plan_node(deps)
         elif name == "validate" and arm in ("E", "A"):
             # The validate node is pure code - no LLM - so arm A shares
             # the real implementation rather than a placeholder.

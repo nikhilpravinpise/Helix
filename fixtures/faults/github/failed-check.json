@@ -1,0 +1,49 @@
+{
+  "fault": "failed-check",
+  "layer": "github",
+  "captured_at": "2026-08-29T10:02:00Z",
+  "trigger": "The payment-api-ci check run on head commit 77aa01c9 failed on a transient runner network reset (console shows the fetch dropping mid-step), not a code defect.",
+  "jenkins_job": "payment-api",
+  "jenkins_build_number": 5,
+  "jenkins_build_url": "http://localhost:8080/job/payment-api/5",
+  "jenkins_result": "SUCCESS",
+  "jenkins_note": "The recorded job reads back SUCCESS: the fixture models the world AFTER the transient check is re-run - rerun_pipeline's BuildGreenCheck verifies against this state. Diagnosis evidence (the failed check_run) stays under evidence.github.",
+  "evidence": {
+    "console_output": "[payment-api-ci] fetching dependencies...\n[payment-api-ci] curl: (56) OpenSSL SSL_read: Connection reset by peer\n[payment-api-ci] ERROR: runner lost network mid-step; job aborted\nFinished: FAILURE",
+    "github": {
+      "check_runs": {
+        "ref": "77aa01c9e2b3f4d5a6b7c8d9e0f1a2b3c4d5e6f7",
+        "items": [
+          {
+            "name": "payment-api-ci",
+            "status": "completed",
+            "conclusion": "failure",
+            "started_at": "2026-08-29T09:58:00Z",
+            "completed_at": "2026-08-29T10:01:00Z",
+            "url": "https://github.com/nikhilpravinpise/Helix/runs/7701"
+          }
+        ]
+      },
+      "commit": {
+        "sha": "77aa01c9e2b3f4d5a6b7c8d9e0f1a2b3c4d5e6f7",
+        "message": "Adjust payment-api retry budget in client config",
+        "author_name": "dev-sandbox",
+        "author_date": "2026-08-29T09:50:00Z",
+        "parents": ["2b3c4d5e6f7a8b9c0d1e2f3a4b5c6d7e8f9a0b1c"],
+        "url": "https://github.com/nikhilpravinpise/Helix/commit/77aa01c9e2b3f4d5a6b7c8d9e0f1a2b3c4d5e6f7"
+      },
+      "diff": {
+        "sha": "77aa01c9e2b3f4d5a6b7c8d9e0f1a2b3c4d5e6f7",
+        "files": [
+          {
+            "filename": "sandbox/payment-api/payment_api/config.py",
+            "status": "modified",
+            "additions": 2,
+            "deletions": 1,
+            "patch": "@@ -18,1 +18,2 @@\n-    request_timeout_s: float = 5.0\n+    request_timeout_s: float = 8.0\n+    request_retries: int = 3"
+          }
+        ]
+      }
+    }
+  }
+}

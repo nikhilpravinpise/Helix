@@ -117,13 +117,26 @@ class _Decision:
     approval: dict[str, Any] | None = None  # approvals-row snapshot for state["approval"]
 
 
-def _policy_gate(state: WorkflowState, approval: models.Approval | None) -> _Decision:
-    """The 1.8 access-table routing for a validated selection."""
+def _policy_gate(
+    state: WorkflowState, approval: models.Approval | None, arm: str = "E"
+) -> _Decision:
+    """The 1.8 access-table routing for a validated selection. Shared by
+    every arm - arm B has no validate node, but a selection still faces
+    the same policy decision before any write."""
     selected = state.get("selected_action") or {}
     action = str(selected.get("action") or "")
     verdict = decide(action, selected.get("params") or {}, state.get("environment") or "")
     policy = verdict.to_state()
     if verdict.decision == PolicyDecision.DENY:
+        if arm == "B":
+            # Arm B has no replan node - a denied action is terminal for it.
+            return _Decision(
+                IncidentStatus.ESCALATED,
+                f"policy denied {verdict.action}: {verdict.reason} (arm B has no replan stage)",
+                exclude_fingerprint=verdict.fingerprint or None,
+                deny=verdict,
+                policy=policy,
+            )
         return _Decision(
             IncidentStatus.REMEDIATION_PENDING,
             f"policy denied {verdict.action}: {verdict.reason}",
@@ -141,6 +154,15 @@ def _policy_gate(state: WorkflowState, approval: models.Approval | None) -> _Dec
                 approval=_approval_state(approval),
             )
         if approval is not None and approval.status == ApprovalStatus.REJECTED:
+            if arm == "B":
+                return _Decision(
+                    IncidentStatus.ESCALATED,
+                    f"approval rejected by {approval.decided_by} for {verdict.action} "
+                    "(arm B has no replan stage)",
+                    exclude_fingerprint=verdict.fingerprint,
+                    policy=policy,
+                    approval=_approval_state(approval),
+                )
             return _Decision(
                 IncidentStatus.REMEDIATION_PENDING,
                 f"approval rejected by {approval.decided_by} for {verdict.action}",
@@ -181,7 +203,10 @@ def _approval_state(approval: models.Approval) -> dict[str, Any]:
 
 
 def _decide(
-    state: WorkflowState, approval: models.Approval | None, max_attempts: int | None = None
+    state: WorkflowState,
+    approval: models.Approval | None,
+    max_attempts: int | None = None,
+    arm: str = "E",
 ) -> _Decision:
     """The Phase 1 routing policy, keyed on the persisted status.
 
@@ -250,6 +275,13 @@ def _decide(
     if status == IncidentStatus.VALIDATING:
         validation = state.get("validation")
         if not validation:
+            if arm == "B":
+                # Arm B has no validate node (1.11): its fused selection
+                # goes straight to the shared policy gate - the access
+                # table still applies, the pre-execution check does not.
+                if not state.get("selected_action"):
+                    return _Decision(IncidentStatus.FAILED, "validating without a selected action")
+                return _policy_gate(state, approval, arm)
             # The validate node has not run in this status yet - the
             # router sends the run to it.
             return _Decision(None, "")
@@ -274,7 +306,7 @@ def _decide(
         # awaiting_approval vs a denied replan.
         if not state.get("selected_action"):
             return _Decision(IncidentStatus.FAILED, "validating without a selected action")
-        return _policy_gate(state, approval)
+        return _policy_gate(state, approval, arm)
     if status == IncidentStatus.AWAITING_APPROVAL:
         # The run is suspended on a pending approvals row. `approval` is
         # the newest row matching the selected candidate's fingerprint.
@@ -285,6 +317,15 @@ def _decide(
                 approval=_approval_state(approval),
             )
         if approval is not None and approval.status == ApprovalStatus.REJECTED:
+            if arm == "B":
+                # Rejection needs a replan; arm B has none - terminal.
+                return _Decision(
+                    IncidentStatus.ESCALATED,
+                    f"approval rejected by {approval.decided_by} for {approval.action} "
+                    "(arm B has no replan stage)",
+                    exclude_fingerprint=approval.fingerprint,
+                    approval=_approval_state(approval),
+                )
             return _Decision(
                 IncidentStatus.REMEDIATION_PENDING,
                 f"approval rejected by {approval.decided_by} for {approval.action}",
@@ -428,9 +469,12 @@ def _record_denial(
     )
 
 
-def coordinator_node(deps: "GraphDeps"):
+def coordinator_node(deps: "GraphDeps", arm: str = "E"):
     """The coordinator graph node. Applies `_decide` through the state
-    machine and mirrors the resulting status back into WorkflowState."""
+    machine and mirrors the resulting status back into WorkflowState.
+    `arm` selects the arm-specific decision behavior (arm B skips the
+    absent validate/verify stages and escalates where a replan would be
+    needed)."""
 
     def _coordinator(state: WorkflowState) -> dict:
         with trace_workflow_step("coordinator"):
@@ -444,7 +488,7 @@ def coordinator_node(deps: "GraphDeps"):
                         ]
                     }
                 approval = _latest_approval(session, incident.id, _selected_fingerprint(state))
-                decision = _decide(state, approval, max_attempts=deps.max_attempts)
+                decision = _decide(state, approval, max_attempts=deps.max_attempts, arm=arm)
                 update: dict = {}
                 if decision.bump_attempt or decision.count_attempt:
                     # A failed cycle consumed one attempt (1.10): the

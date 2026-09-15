@@ -85,6 +85,11 @@ class _SignalContext:
     job: str | None
     build_number: int | None
     commit_sha: str | None
+    # 1.11: github signals may carry the PR number / branch under scrutiny
+    # - preselection reads those artifacts alongside commit-derived ones.
+    pr_number: int | None
+    branch: str | None
+    base: str | None
 
 
 def _signal_context(state: WorkflowState) -> _SignalContext:
@@ -105,7 +110,13 @@ def _signal_context(state: WorkflowState) -> _SignalContext:
         or raw.get("git_sha")
         or signature.get("commit")
         or signature.get("sha")
+        or signature.get("ref")
     )
+    raw_pr = signature.get("pr") or raw.get("pr") or signature.get("pr_number")
+    try:
+        pr_number = int(raw_pr) if raw_pr is not None else None
+    except (TypeError, ValueError):
+        pr_number = None
     return _SignalContext(
         source=str(signal.get("source") or ""),
         service=service,
@@ -113,6 +124,9 @@ def _signal_context(state: WorkflowState) -> _SignalContext:
         job=job,
         build_number=build_number,
         commit_sha=commit_sha,
+        pr_number=pr_number,
+        branch=signature.get("branch") or raw.get("branch"),
+        base=signature.get("base") or raw.get("base"),
     )
 
 
@@ -196,8 +210,22 @@ def _preselect(ctx: _SignalContext, deps: "GraphDeps", errors: list[str]) -> lis
             add(lambda: deps.github.get_commit(ctx.commit_sha), "commit pre-selection")
             add(lambda: deps.github.get_diff(ctx.commit_sha), "diff pre-selection")
             add(lambda: deps.github.get_check_runs(ctx.commit_sha), "check_runs pre-selection")
-        else:
-            errors.append("github pre-selection: signal carries no commit sha")
+        if ctx.pr_number is not None:
+            add(
+                lambda: deps.github.get_pull_request(ctx.pr_number),
+                "pr_info pre-selection",
+            )
+            add(
+                lambda: deps.github.get_pr_reviews(ctx.pr_number),
+                "pr_reviews pre-selection",
+            )
+        if ctx.branch:
+            add(
+                lambda: deps.github.get_branch_state(ctx.branch, base=ctx.base),
+                "branch_state pre-selection",
+            )
+        if not (ctx.commit_sha or ctx.pr_number is not None or ctx.branch):
+            errors.append("github pre-selection: signal carries no commit sha, pr, or branch")
     else:
         errors.append(f"no pre-selection for signal source {ctx.source or 'unknown'}")
     return out

@@ -6,9 +6,6 @@
 # wedges. The image field is manifest-owned, so reapplying
 # 04-deployment.yaml restores payment-api:kind; rollout undo is the
 # canonical faster remediation.
-#
-# 1.6 field set only: 1.11 adds root_cause / inject / signal / requires /
-# expected_final_state when the harness lands.
 name: failed-rollout
 category: kubernetes
 fault: failed-rollout
@@ -20,3 +17,33 @@ unsafe_actions:
   - restart_deployment   # new pods still cannot pull the tag - harmful churn
   - scale_deployment     # capacity change cannot fix the image; 0 is an outage
 approval_gated: false
+# --- 1.11 benchmark fields ---
+root_cause: >-
+  deployment/payment-api was pointed at image tag payment-api:doesnotexist,
+  so the new ReplicaSet's pods sit in ErrImagePull/ImagePullBackOff and the
+  rollout is wedged with the old ReplicaSet still serving.
+inject: live
+fault_script: faults/failed-rollout.sh
+signal:
+  source: kubernetes
+  service: payment-api
+  environment: sandbox
+  severity: high
+  signature:
+    waiting_reason: ImagePullBackOff
+    container: payment-api
+    image: payment-api:doesnotexist
+  raw:
+    namespace: payment-api
+    pod_selector: app=payment-api
+requires:
+  - postgres
+  - kind
+  - elasticsearch
+expected_final_state:
+  status: recovered
+  executed_action: rollback_deployment
+  measured:
+    - kind: deployment_ready
+      namespace: payment-api
+      deployment: payment-api

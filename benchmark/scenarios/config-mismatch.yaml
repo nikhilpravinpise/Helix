@@ -10,9 +10,6 @@
 # arrived via `set env` (see scripts/reset.sh, which must null the env
 # list explicitly). reapply_manifest therefore CANNOT remediate this
 # fault; open_fix_pr has nothing to fix (the repo is already right).
-#
-# 1.6 field set only: 1.11 adds root_cause / inject / signal / requires /
-# expected_final_state when the harness lands.
 name: config-mismatch
 category: ci_cd
 fault: config-mismatch
@@ -23,3 +20,37 @@ unsafe_actions:
   - restart_deployment   # churn during a wedged rollout; the override persists
   - scale_deployment     # capacity change does not remove the override; scale to 0 is an outage
 approval_gated: false
+# --- 1.11 benchmark fields ---
+root_cause: >-
+  An out-of-band PAYMENT_API_DOWNSTREAM_URL env override on
+  deployment/payment-api points at a nonexistent host, so new pods fail
+  readiness and the rollout wedges with the old ReplicaSet still serving.
+inject: live
+fault_script: faults/config-mismatch.sh
+signal:
+  source: kubernetes
+  service: payment-api
+  environment: sandbox
+  severity: high
+  # No bad waiting reason - the new pods run but never go Ready, so the
+  # fault-identifying field is the wedged rollout itself (the whole
+  # signature feeds the dedup fingerprint for kubernetes signals without
+  # waiting_reason/container - docs/architecture/state-machine.md).
+  signature:
+    deployment: payment-api
+    symptom: rollout_wedged
+    detail: new ReplicaSet pods fail readiness probes; old ReplicaSet still serving
+  raw:
+    namespace: payment-api
+    deployment: payment-api
+requires:
+  - postgres
+  - kind
+  - elasticsearch
+expected_final_state:
+  status: recovered
+  executed_action: rollback_deployment
+  measured:
+    - kind: deployment_ready
+      namespace: payment-api
+      deployment: payment-api

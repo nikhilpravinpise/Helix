@@ -70,7 +70,11 @@ def test_fixture_store_lists_all_faults(store):
     assert "cluster/crashloop" in names
     assert "cluster/secret-object" in names
     assert "ci/docker-build-failure" in names
-    assert len(names) == 11
+    # 1.11 added the three github/ fault fixtures the benchmark drives.
+    assert "github/rejected-pr" in names
+    assert "github/failed-check" in names
+    assert "github/stale-branch" in names
+    assert len(names) == 14
 
 
 def test_ambiguous_bare_fault_name_errors(store):

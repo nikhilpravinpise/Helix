@@ -1,4 +1,4 @@
-.PHONY: lint test test-integration test-all serve db-up db-down db-migrate
+.PHONY: lint test test-integration test-all serve db-up db-down db-migrate benchmark
 
 lint:
 	uv run ruff check .
@@ -24,3 +24,9 @@ db-down:
 
 db-migrate:
 	uv run alembic -c state/migrations/alembic.ini upgrade head
+
+# Subphase 1.11 controlled benchmark. Fixture scenarios run on arm A by
+# default; BENCH_ARMS/BENCH_SCENARIOS override. Reports land in
+# benchmark/reports/.
+benchmark:
+	bash scripts/benchmark.sh $(BENCH_ARGS)
