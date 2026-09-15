@@ -49,8 +49,11 @@ class WorkflowState(TypedDict, total=False):
     evidence_rounds: int  # LLM request-more-evidence rounds used this diagnosis
     diagnosis_complete: bool  # diagnosis node ran (drives coordinator routing)
     hypothesis: dict[str, Any]  # Hypothesis dict
-    candidates: list[dict[str, Any]]  # 1.6
-    selected_action: dict[str, Any]  # 1.6/1.7
+    candidates: list[dict[str, Any]]  # 1.6 - the full ranked candidate list
+    selected_action: dict[str, Any]  # 1.6/1.7 - the rank-1 candidate dict, if selected
+    plan_complete: bool  # 1.6 - planner produced an outcome (drives coordinator routing)
+    plan_failed: str | None  # 1.6 - proposal call itself errored (-> FAILED)
+    escalation_cause: str | None  # 1.6 - why the planner escalated (-> ESCALATED)
     validation: dict[str, Any]  # 1.7
     execution: dict[str, Any]  # 1.8
     verification: dict[str, Any]  # 1.9

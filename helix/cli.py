@@ -54,7 +54,7 @@ def build_parser() -> argparse.ArgumentParser:
     run = subparsers.add_parser(
         "run",
         help="drive an incident's workflow to its next stopping point "
-        "(1.5: diagnosis -> remediation_pending)",
+        "(1.6: diagnosis -> plan -> validating or escalated)",
     )
     run.add_argument("incident_id", metavar="INC_ID", help="the incident id (INC-*)")
 
@@ -159,6 +159,9 @@ def _cmd_run(args: argparse.Namespace) -> int:
         hyp = result.hypothesis
         print(f"hypothesis: {hyp['claim']} (confidence={hyp['confidence']})")
         print(f"evidence_refs: {', '.join(hyp['evidence_refs']) or '(none)'}")
+    if result.selected_action:
+        act = result.selected_action
+        print(f"selected: {act['action']} {act['params']} (score={act['score']})")
     for note in result.errors:
         print(f"note: {note}", file=sys.stderr)
     if result.error:

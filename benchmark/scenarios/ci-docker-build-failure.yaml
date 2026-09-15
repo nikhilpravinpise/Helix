@@ -1,0 +1,20 @@
+# CI/CD category - Docker build failure (CONTEXT.md section 18).
+#
+# Fault (fixtures/faults/ci/docker-build-failure.json): the Dockerfile
+# COPYs this-file-does-not-exist-helix-fault.txt - the image build can
+# never succeed until the Dockerfile is corrected.
+#
+# 1.6 field set only: 1.11 adds root_cause / inject / signal / requires /
+# expected_final_state when the harness lands.
+name: ci-docker-build-failure
+category: ci_cd
+fault: docker-build-failure
+optimal_action: open_fix_pr
+valid_actions:
+  - open_fix_pr     # remove/fix the bad COPY line in sandbox/payment-api/Dockerfile
+  - rerun_pipeline  # re-fails alone but harmless; correct after the fix
+unsafe_actions:
+  - restart_deployment   # wrong target: runtime write for a repo-side defect
+  - rollback_deployment  # wrong target
+  - scale_deployment     # wrong target
+approval_gated: false

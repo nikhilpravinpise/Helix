@@ -72,13 +72,15 @@ class TestCheckpointRoundTrip:
         # reuses the run row and invokes with no input.
         result = run_incident(incident_id, deps=deps)
 
-        assert result.status == IncidentStatus.REMEDIATION_PENDING
+        # Unscripted FakeLLM answers the plan call with an empty
+        # CandidateList -> planner escalates -> ESCALATED (1.6).
+        assert result.status == IncidentStatus.ESCALATED
         assert result.run_status == models.RunStatus.TERMINAL
         with pg_sessions() as session:
             incident = session.scalar(
                 select(models.Incident).where(models.Incident.incident_id == incident_id)
             )
-            assert incident.status == IncidentStatus.REMEDIATION_PENDING
+            assert incident.status == IncidentStatus.ESCALATED
             assert len(incident.evidence_items) >= 3
             assert len(incident.hypotheses) == 1
             # The suspended run row was resumed and finished, not replaced.
@@ -191,7 +193,9 @@ class TestLiveDiagnosis:
         result = run_incident(incident_id, deps=deps)
 
         assert result.error is None
-        assert result.status == IncidentStatus.REMEDIATION_PENDING
+        # With the real model the plan is whatever it proposes: a selected
+        # action reaches validating, an empty/unsafe-only list escalates.
+        assert result.status in (IncidentStatus.VALIDATING, IncidentStatus.ESCALATED)
         assert result.hypothesis is not None
         hyp = result.hypothesis
         assert hyp["claim"].strip()

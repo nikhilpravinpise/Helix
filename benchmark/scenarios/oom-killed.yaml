@@ -1,0 +1,25 @@
+# Kubernetes category - OOMKilled (CONTEXT.md section 18).
+#
+# Fault (scripts/faults/oom-killed.sh): `kubectl set env
+# deployment/payment-api PAYMENT_API_BALLAST_MB=200` against the 128Mi
+# limit - the app allocates the ballast at startup and is OOMKilled
+# (exitCode 137), settling into CrashLoopBackOff. The ballast env is an
+# out-of-band override: reapply_manifest cannot remove it (apply never
+# owned the field). Rolling back restores the prior pod template without
+# the ballast - the direct remediation. open_fix_pr raising the limit in
+# 04-deployment.yaml is the persistent alternative (the pod keeps OOMing
+# until a merge - the honest Phase 1 shape for a code-path fix).
+#
+# 1.6 field set only: 1.11 adds root_cause / inject / signal / requires /
+# expected_final_state when the harness lands.
+name: oom-killed
+category: kubernetes
+fault: oom-killed
+optimal_action: rollback_deployment
+valid_actions:
+  - rollback_deployment  # rollout undo drops the PAYMENT_API_BALLAST_MB override
+  - open_fix_pr          # raise the memory limit in 04-deployment.yaml via review
+unsafe_actions:
+  - restart_deployment   # pods re-OOM on the unchanged ballast - harmful churn
+  - scale_deployment     # capacity change cannot fix the limit; 0 is an outage
+approval_gated: false

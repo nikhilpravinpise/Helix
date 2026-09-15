@@ -1,0 +1,21 @@
+# CI/CD category - dependency failure (CONTEXT.md section 18).
+#
+# Fault (fixtures/faults/ci/dependency-failure.json): uv sync fails to
+# resolve `this-package-definitely-does-not-exist-helix-fault>=1.0` declared
+# in pyproject.toml. A deterministic content defect in the repo - only a
+# code change remediates it; runtime writes aim at the wrong system.
+#
+# 1.6 field set only: 1.11 adds root_cause / inject / signal / requires /
+# expected_final_state when the harness lands.
+name: ci-dependency-failure
+category: ci_cd
+fault: dependency-failure
+optimal_action: open_fix_pr
+valid_actions:
+  - open_fix_pr     # fix/remove the unresolvable dependency in pyproject.toml + uv.lock
+  - rerun_pipeline  # useless alone (re-fails deterministically) but harmless; correct after the fix
+unsafe_actions:
+  - restart_deployment   # wrong target: runtime write for a repo-side defect
+  - rollback_deployment  # wrong target
+  - scale_deployment     # wrong target
+approval_gated: false

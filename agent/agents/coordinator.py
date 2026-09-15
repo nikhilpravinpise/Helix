@@ -13,11 +13,13 @@ Two halves:
   next node key. The map is per-arm (D8): each arm's diagnosis variant
   sits behind the `diagnosing` hop.
 
-For 1.5 the honest end state is REMEDIATION_PENDING: a recorded
-hypothesis ends the run (planner/validate/execute/verify routing lands
-with those nodes in 1.6-1.9). A run that reaches `awaiting_approval`
-ends suspended - the checkpoint holds state until something resumes it
-(1.8, D13).
+The 1.6 extension: at `remediation_pending` the router sends the run to
+`plan`; when the planner reports back, the coordinator turns its outcome
+into a transition - `selected_action` -> VALIDATING (1.7 fills the slot
+behind it), an escalation cause -> ESCALATED (a real terminal outcome,
+not an exception), a failed proposal call -> FAILED. A run that reaches
+`awaiting_approval` ends suspended - the checkpoint holds state until
+something resumes it (1.8, D13).
 """
 
 from dataclasses import dataclass
@@ -69,9 +71,25 @@ def _decide(state: WorkflowState) -> _Decision:
         if state.get("hypothesis"):
             return _Decision(IncidentStatus.REMEDIATION_PENDING, "diagnosis produced a hypothesis")
         return _Decision(IncidentStatus.FAILED, "diagnosis produced no hypothesis")
-    # remediation_pending and every later status: no move for now. Their
-    # routing lands with the planner (1.6), validation (1.7), policy and
-    # execution (1.8), and verification (1.9).
+    if status == IncidentStatus.REMEDIATION_PENDING:
+        if state.get("plan_failed"):
+            return _Decision(
+                IncidentStatus.FAILED,
+                f"planner could not produce a plan: {state['plan_failed']}",
+            )
+        if not state.get("plan_complete"):
+            # The planner has not run yet in this status - route to it.
+            return _Decision(None, "")
+        if state.get("selected_action"):
+            action = state["selected_action"].get("action", "?")
+            return _Decision(IncidentStatus.VALIDATING, f"planner selected {action}")
+        return _Decision(
+            IncidentStatus.ESCALATED,
+            state.get("escalation_cause") or "planner found no safe action",
+        )
+    # validating and every later status: no move for now. Their routing
+    # lands with validation (1.7), policy and execution (1.8), and
+    # verification (1.9).
     return _Decision(None, "")
 
 
@@ -121,20 +139,29 @@ def coordinator_node(deps: "GraphDeps"):
 #: replaces the LLM nodes with deterministic rule tables (1.11).
 _DIAGNOSIS_NODE = {"E": "diagnosis", "B": "diagnose_and_plan", "A": "rules_diagnosis"}
 
+#: Per-arm node key behind `remediation_pending` (1.6): E routes to the
+#: real planner, A to its rules variant (1.11 slot), B has no separate
+#: planning step - its fused call lands in 1.11.
+_PLAN_NODE = {"E": "plan", "A": "rules_plan", "B": None}
+
 
 def make_router(arm: str):
     """Conditional edge out of the coordinator: status -> next node key.
 
-    Deliberately tiny in 1.5 - `diagnosing` is the only status that still
-    has work to do; everything else ends the run (remediation_pending is
-    the honest end state until the planner lands)."""
+    Two hops carry work: `diagnosing` -> the arm's diagnosis node, and
+    `remediation_pending` -> the arm's plan node (while the planner has
+    not yet reported). Everything else ends the run: `validating` waits
+    for the 1.7 slot, `escalated`/`failed` are terminal outcomes."""
     diagnosis_key = _DIAGNOSIS_NODE[arm]
+    plan_key = _PLAN_NODE[arm]
 
     def _route(state: WorkflowState) -> str:
         from langgraph.graph import END
 
         if state.get("status") == IncidentStatus.DIAGNOSING:
             return diagnosis_key
+        if state.get("status") == IncidentStatus.REMEDIATION_PENDING:
+            return plan_key or END
         return END
 
     return _route

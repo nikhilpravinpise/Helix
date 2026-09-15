@@ -11,12 +11,14 @@ Shape (arm E, the full graph):
 
 The coordinator is the hub: every worker node returns to it, and it owns
 all incident transitions plus the next-hop decision
-(agent/agents/coordinator.py). For 1.5 the run ends at
-`remediation_pending` - plan/validate/execute/verify are registered slots
-whose bodies land in 1.6-1.9; routing to them is added alongside.
+(agent/agents/coordinator.py). The `plan` slot became the real planner in
+1.6; validate/execute/verify remain registered slots whose bodies land in
+1.7-1.9. For now the run ends at `validating` (action selected),
+`escalated` (planner escalated) or `failed`.
 
 Arms (D8): HELIX_ARM selects node composition, not code forks.
-- E: full graph - real diagnosis node plus placeholder slots for the rest.
+- E: full graph - real diagnosis + plan nodes plus placeholder slots for
+  the rest.
 - B: `diagnose_and_plan` (one fused LLM call) + `execute`; no
   validate/verify/replan nodes.
 - A: `rules_diagnosis` + `rules_plan` deterministic variants; the
@@ -39,6 +41,7 @@ from sqlalchemy import select
 
 from agent.agents.coordinator import coordinator_node, make_router
 from agent.agents.diagnosis import diagnosis_node
+from agent.agents.planner import planner_node
 from agent.state import WorkflowState
 from helix.config import get_settings
 from helix.llm import LLMClient, OpenAICompatibleLLMClient
@@ -155,6 +158,11 @@ def _intake_node(deps: GraphDeps):
                     "diagnosis_complete": False,
                     "evidence_rounds": 0,
                     "hypothesis": None,
+                    "candidates": [],
+                    "selected_action": None,
+                    "plan_complete": False,
+                    "plan_failed": None,
+                    "escalation_cause": None,
                 }
 
     return _intake
@@ -220,6 +228,8 @@ def build_graph(
     for name, subphase in _ARM_NODES[arm].items():
         if arm == "E" and name == "diagnosis":
             builder.add_node(name, diagnosis_node(deps))
+        elif arm == "E" and name == "plan":
+            builder.add_node(name, planner_node(deps))
         else:
             builder.add_node(name, _placeholder(name, subphase))
 

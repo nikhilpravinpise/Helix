@@ -41,7 +41,8 @@ class TestRunIncident:
         result = run_incident(incident_id, deps=deps)
 
         assert result.incident_id == incident_id
-        assert result.status == IncidentStatus.REMEDIATION_PENDING
+        # Unscripted FakeLLM: empty CandidateList -> planner escalates (1.6).
+        assert result.status == IncidentStatus.ESCALATED
         assert result.run_status == models.RunStatus.TERMINAL
         assert result.hypothesis["claim"]
         assert result.error is None
@@ -63,7 +64,7 @@ class TestCliRun:
 
         assert rc == 0
         assert incident_id in out
-        assert "status=remediation_pending" in out
+        assert "status=escalated" in out
         assert "hypothesis:" in out
 
     def test_helix_run_unknown_incident(self, sqlite_sessions, store, capsys, monkeypatch):

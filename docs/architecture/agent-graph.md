@@ -19,7 +19,8 @@ START -> intake -> coordinator --> diagnosis --> coordinator --> END
 | `intake` | `agent/graph.py` | Loads the incident, its latest signal, and previously stored evidence into state; resets run-scoped fields. |
 | `coordinator` | `agent/agents/coordinator.py` | Reads the incident's persisted status, applies the routing decision through `state.machine.transition()` (so every hop writes a transitions row), mirrors status back into state. |
 | `diagnosis` | `agent/agents/diagnosis.py` | Collects evidence through `integrations.capabilities` protocols, runs the bounded request-more-evidence loop, interprets into `Hypothesis`, persists `evidence_items` + `hypotheses` rows. |
-| `plan` / `validate` / `execute` / `verify` | placeholders | Registered slots that raise `NotImplementedError` until subphases 1.6-1.9 fill them in. |
+| `plan` | `agent/agents/planner.py` | (1.6) LLM proposes a `CandidateList` constrained to the action catalogue; a deterministic ranker orders it; the full list lands in `candidates` rows. See [action-catalogue.md](action-catalogue.md). |
+| `validate` / `execute` / `verify` | placeholders | Registered slots that raise `NotImplementedError` until subphases 1.7-1.9 fill them in. |
 
 ## Coordinator owns every transition
 
@@ -31,13 +32,18 @@ coordinator, which alone decides the next status. The 1.5 decision table:
 |---|---|---|---|
 | `received` | - | `received -> diagnosing` | `diagnosis` |
 | `diagnosing` | diagnosis not yet run | none | `diagnosis` (crash-resume path) |
-| `diagnosing` | hypothesis recorded | `diagnosing -> remediation_pending` | END |
+| `diagnosing` | hypothesis recorded | `diagnosing -> remediation_pending` | `plan` |
 | `diagnosing` | diagnosis done, no hypothesis | `diagnosing -> failed` | END |
+| `remediation_pending` | planner not yet run | none | `plan` |
+| `remediation_pending` | `selected_action` set | `remediation_pending -> validating` | END (1.7 fills `validate`) |
+| `remediation_pending` | `plan_complete`, no selection | `remediation_pending -> escalated` (cause recorded) | END |
+| `remediation_pending` | `plan_failed` (proposal call errored) | `remediation_pending -> failed` | END |
 | `failed` | - | `failed -> diagnosing` (rediagnosis; `attempt_count` bumped, stale hypothesis cleared) | `diagnosis` |
-| `remediation_pending`, later statuses, terminal | - | none | END |
+| `validating`, later statuses, terminal | - | none | END |
 
-`remediation_pending` is the honest 1.5 end state: a hypothesis exists
-and the run stops there until the planner lands (1.6).
+`validating` is the honest 1.6 end state when a candidate is selected -
+the run stops there until validation lands (1.7). An escalated incident
+is a real terminal outcome, not an exception.
 
 ## Diagnosis evidence flow
 

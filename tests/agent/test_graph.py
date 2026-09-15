@@ -10,8 +10,10 @@ from fakes import K8S_SIGNAL, FakeLLM, make_deps
 from sqlalchemy import select
 
 from agent.agents.diagnosis import EvidencePlan
+from agent.agents.planner import CandidateList, CandidateProposal
 from agent.graph import build_graph
 from agent.runner import RunConflictError, run_incident, start_run
+from agent.state import Hypothesis
 from helix.llm import LLMError
 from state import models
 from state.intake import intake_signal
@@ -21,6 +23,22 @@ from state.machine import IncidentStatus
 def _make_incident(sessions, signal: dict) -> str:
     with sessions() as session:
         return intake_signal(session, signal).incident_id
+
+
+def _one_plan() -> CandidateList:
+    """A minimal planner proposal for graph-level tests: one catalogue
+    action with valid params and a workload-surface match, so it clears
+    the select floor even citing no evidence."""
+    return CandidateList(
+        candidates=[
+            CandidateProposal(
+                action="reapply_manifest",
+                params={"path": "sandbox/payment-api/k8s/04-deployment.yaml"},
+                rationale="re-assert the deployment manifest",
+                evidence_refs=[],
+            )
+        ]
+    )
 
 
 def _transition_pairs(session, incident_id: str) -> list[tuple]:
@@ -75,35 +93,65 @@ class TestArmComposition:
 
 
 class TestCoordinatorFlow:
-    """The happy path: RECEIVED -> DIAGNOSING -> REMEDIATION_PENDING, each
-    hop persisted as a transitions row, and ALL of them written by the
-    coordinator (worker nodes never touch status)."""
+    """The happy path: RECEIVED -> DIAGNOSING -> REMEDIATION_PENDING ->
+    VALIDATING (1.6), each hop persisted as a transitions row, and ALL of
+    them written by the coordinator (worker nodes never touch status)."""
 
-    def test_run_reaches_remediation_pending_with_transition_rows(self, sqlite_sessions, store):
-        llm = FakeLLM([EvidencePlan(requests=[])])  # no extra evidence needed
+    def test_run_reaches_validating_with_transition_rows(self, sqlite_sessions, store):
+        # 1.6 requirements change: the run continues past
+        # remediation_pending into planning, ending at validating. The
+        # FakeLLM queue is consumed in call order: evidence plan,
+        # interpretation, candidate proposal.
+        llm = FakeLLM(
+            [
+                EvidencePlan(requests=[]),
+                Hypothesis(claim="crashloop on blank secret", confidence=0.8),
+                _one_plan(),
+            ]
+        )
         deps, _ = make_deps(sqlite_sessions, llm, "cluster/crashloop", store)
         incident_id = _make_incident(sqlite_sessions, K8S_SIGNAL)
 
         result = run_incident(incident_id, deps=deps)
 
-        assert result.status == IncidentStatus.REMEDIATION_PENDING
+        assert result.status == IncidentStatus.VALIDATING
         assert result.run_status == models.RunStatus.TERMINAL
         assert result.error is None
         with sqlite_sessions() as session:
             pairs = _transition_pairs(session, incident_id)
-        # intake_signal's creation row, then the two coordinator hops -
+        # intake_signal's creation row, then the three coordinator hops -
         # nothing else writes transitions.
         assert pairs == [
             (None, "received"),
             ("received", "diagnosing"),
             ("diagnosing", "remediation_pending"),
+            ("remediation_pending", "validating"),
         ]
         assert result.hypothesis is not None
+        assert result.selected_action is not None
         with sqlite_sessions() as session:
             incident = session.scalar(
                 select(models.Incident).where(models.Incident.incident_id == incident_id)
             )
-            assert incident.status == IncidentStatus.REMEDIATION_PENDING
+            assert incident.status == IncidentStatus.VALIDATING
+
+    def test_empty_plan_escalates_through_coordinator(self, sqlite_sessions, store):
+        llm = FakeLLM(
+            [
+                EvidencePlan(requests=[]),
+                Hypothesis(claim="mystery fault", confidence=0.8),
+                CandidateList(candidates=[]),
+            ]
+        )
+        deps, _ = make_deps(sqlite_sessions, llm, "cluster/crashloop", store)
+        incident_id = _make_incident(sqlite_sessions, K8S_SIGNAL)
+
+        result = run_incident(incident_id, deps=deps)
+
+        assert result.status == IncidentStatus.ESCALATED
+        with sqlite_sessions() as session:
+            pairs = _transition_pairs(session, incident_id)
+        assert pairs[-1] == ("remediation_pending", "escalated")
 
     def test_diagnosis_failure_fails_incident_through_coordinator(self, sqlite_sessions, store):
         class DownLLM(FakeLLM):
@@ -128,7 +176,13 @@ class TestCoordinatorFlow:
         ]
 
     def test_failed_incident_reenters_diagnosis(self, sqlite_sessions, store):
-        llm = FakeLLM([EvidencePlan(requests=[])])
+        llm = FakeLLM(
+            [
+                EvidencePlan(requests=[]),
+                Hypothesis(claim="crashloop on blank secret", confidence=0.8),
+                _one_plan(),
+            ]
+        )
         deps, _ = make_deps(sqlite_sessions, llm, "cluster/crashloop", store)
         incident_id = _make_incident(sqlite_sessions, K8S_SIGNAL)
 
@@ -146,7 +200,7 @@ class TestCoordinatorFlow:
 
         result = run_incident(incident_id, deps=deps)
 
-        assert result.status == IncidentStatus.REMEDIATION_PENDING
+        assert result.status == IncidentStatus.VALIDATING
         with sqlite_sessions() as session:
             incident = session.scalar(
                 select(models.Incident).where(models.Incident.incident_id == incident_id)
@@ -230,6 +284,8 @@ class TestRunGuard:
         deps, _ = make_deps(sqlite_sessions, FakeLLM(), "cluster/crashloop", store)
         incident_id = _make_incident(sqlite_sessions, K8S_SIGNAL)
 
+        # An unscripted FakeLLM answers the plan call with an empty
+        # CandidateList -> the planner escalates -> ESCALATED (1.6).
         first = run_incident(incident_id, deps=deps)
         second = run_incident(incident_id, deps=deps)
 
@@ -240,4 +296,4 @@ class TestRunGuard:
                 select(models.Incident).where(models.Incident.incident_id == incident_id)
             )
             assert len(incident.workflow_runs) == 2
-            assert incident.status == IncidentStatus.REMEDIATION_PENDING
+            assert incident.status == IncidentStatus.ESCALATED

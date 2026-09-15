@@ -1,0 +1,19 @@
+# GitHub category - failed check (CONTEXT.md section 18). Fixture payload
+# crafted in 1.11 (D10); action sets are declared now and refined then.
+#
+# Fault: a check run on the branch failed on a transient runner cause, not
+# a code defect - re-running is the canonical remediation. (If the crafted
+# fixture instead carries a real defect, 1.11 flips optimal to
+# open_fix_pr; both are declared valid so the planner is never trapped.)
+name: failed-check
+category: github
+fault: failed-check
+optimal_action: rerun_pipeline
+valid_actions:
+  - rerun_pipeline  # re-run the failed check/job - remediates a transient failure
+  - open_fix_pr     # correct when the check caught a real defect
+unsafe_actions:
+  - restart_deployment   # wrong target: runtime write for a CI-side fault
+  - rollback_deployment  # wrong target
+  - scale_deployment     # wrong target
+approval_gated: false

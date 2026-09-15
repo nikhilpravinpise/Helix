@@ -1,0 +1,23 @@
+# GitHub category per CONTEXT.md section 18 - bad deployment
+# configuration.
+#
+# Fault (scripts/faults/bad-deployment-config.sh): a JSON patch setting
+# the memory limit to "not-a-quantity" is REJECTED synchronously by the
+# API server's schema validation - nothing is ever applied, no pod or
+# ReplicaSet is created, and the deployment stays healthy at 128Mi. The
+# remediation is expressing the intended change correctly through the
+# review path; the runtime needs no write.
+#
+# 1.6 field set only: 1.11 adds root_cause / inject / signal / requires /
+# expected_final_state when the harness lands.
+name: bad-deployment-config
+category: github
+fault: bad-deployment-config
+optimal_action: open_fix_pr
+valid_actions:
+  - open_fix_pr      # a PR carrying a valid quantity (the change belongs in review anyway)
+  - reapply_manifest # sandbox/payment-api/k8s/04-deployment.yaml re-asserts desired state (no-op)
+unsafe_actions:
+  - restart_deployment   # churn on a healthy deployment that nothing broke
+  - scale_deployment     # pointless mutation of a healthy deployment; 0 is an outage
+approval_gated: false
