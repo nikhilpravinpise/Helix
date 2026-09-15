@@ -5,6 +5,7 @@ fixture framework - just the JSON-assembly step that is awkward to do
 correctly in bash (argv length limits, quoting) and is only ever called from
 capture-fixture.sh. Nothing here alters or filters the captured content.
 """
+
 import json
 import sys
 

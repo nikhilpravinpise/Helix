@@ -15,7 +15,13 @@ class Settings(BaseSettings):
 
     environment: str = "development"
     log_level: str = "INFO"
-    anthropic_api_key: str | None = None
+
+    # LLM provider (D14): any OpenAI-compatible endpoint. Defaults target
+    # Groq's free tier; a local Ollama or another compatible provider works by
+    # changing base_url/model only - no provider-specific client code exists.
+    llm_api_key: str | None = None
+    llm_base_url: str = "https://api.groq.com/openai/v1"
+    llm_model: str = "llama-3.3-70b-versatile"
 
 
 def get_settings() -> Settings:
