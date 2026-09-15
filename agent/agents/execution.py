@@ -22,6 +22,7 @@ from datetime import UTC, datetime
 from typing import Any
 
 from pydantic import BaseModel, ValidationError
+from sqlalchemy import select
 
 from agent.actions.catalogue import ActionSpec, get_action
 from agent.agents.validation import REPO_ROOT
@@ -29,6 +30,7 @@ from agent.execution import (
     ExecutionContext,
     ExecutionRefusedError,
     enforce_execution_gate,
+    execution_idempotency_key,
     executor_for,
     persist_execution,
 )
@@ -90,8 +92,35 @@ def execution_node(deps):
                     params = None
             normalized = params.model_dump(mode="json") if params is not None else raw_params
             verdict = decide(action or "(none)", normalized, environment)
+            key = execution_idempotency_key(
+                state["incident_pk"], verdict.fingerprint, state.get("attempts", 0)
+            )
 
             with deps.session_scope() as session:
+                existing = session.scalar(
+                    select(models.Execution).where(models.Execution.idempotency_key == key)
+                )
+                if existing is not None:
+                    # Idempotent replay (1.10): this exact write was
+                    # already attempted - a crashed run re-entering at
+                    # `executing` replays the recorded row's outcome
+                    # instead of re-firing the transport. The unique
+                    # index is the backstop; this lookup is what makes
+                    # the replay return the SAME result.
+                    return {
+                        "policy": verdict.to_state(),
+                        "execution": {
+                            "execution_id": existing.id,
+                            "action": existing.action,
+                            "params": existing.params,
+                            "fingerprint": existing.fingerprint,
+                            "result": existing.result.value,
+                            "detail": f"{existing.detail} (idempotent replay)",
+                            "policy_decision": existing.policy_decision,
+                            "approval_id": existing.approval_id,
+                            "decided_by": existing.decided_by,
+                        },
+                    }
                 if spec is None or params is None or verdict.decision == PolicyDecision.DENY:
                     # Refused before any transport call: unknown action,
                     # unvalidatable params, or a policy DENY. Audited the
@@ -108,6 +137,7 @@ def execution_node(deps):
                         jenkins=deps.jenkins_write,
                         repo_root=REPO_ROOT,
                         origin=deps.write_origin,
+                        kube_evidence=deps.kubernetes,
                     )
                     attempt = _run_attempt(ctx, spec, params)
                 execution_id = persist_execution(

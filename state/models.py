@@ -499,6 +499,34 @@ def _execution_result_type() -> Enum:
     )
 
 
+def execution_idempotency_key(
+    incident_pk: int, fingerprint: str, attempt: int, compensates_id: int | None = None
+) -> str:
+    """The once-per-logical-write key (subphase 1.10).
+
+    `{incident}:{candidate fingerprint}:{attempt}:{kind}` where kind is
+    `remediation` for a planned write or `comp:{failed execution id}` for
+    a compensation. Two executions rows with the same key are the same
+    write by definition - `ux_executions_idempotency` makes that a
+    database guarantee, and the execute/compensate nodes replay an
+    existing row's outcome instead of re-firing the transport."""
+    kind = f"comp:{compensates_id}" if compensates_id is not None else "remediation"
+    return f"{incident_pk}:{fingerprint}:{attempt}:{kind}"
+
+
+def _default_idempotency_key(context) -> str:
+    """Column default computing the key from the row being inserted, so
+    EVERY executions row - including test inserts that bypass
+    persist_execution - carries the correct key."""
+    params = context.get_current_parameters()
+    return execution_idempotency_key(
+        params["incident_id"],
+        params["fingerprint"],
+        params["attempt"],
+        params.get("compensates_id"),
+    )
+
+
 class Execution(Base):
     """The execution audit record: one row per attempt (subphase 1.8).
 
@@ -514,9 +542,25 @@ class Execution(Base):
     `output` keeps the transport's result payload - for fixture-mode fake
     transports this is the RECORDED intended write, which is what the
     benchmark scores (D10). `origin` says live vs fixture.
+
+    Subphase 1.10 adds two columns:
+
+    - `idempotency_key` - `{incident}:{fingerprint}:{attempt}:{kind}`,
+      unique-indexed. A retried/resumed run that would re-record the same
+      logical write finds the existing row by key and replays its outcome
+      instead of re-firing the transport; the index is the hard backstop.
+    - `compensates_id` - self-FK marking the row as a compensation for
+      the referenced verification-failed execution (the 1.10 hook). A
+      successful row here is what "pays" the needs_compensation debt.
     """
 
     __tablename__ = "executions"
+    __table_args__ = (
+        # The once-per-logical-write guarantee's hard backstop - declared
+        # here (not only in migration 0007) so create_all-based test
+        # databases enforce it too.
+        Index("ux_executions_idempotency", "idempotency_key", unique=True),
+    )
 
     id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
     incident_id: Mapped[int] = mapped_column(
@@ -528,6 +572,10 @@ class Execution(Base):
     approval_id: Mapped[int | None] = mapped_column(
         ForeignKey("approvals.id", ondelete="SET NULL"), nullable=True
     )
+    compensates_id: Mapped[int | None] = mapped_column(
+        ForeignKey("executions.id", ondelete="SET NULL"), nullable=True
+    )
+    idempotency_key: Mapped[str] = mapped_column(String(128), default=_default_idempotency_key)
     attempt: Mapped[int] = mapped_column(Integer, default=0, server_default="0")
     action: Mapped[str] = mapped_column(String(64))
     params: Mapped[dict[str, Any]] = mapped_column(_json_doc())
@@ -548,6 +596,7 @@ class Execution(Base):
     incident: Mapped[Incident] = relationship(back_populates="executions")
     candidate: Mapped[Candidate | None] = relationship()
     approval: Mapped[Approval | None] = relationship()
+    compensates: Mapped["Execution | None"] = relationship(remote_side="Execution.id")
 
 
 class VerificationOutcome(StrEnum):

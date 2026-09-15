@@ -101,7 +101,8 @@ ALLOWED_TRANSITIONS: dict[IncidentStatus, frozenset[IncidentStatus]] = {
     IncidentStatus.RECOVERED: frozenset(),
     IncidentStatus.ESCALATED: frozenset(),
     # FAILED is terminal but re-enterable: a failed run may be rediagnosed.
-    IncidentStatus.FAILED: frozenset({IncidentStatus.DIAGNOSING}),
+    # The 1.10 retry budget bounds that loop - exhaustion escalates.
+    IncidentStatus.FAILED: frozenset({IncidentStatus.DIAGNOSING, IncidentStatus.ESCALATED}),
 }
 
 

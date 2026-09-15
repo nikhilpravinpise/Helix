@@ -87,6 +87,19 @@ class Settings(BaseSettings):
     elk_error_threshold: int = 0
     verify_functional: bool = True
 
+    # Unhappy-path bounds (subphase 1.10). max_attempts bounds the
+    # diagnose -> plan -> validate -> execute -> verify loop per incident:
+    # every failed cycle consumes one attempt and exhaustion escalates
+    # instead of looping forever. approval_timeout is how long a pending
+    # approvals row may sit undecided before the incident escalates as
+    # approval-timeout (0 disables). step_timeout bounds one graph node's
+    # wall-clock inside a run - a node still running at the deadline is
+    # recorded as a node failure and the coordinator fails the run
+    # (0 disables).
+    max_attempts: int = 3
+    approval_timeout: float = 86400.0
+    step_timeout: float = 600.0
+
     def allowed_kube_context_set(self) -> frozenset[str]:
         """HELIX_ALLOWED_KUBE_CONTEXTS parsed into a set of context names."""
         return frozenset(

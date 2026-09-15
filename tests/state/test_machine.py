@@ -41,6 +41,8 @@ WORKFLOW_EDGES = {
     (S.VERIFYING, S.REMEDIATION_PENDING),
     (S.VERIFYING, S.ESCALATED),
     (S.FAILED, S.DIAGNOSING),
+    # 1.10: retry-budget exhaustion escalates a failed incident directly.
+    (S.FAILED, S.ESCALATED),
 }
 
 REJECTED_EDGES = [
@@ -85,8 +87,9 @@ class TestEdgeMap:
         assert TERMINAL_STATUSES == frozenset({S.RECOVERED, S.ESCALATED, S.FAILED})
         assert ALLOWED_TRANSITIONS[S.RECOVERED] == frozenset()
         assert ALLOWED_TRANSITIONS[S.ESCALATED] == frozenset()
-        # FAILED is terminal for the run but re-enterable for rediagnosis.
-        assert ALLOWED_TRANSITIONS[S.FAILED] == frozenset({S.DIAGNOSING})
+        # FAILED is terminal for the run but re-enterable for rediagnosis,
+        # and the 1.10 retry budget can escalate out of it directly.
+        assert ALLOWED_TRANSITIONS[S.FAILED] == frozenset({S.DIAGNOSING, S.ESCALATED})
 
     @pytest.mark.parametrize("src,dst", REJECTED_EDGES)
     def test_illegal_edges_rejected(self, src, dst):

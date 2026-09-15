@@ -61,7 +61,11 @@ class WorkflowState(TypedDict, total=False):
     approval: dict[str, Any]  # 1.8 - latest approvals-row snapshot for the selection
     execution: dict[str, Any]  # 1.8 - executions-row summary the execute node wrote
     verification: dict[str, Any]  # 1.9 - latest VerificationReport dict
-    needs_compensation: bool  # 1.9 - a failed verification left an un-undone
-    # compensable change; the compensation hook consuming it is 1.10.
+    needs_compensation: bool  # 1.9/1.10 - a failed verification left an
+    # un-undone compensable change; the compensate node pays the debt.
+    compensation: dict[str, Any]  # 1.10 - the compensation executions-row
+    # summary the compensate node wrote (result routes escalate/replan)
+    node_failed: dict[str, Any]  # 1.10 - {"node", "cause"} a timed-out or
+    # crashed node set; the coordinator turns it into a FAILED transition
     attempts: int  # incident.attempt_count mirrored for hypothesis rows
     errors: list[str]  # node-level failure notes; coordinator consumes them

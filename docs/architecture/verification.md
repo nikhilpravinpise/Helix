@@ -43,7 +43,7 @@ owns what happens next:
 |---|---|---|
 | `pass` | any | `verifying -> recovered` |
 | `fail` | `stateless` | `verifying -> remediation_pending`, replan with the fingerprint excluded |
-| `fail` | `compensable` | same replan, plus `needs_compensation` recorded on the row and in state - the compensation hook itself is subphase 1.10 |
+| `fail` | `compensable` | the `compensate` node runs the undo first (1.10), then the same bounded replan - see [unhappy-paths.md](unhappy-paths.md) |
 | `fail` | `irreversible` | `verifying -> escalated` - never retried |
 
 The outcome is deliberately binary: `error` and `skipped` exist only at

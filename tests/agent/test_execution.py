@@ -167,14 +167,18 @@ class TestPolicyGateE2E:
 
         assert result.status == IncidentStatus.ESCALATED
         rows = _executions(sqlite_sessions, incident_id)
-        assert len(rows) == 1
+        # 1.10: the failed verification's compensable change is undone
+        # first - a second executions row compensating the first.
+        assert len(rows) == 2
         assert rows[0].action == "reapply_manifest"
         assert rows[0].policy_decision == "allow_with_checks"
         assert rows[0].verification_required is True
         assert rows[0].result == models.ExecutionResult.SUCCESS
         assert rows[0].output["op"] == "apply_manifest"
         assert rows[0].output["path"].endswith("04-deployment.yaml")
-        assert caps["kube_write"].methods() == ["apply_manifest"]
+        assert rows[1].compensates_id == rows[0].id
+        assert rows[1].result == models.ExecutionResult.SUCCESS
+        assert caps["kube_write"].methods() == ["apply_manifest", "apply_manifest"]
 
         verifications = _rows(sqlite_sessions, models.Verification, incident_id)
         assert len(verifications) == 1
@@ -510,12 +514,17 @@ class TestApprovalLifecycle:
             ("remediation_pending", "escalated"),
         ]
         rows = _executions(sqlite_sessions, incident_id)
-        assert len(rows) == 1
+        # 1.10: row 2 is the compensation for the failed verification -
+        # it inherits the approval record that authorized the original.
+        assert len(rows) == 2
         assert rows[0].result == models.ExecutionResult.SUCCESS
         assert rows[0].approval_id == approval.id
         assert rows[0].decided_by == "alice"
         assert rows[0].policy_decision == "require_approval"
-        assert caps["kube_write"].methods() == ["apply_manifest"]
+        assert rows[1].compensates_id == rows[0].id
+        assert rows[1].approval_id == approval.id
+        assert rows[1].decided_by == "alice"
+        assert caps["kube_write"].methods() == ["apply_manifest", "apply_manifest"]
 
     def test_approve_uses_helix_operator_by_default(
         self, sqlite_sessions, store, monkeypatch, capsys
@@ -575,11 +584,14 @@ class TestApprovalLifecycle:
 
         # The replan executed the non-excluded fallback.
         rows = _executions(sqlite_sessions, incident_id)
-        assert len(rows) == 1
+        # 1.10: the fallback's failed verification also ran its
+        # compensating reapply, so two executions rows exist.
+        assert len(rows) == 2
         assert rows[0].action == "reapply_manifest"
         assert rows[0].params["path"] == CONFIGMAP_PATH
         assert rows[0].result == models.ExecutionResult.SUCCESS
-        assert caps["kube_write"].methods() == ["apply_manifest"]
+        assert rows[1].compensates_id == rows[0].id
+        assert caps["kube_write"].methods() == ["apply_manifest", "apply_manifest"]
         # The rejected fingerprint was dropped by the ranker - its drop
         # reason surfaced as a run note - and can never be re-proposed.
         rejected_fp = candidate_fingerprint("reapply_manifest", {"path": SECRET_PATH})
@@ -613,10 +625,13 @@ class TestApprovalLifecycle:
         out = capsys.readouterr().out
         assert "already approved" in out
 
-        # Exactly one execution happened - the decided row cannot re-fire.
+        # Exactly one remediation execution happened - the decided row
+        # cannot re-fire. The second row is the 1.10 compensation for the
+        # failed verification, not a re-execution.
         rows = _executions(sqlite_sessions, incident_id)
-        assert len(rows) == 1
-        assert caps["kube_write"].methods() == ["apply_manifest"]
+        assert len(rows) == 2
+        assert len([r for r in rows if r.compensates_id is None]) == 1
+        assert caps["kube_write"].methods() == ["apply_manifest", "apply_manifest"]
 
     def test_approve_unknown_incident_is_clean_error(
         self, sqlite_sessions, store, monkeypatch, capsys

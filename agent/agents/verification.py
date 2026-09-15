@@ -25,14 +25,16 @@ transports are not reachable from this module by construction.
 
 The coordinator owns what happens next: pass -> RECOVERED; fail ->
 REMEDIATION_PENDING with the failed fingerprint excluded from the replan
-(irreversible actions escalate directly; compensable actions record
-`needs_compensation` for the 1.10 hook).
+- except compensable failures, which the `compensate` node (1.10) undoes
+first while the recorded `needs_compensation` debt is unpaid, and
+irreversible failures, which escalate directly.
 """
 
 from typing import TYPE_CHECKING, Any
 
 from sqlalchemy import select
 
+from agent.agents.compensation import outstanding_compensation
 from agent.state import WorkflowState
 from agent.verification import VerificationContext, run_verification
 from helix.observability import trace_workflow_step
@@ -44,7 +46,8 @@ if TYPE_CHECKING:
 
 def _execution_for(session, state: WorkflowState) -> models.Execution | None:
     """The executions row to verify: the one this run produced, else the
-    newest successful row for the incident (the resume path)."""
+    newest successful REMEDIATION row for the incident (the resume path -
+    compensation rows are undos, never the action being verified)."""
     execution = state.get("execution") or {}
     if execution.get("execution_id"):
         row = session.get(models.Execution, int(execution["execution_id"]))
@@ -54,6 +57,7 @@ def _execution_for(session, state: WorkflowState) -> models.Execution | None:
         select(models.Execution)
         .where(models.Execution.incident_id == state["incident_pk"])
         .where(models.Execution.result == models.ExecutionResult.SUCCESS)
+        .where(models.Execution.compensates_id.is_(None))
         .order_by(models.Execution.id.desc())
         .limit(1)
     )
@@ -68,20 +72,6 @@ def _namespace(state: WorkflowState, params: dict[str, Any]) -> str:
     raw = signal.get("raw") or {}
     signature = signal.get("signature") or {}
     return str(raw.get("namespace") or signature.get("namespace") or state.get("service"))
-
-
-def _outstanding_compensation(session, incident_pk: int) -> bool:
-    """Whether any failed verification on this incident left a
-    compensable change un-undone - the durable debt flag 1.10 consumes."""
-    return (
-        session.scalar(
-            select(models.Verification.id)
-            .where(models.Verification.incident_id == incident_pk)
-            .where(models.Verification.needs_compensation.is_(True))
-            .limit(1)
-        )
-        is not None
-    )
 
 
 def verification_node(deps: "GraphDeps"):
@@ -155,7 +145,7 @@ def verification_node(deps: "GraphDeps"):
                         finished_at=report.finished_at,
                     )
                 )
-                outstanding = _outstanding_compensation(session, state["incident_pk"])
+                outstanding = outstanding_compensation(session, state["incident_pk"])
             return {
                 "verification": {
                     "action": report.action,

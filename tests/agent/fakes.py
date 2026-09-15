@@ -116,6 +116,9 @@ def make_deps(
     verify_poll: float = 2.0,
     elk_error_threshold: int = 0,
     verify_functional: bool = True,
+    max_attempts: int = 3,
+    approval_timeout: float = 86400.0,
+    step_timeout: float = 600.0,
     sleep=lambda _s: None,
 ) -> tuple[GraphDeps, dict[str, Recording]]:
     """GraphDeps over one fixture's Fixture*Evidence impls, each wrapped in
@@ -165,6 +168,9 @@ def make_deps(
         verify_poll=verify_poll,
         elk_error_threshold=elk_error_threshold,
         verify_functional=verify_functional,
+        max_attempts=max_attempts,
+        approval_timeout=approval_timeout,
+        step_timeout=step_timeout,
         sleep=sleep,
     )
     return deps, caps

@@ -15,15 +15,24 @@ all incident transitions plus the next-hop decision
 1.6, `validate` the real Validation Agent in 1.7 (dispatching to the
 per-family strategies in agent/validation/), `execute` the real
 executor in 1.8 (the safety-policy gate lives in the coordinator's
-routing plus the executor's own re-check), and `verify` the real
+routing plus the executor's own re-check), `verify` the real
 Verification Agent in 1.9 (per-action desired-state checks over a
-stability window - agent/verification/). Runs also end at
+stability window - agent/verification/), and `compensate` the 1.10 undo
+node (agent/agents/compensation.py - a failed verification on a
+compensable action runs the catalogue's compensating_action before the
+coordinator replans or escalates). Runs also end at
 `awaiting_approval` (policy requires a human decision - the run suspends
-there until an approval row is decided), `remediation_pending` ->
+there until an approval row is decided, or the approval-timeout sweep
+escalates it), `remediation_pending` ->
 replanned -> back through `validating` on a failed check or a failed
-verification, `recovered` (verification held), `escalated` (planner
-escalated, the single validation retry was exhausted, or an irreversible
-action failed verification) or `failed`.
+verification (bounded by the HELIX_MAX_ATTEMPTS retry budget),
+`recovered` (verification held), `escalated` (planner
+escalated, the single validation retry was exhausted, an irreversible
+action failed verification, a compensation failed, or the retry budget
+ran out) or `failed`. Every arm node is wrapped in
+`_with_step_timeout` (HELIX_STEP_TIMEOUT): a node that outlives the
+bound reports `node_failed` and the coordinator fails the run instead
+of hanging it.
 
 Arms (D8): HELIX_ARM selects node composition, not code forks.
 - E: full graph - real diagnosis + plan + validate + execute + verify.
@@ -43,12 +52,14 @@ the documented fallback: state then lives only for the invoke.
 
 import time
 from collections.abc import Callable, Iterator
+from concurrent.futures import ThreadPoolExecutor
 from contextlib import contextmanager
 from dataclasses import dataclass
 from typing import Any
 
 from sqlalchemy import select
 
+from agent.agents.compensation import compensation_node, outstanding_compensation
 from agent.agents.coordinator import coordinator_node, make_router
 from agent.agents.diagnosis import diagnosis_node
 from agent.agents.execution import execution_node
@@ -119,6 +130,13 @@ class GraphDeps:
     elk_error_threshold: int = 0
     verify_functional: bool = True
     sleep: Callable[[float], None] = time.sleep
+    # 1.10 - unhappy-path bounds: per-incident retry budget (cycles of
+    # diagnose->...->verify consumed), seconds a pending approvals row may
+    # sit before the runner escalates it, and the wall-clock bound on one
+    # graph node inside a run. Zeros disable the timeout sweeps.
+    max_attempts: int = 3
+    approval_timeout: float = 86400.0
+    step_timeout: float = 600.0
 
 
 def default_deps() -> GraphDeps:
@@ -145,6 +163,9 @@ def default_deps() -> GraphDeps:
         verify_poll=settings.verify_poll,
         elk_error_threshold=settings.elk_error_threshold,
         verify_functional=settings.verify_functional,
+        max_attempts=settings.max_attempts,
+        approval_timeout=settings.approval_timeout,
+        step_timeout=settings.step_timeout,
     )
 
 
@@ -287,6 +308,10 @@ def _latest_execution_state(
         select(models.Execution)
         .where(models.Execution.incident_id == incident.id)
         .where(models.Execution.fingerprint == fp)
+        # Compensation rows are undos, not the remediation being resumed -
+        # a rollback's compensating rollback shares the fingerprint, so
+        # exclude them explicitly (1.10).
+        .where(models.Execution.compensates_id.is_(None))
         .order_by(models.Execution.id.desc())
         .limit(1)
     )
@@ -342,17 +367,11 @@ def _latest_verification_state(
 def _outstanding_compensation(session, incident_pk: int) -> bool:
     """Rebuild the in-state debt flag on every entry: a `needs_compensation`
     verifications row is the durable record that a compensable action
-    failed verification and its change was never undone (the hook that
-    consumes it is 1.10)."""
-    return (
-        session.scalar(
-            select(models.Verification.id)
-            .where(models.Verification.incident_id == incident_pk)
-            .where(models.Verification.needs_compensation.is_(True))
-            .limit(1)
-        )
-        is not None
-    )
+    failed verification and its change was never undone - "unpaid" means
+    no successful executions row compensating it (1.10). The definition
+    lives in agent/agents/compensation.py so intake, verify and
+    compensate cannot disagree on what outstanding means."""
+    return outstanding_compensation(session, incident_pk)
 
 
 def _intake_node(deps: GraphDeps):
@@ -426,8 +445,13 @@ def _intake_node(deps: GraphDeps):
                     # (a stale in-state report must never close an incident).
                     "verification": _latest_verification_state(session, incident, execution),
                     # The recorded compensation debt survives across runs
-                    # until the 1.10 hook consumes it.
+                    # until the compensate node (1.10) pays it.
                     "needs_compensation": _outstanding_compensation(session, incident.id),
+                    # 1.10 run-scoped fields start clean: the compensate
+                    # node's report and a timed-out node's marker never
+                    # leak across run boundaries.
+                    "compensation": None,
+                    "node_failed": None,
                 }
 
     return _intake
@@ -453,6 +477,7 @@ _ARM_NODES: dict[str, dict[str, str]] = {
         "validate": "1.7",
         "execute": "1.8",
         "verify": "1.9",
+        "compensate": "1.10",
     },
     "B": {
         "diagnose_and_plan": "1.11",
@@ -464,8 +489,56 @@ _ARM_NODES: dict[str, dict[str, str]] = {
         "validate": "1.7",
         "execute": "1.8",
         "verify": "1.9",
+        "compensate": "1.10",
     },
 }
+
+
+def _with_step_timeout(node_fn: Callable, name: str, timeout_s: float):
+    """Bound one worker node's wall-clock inside a run (subphase 1.10).
+
+    A node still running at HELIX_STEP_TIMEOUT does not hang the run: the
+    wrapper returns a `node_failed` state update the coordinator turns
+    into a FAILED transition (the failed -> diagnosing re-entry and retry
+    budget then apply like any other failure). Implemented as a worker
+    thread + `future.result(timeout)` so it works on Windows as well as
+    Unix - no signals, no DB-layer timeout.
+
+    Known Phase 1 tradeoff: a timed-out node's worker thread cannot be
+    killed - it lingers until it finishes on its own. Its returned update
+    is discarded (LangGraph already merged the timeout update), but its
+    side effects may still land: a slow transport could write after the
+    run failed. The persisted executions rows and the status machine
+    remain the authoritative record of what happened, so the stray row is
+    auditable rather than hidden. 0 disables the bound."""
+
+    def _node(state: WorkflowState) -> dict:
+        if timeout_s <= 0:
+            return node_fn(state)
+        pool = ThreadPoolExecutor(max_workers=1, thread_name_prefix=f"helix-step-{name}")
+        future = pool.submit(node_fn, state)
+        try:
+            result = future.result(timeout=timeout_s)
+        except TimeoutError:
+            if future.done():
+                # The node raised a TimeoutError itself - a node failure,
+                # not the step deadline: let it propagate.
+                pool.shutdown(wait=True)
+                raise
+            future.cancel()  # cancels only if the worker has not started
+            pool.shutdown(wait=False, cancel_futures=True)
+            cause = f"step timeout after {timeout_s:g}s"
+            return {
+                "errors": [*state.get("errors", []), f"{name}: {cause}"],
+                "node_failed": {"node": name, "cause": cause},
+            }
+        except BaseException:
+            pool.shutdown(wait=False, cancel_futures=True)
+            raise
+        pool.shutdown(wait=True)
+        return result
+
+    return _node
 
 
 def build_graph(
@@ -507,7 +580,10 @@ def build_graph(
         elif name == "verify" and arm in ("E", "A"):
             # The verify node is pure code too - arm A shares it.
             node = verification_node(deps)
-        builder.add_node(name, node)
+        elif name == "compensate" and arm in ("E", "A"):
+            # The compensate node (1.10) is pure code - shared too.
+            node = compensation_node(deps)
+        builder.add_node(name, _with_step_timeout(node, name, deps.step_timeout))
 
     builder.add_edge(START, "intake")
     builder.add_edge("intake", "coordinator")
