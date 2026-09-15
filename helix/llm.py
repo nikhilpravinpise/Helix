@@ -87,7 +87,12 @@ class OpenAICompatibleLLMClient:
         )
 
     def complete(self, prompt: str, *, max_tokens: int = 1024) -> LLMResponse:
-        response = self._chat(prompt, max_tokens=max_tokens)
+        try:
+            response = self._chat(prompt, max_tokens=max_tokens)
+        except openai.OpenAIError as exc:
+            # Provider exceptions never cross the client boundary - callers
+            # see LLMError only.
+            raise LLMError(f"LLM request failed: {exc}") from exc
         choice = response.choices[0]
         return LLMResponse(
             text=choice.message.content or "",
@@ -100,31 +105,34 @@ class OpenAICompatibleLLMClient:
 
         Prefers the provider's JSON-schema response format; falls back to
         plain JSON mode with the schema inlined into the prompt for models
-        that reject json_schema.
+        that reject json_schema. Other provider errors become LLMError.
         """
         json_schema = {
             "name": schema.__name__,
             "schema": schema.model_json_schema(),
         }
         try:
-            response = self._chat(
-                prompt,
-                max_tokens=max_tokens,
-                response_format={"type": "json_schema", "json_schema": json_schema},
-                kind="structured",
-            )
-        except openai.BadRequestError:
-            hinted = (
-                prompt
-                + "\n\nRespond with a single JSON object matching this JSON schema:\n"
-                + json.dumps(json_schema["schema"])
-            )
-            response = self._chat(
-                hinted,
-                max_tokens=max_tokens,
-                response_format={"type": "json_object"},
-                kind="structured",
-            )
+            try:
+                response = self._chat(
+                    prompt,
+                    max_tokens=max_tokens,
+                    response_format={"type": "json_schema", "json_schema": json_schema},
+                    kind="structured",
+                )
+            except openai.BadRequestError:
+                hinted = (
+                    prompt
+                    + "\n\nRespond with a single JSON object matching this JSON schema:\n"
+                    + json.dumps(json_schema["schema"])
+                )
+                response = self._chat(
+                    hinted,
+                    max_tokens=max_tokens,
+                    response_format={"type": "json_object"},
+                    kind="structured",
+                )
+        except openai.OpenAIError as exc:
+            raise LLMError(f"structured LLM request failed: {exc}") from exc
         text = response.choices[0].message.content or ""
         try:
             return schema.model_validate_json(text)

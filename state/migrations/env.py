@@ -22,6 +22,15 @@ if config.config_file_name is not None:
 target_metadata = Base.metadata
 
 
+def _include_object(object, name, type_, reflected, compare_to) -> bool:
+    """Exclude LangGraph's checkpoint tables from autogenerate/check.
+    PostgresSaver owns `checkpoint*` (created by saver.setup(), D13) -
+    they live in the same database but outside this schema's authority."""
+    if type_ == "table" and str(name).startswith("checkpoint"):
+        return False
+    return True
+
+
 def _database_url() -> str:
     return get_settings().database_url
 
@@ -33,6 +42,7 @@ def run_migrations_offline() -> None:
         target_metadata=target_metadata,
         literal_binds=True,
         dialect_opts={"paramstyle": "named"},
+        include_object=_include_object,
     )
     with context.begin_transaction():
         context.run_migrations()
@@ -45,7 +55,11 @@ def run_migrations_online() -> None:
     section["sqlalchemy.url"] = _database_url()
     connectable = engine_from_config(section, prefix="sqlalchemy.", poolclass=pool.NullPool)
     with connectable.connect() as connection:
-        context.configure(connection=connection, target_metadata=target_metadata)
+        context.configure(
+            connection=connection,
+            target_metadata=target_metadata,
+            include_object=_include_object,
+        )
         with context.begin_transaction():
             context.run_migrations()
 

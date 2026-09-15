@@ -113,7 +113,9 @@ signals (the 1.4 exit criterion).
   signal each, so scoring is not distorted.
 - **Concurrent duplicate signals** on different sessions can race past the
   open-incident lookup and create two incidents. The single-active-run
-  guard lands in 1.10 (`workflow_runs`, D13).
+  guard (`workflow_runs`, D13) landed in basic form in 1.5 - one `running`
+  run per incident, enforced by a partial unique index; stale-run
+  reclamation and bounded concurrency are 1.10 hardening.
 
 ## Auth and ports
 
