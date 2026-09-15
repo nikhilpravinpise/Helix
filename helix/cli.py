@@ -54,7 +54,8 @@ def build_parser() -> argparse.ArgumentParser:
     run = subparsers.add_parser(
         "run",
         help="drive an incident's workflow to its next stopping point "
-        "(1.6: diagnosis -> plan -> validating or escalated)",
+        "(1.7: diagnosis -> plan -> validate -> validating, replanned once "
+        "on a failed check, or escalated)",
     )
     run.add_argument("incident_id", metavar="INC_ID", help="the incident id (INC-*)")
 

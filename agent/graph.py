@@ -12,19 +12,24 @@ Shape (arm E, the full graph):
 The coordinator is the hub: every worker node returns to it, and it owns
 all incident transitions plus the next-hop decision
 (agent/agents/coordinator.py). The `plan` slot became the real planner in
-1.6; validate/execute/verify remain registered slots whose bodies land in
-1.7-1.9. For now the run ends at `validating` (action selected),
-`escalated` (planner escalated) or `failed`.
+1.6 and `validate` the real Validation Agent in 1.7 (dispatching to the
+per-family strategies in agent/validation/); execute/verify remain
+registered slots whose bodies land in 1.8-1.9. A run ends at `validating`
+(candidate passed or was uncheckable - the status is resumable and 1.8's
+policy node picks up from here), `remediation_pending` -> replanned ->
+back through `validating` on a failed check, `escalated` (planner
+escalated, or the single validation retry was exhausted) or `failed`.
 
 Arms (D8): HELIX_ARM selects node composition, not code forks.
-- E: full graph - real diagnosis + plan nodes plus placeholder slots for
-  the rest.
+- E: full graph - real diagnosis + plan + validate nodes plus
+  placeholder slots for the rest.
 - B: `diagnose_and_plan` (one fused LLM call) + `execute`; no
   validate/verify/replan nodes.
 - A: `rules_diagnosis` + `rules_plan` deterministic variants; the
-  deterministic validate/execute/verify slots are shared with E.
-Arm A/B variants are placeholders until 1.11; the composition switch is
-what lands now.
+  deterministic validate node is shared with E (it is pure code - no
+  LLM), execute/verify stay placeholders.
+Arm A/B rule-node variants are placeholders until 1.11; the composition
+switch is what lands now.
 
 Checkpointer (D13): `open_checkpointer()` yields a PostgresSaver bound to
 HELIX_DATABASE_URL (thread_id = incident_id), which is what makes a
@@ -42,6 +47,7 @@ from sqlalchemy import select
 from agent.agents.coordinator import coordinator_node, make_router
 from agent.agents.diagnosis import diagnosis_node
 from agent.agents.planner import planner_node
+from agent.agents.validation import validation_node
 from agent.state import WorkflowState
 from helix.config import get_settings
 from helix.llm import LLMClient, OpenAICompatibleLLMClient
@@ -52,11 +58,13 @@ from integrations.capabilities import (
     GitHubEvidence,
     JenkinsEvidence,
     KubernetesEvidence,
+    KubernetesPrechecks,
     get_docker_evidence,
     get_elk_evidence,
     get_github_evidence,
     get_jenkins_evidence,
     get_kubernetes_evidence,
+    get_kubernetes_prechecks,
 )
 from integrations.evidence import Evidence
 from state import models
@@ -78,6 +86,7 @@ class GraphDeps:
     elk: ElkEvidence
     github: GitHubEvidence
     docker: DockerEvidence
+    kube_prechecks: KubernetesPrechecks  # 1.7 - can_i / dry_run_apply
     database_url: str
     max_evidence_rounds: int = 3
 
@@ -94,6 +103,7 @@ def default_deps() -> GraphDeps:
         elk=get_elk_evidence(),
         github=get_github_evidence(),
         docker=get_docker_evidence(),
+        kube_prechecks=get_kubernetes_prechecks(),
         database_url=settings.database_url,
         max_evidence_rounds=settings.max_evidence_rounds,
     )
@@ -114,6 +124,46 @@ def _evidence_from_row(row: models.EvidenceItem) -> dict[str, Any]:
         truncated=row.truncated,
         total=row.total,
     ).model_dump(mode="json")
+
+
+def _excluded_fingerprints(session, incident_pk: int) -> list[str]:
+    """Fingerprints of candidates that already failed validation for this
+    incident - the persisted exclusion list (the `fail` validations rows)
+    a fresh run rebuilds its in-state list from, so a once-failed
+    candidate is never re-proposed, even across runs."""
+    return list(
+        session.scalars(
+            select(models.Validation.fingerprint)
+            .where(models.Validation.incident_id == incident_pk)
+            .where(models.Validation.outcome == models.ValidationOutcome.FAIL)
+        )
+    )
+
+
+def _selected_candidate_state(session, incident: models.Incident) -> dict | None:
+    """On entry at `validating` - a resumable non-terminal status - reload
+    the persisted selected candidate so the validate node has something to
+    check: in-memory selections do not survive between `helix run`
+    invocations. Any other status starts with no selection."""
+    if IncidentStatus(incident.status) != IncidentStatus.VALIDATING:
+        return None
+    row = session.scalar(
+        select(models.Candidate)
+        .where(models.Candidate.incident_id == incident.id)
+        .where(models.Candidate.selected.is_(True))
+        .order_by(models.Candidate.id.desc())
+        .limit(1)
+    )
+    if row is None:
+        return None
+    return {
+        "rank": row.rank,
+        "action": row.action,
+        "params": row.params,
+        "rationale": row.rationale,
+        "risk_tier": row.risk_tier,
+        "score": row.score,
+    }
 
 
 def _intake_node(deps: GraphDeps):
@@ -159,10 +209,15 @@ def _intake_node(deps: GraphDeps):
                     "evidence_rounds": 0,
                     "hypothesis": None,
                     "candidates": [],
-                    "selected_action": None,
+                    # At `validating` the persisted selection reloads so a
+                    # re-run re-validates it; elsewhere no selection yet.
+                    "selected_action": _selected_candidate_state(session, incident),
                     "plan_complete": False,
                     "plan_failed": None,
                     "escalation_cause": None,
+                    "validation": None,
+                    "validation_attempts": 0,
+                    "excluded_candidates": _excluded_fingerprints(session, incident.id),
                 }
 
     return _intake
@@ -226,12 +281,16 @@ def build_graph(
     builder.add_node("intake", _intake_node(deps))
     builder.add_node("coordinator", coordinator_node(deps))
     for name, subphase in _ARM_NODES[arm].items():
+        node = _placeholder(name, subphase)
         if arm == "E" and name == "diagnosis":
-            builder.add_node(name, diagnosis_node(deps))
+            node = diagnosis_node(deps)
         elif arm == "E" and name == "plan":
-            builder.add_node(name, planner_node(deps))
-        else:
-            builder.add_node(name, _placeholder(name, subphase))
+            node = planner_node(deps)
+        elif name == "validate" and arm in ("E", "A"):
+            # The validate node is pure code - no LLM - so arm A shares
+            # the real implementation rather than a placeholder.
+            node = validation_node(deps)
+        builder.add_node(name, node)
 
     builder.add_edge(START, "intake")
     builder.add_edge("intake", "coordinator")

@@ -62,6 +62,7 @@ def test_kind_enum_matches_spec():
         "log_lines",
         "build_console",
         "test_results",
+        "job_info",  # 1.7 - rerun_pipeline's job-existence check
         "commit",
         "diff",
         "pr_info",

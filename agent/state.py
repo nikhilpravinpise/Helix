@@ -33,9 +33,9 @@ class WorkflowState(TypedDict, total=False):
     slice they need and partial updates merge cleanly under the
     checkpointer.
 
-    Fields populated by later subphases (candidates, selected_action,
-    validation, execution, verification) are declared now so the typed
-    contract is stable - the nodes that write them land in 1.6-1.9.
+    Fields populated by later subphases (execution, verification) are
+    declared now so the typed contract is stable - the nodes that write
+    them land in 1.8-1.9.
     """
 
     incident_id: str  # INC-* external id; also the checkpointer thread_id
@@ -54,7 +54,9 @@ class WorkflowState(TypedDict, total=False):
     plan_complete: bool  # 1.6 - planner produced an outcome (drives coordinator routing)
     plan_failed: str | None  # 1.6 - proposal call itself errored (-> FAILED)
     escalation_cause: str | None  # 1.6 - why the planner escalated (-> ESCALATED)
-    validation: dict[str, Any]  # 1.7
+    validation: dict[str, Any]  # 1.7 - latest ValidationResult dict (+ action/params)
+    validation_attempts: int  # 1.7 - validate passes this run; the single-retry bound
+    excluded_candidates: list[str]  # 1.7 - fingerprints validation failed; never re-proposed
     execution: dict[str, Any]  # 1.8
     verification: dict[str, Any]  # 1.9
     attempts: int  # incident.attempt_count mirrored for hypothesis rows

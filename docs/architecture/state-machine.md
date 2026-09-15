@@ -35,7 +35,7 @@ from anywhere).
 | `received` | `diagnosing` |
 | `diagnosing` | `remediation_pending` |
 | `remediation_pending` | `validating` |
-| `validating` | `awaiting_approval`, `executing` |
+| `validating` | `awaiting_approval`, `executing`, `remediation_pending` (failed validation -> replan) |
 | `awaiting_approval` | `executing`, `remediation_pending` (rejected -> replan) |
 | `executing` | `verifying`, `diagnosing` (execution evidence contradicts the hypothesis -> rediagnose), `failed` |
 | `verifying` | `recovered`, `remediation_pending` (failed verification -> replan), `escalated` |

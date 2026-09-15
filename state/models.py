@@ -8,8 +8,10 @@ Evidence, so the full evidence chain is a DB query), `hypotheses` (the
 Diagnosis Agent's recorded claims) and `workflow_runs` (the
 single-active-run guard, hardened in 1.10). Subphase 1.6 adds
 `candidates` (the full ranked candidate list per planning attempt).
-Later subphases add their own tables alongside these - the schema grows
-with the code that uses it.
+Subphase 1.7 adds `validations` (the Validation Agent's per-candidate
+verdicts, whose `fail` rows also serve as the persisted exclusion list
+the replan consults). Later subphases add their own tables alongside
+these - the schema grows with the code that uses it.
 
 Notes on the choices made here:
 
@@ -115,6 +117,9 @@ class Incident(Base):
     )
     candidates: Mapped[list["Candidate"]] = relationship(
         back_populates="incident", order_by="Candidate.id"
+    )
+    validations: Mapped[list["Validation"]] = relationship(
+        back_populates="incident", order_by="Validation.id"
     )
 
 
@@ -249,6 +254,71 @@ class Candidate(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
     incident: Mapped[Incident] = relationship(back_populates="candidates")
+
+
+class ValidationOutcome(StrEnum):
+    """The Validation Agent's verdict on one candidate (subphase 1.7).
+
+    `not_validatable` is distinct from `pass` on purpose: it means "no
+    meaningful pre-check exists" and tells the coordinator to proceed to
+    the policy/execution decision WITHOUT having been proven - provenance
+    (1.9) must always be able to tell a checked candidate from an
+    uncheckable one.
+    """
+
+    PASS = "pass"
+    FAIL = "fail"
+    NOT_VALIDATABLE = "not_validatable"
+
+
+def _validation_outcome_type() -> Enum:
+    """ValidationOutcome as stored strings; same non-native-enum rationale
+    as the incident status type."""
+    return Enum(
+        ValidationOutcome,
+        native_enum=False,
+        validate_strings=True,
+        values_callable=lambda e: [m.value for m in e],
+        name="validation_outcome",
+        length=16,
+    )
+
+
+class Validation(Base):
+    """One validation verdict on a selected candidate (subphase 1.7).
+
+    Written once per validate-node pass: the action + params checked, the
+    candidate row they came from (nullable - a run could in principle
+    validate a candidate whose row was never persisted), the verdict, the
+    human-readable reason, and the strategy's check-by-check `details`.
+
+    `fingerprint` is sha256(action | canonical(params)) - the candidate's
+    identity for repeat-action prevention. The `fail` rows ARE the
+    exclusion list: intake rebuilds `WorkflowState.excluded_candidates`
+    from them so a failed candidate can never be re-selected, even across
+    runs. `attempt` tags the incident's attempt_count like candidates do.
+    """
+
+    __tablename__ = "validations"
+
+    id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
+    incident_id: Mapped[int] = mapped_column(
+        ForeignKey("incidents.id", ondelete="CASCADE"), index=True
+    )
+    candidate_id: Mapped[int | None] = mapped_column(
+        ForeignKey("candidates.id", ondelete="SET NULL"), nullable=True
+    )
+    attempt: Mapped[int] = mapped_column(Integer, default=0, server_default="0")
+    action: Mapped[str] = mapped_column(String(64))
+    params: Mapped[dict[str, Any]] = mapped_column(_json_doc())
+    fingerprint: Mapped[str] = mapped_column(String(64))
+    outcome: Mapped[ValidationOutcome] = mapped_column(_validation_outcome_type())
+    reason: Mapped[str] = mapped_column(Text)
+    details: Mapped[dict[str, Any]] = mapped_column(_json_doc())
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+    incident: Mapped[Incident] = relationship(back_populates="validations")
+    candidate: Mapped[Candidate | None] = relationship()
 
 
 class RunStatus(StrEnum):

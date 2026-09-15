@@ -44,6 +44,7 @@ class EvidenceKind(StrEnum):
     LOG_LINES = "log_lines"
     BUILD_CONSOLE = "build_console"
     TEST_RESULTS = "test_results"
+    JOB_INFO = "job_info"
     COMMIT = "commit"
     DIFF = "diff"
     PR_INFO = "pr_info"

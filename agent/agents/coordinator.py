@@ -15,9 +15,19 @@ Two halves:
 
 The 1.6 extension: at `remediation_pending` the router sends the run to
 `plan`; when the planner reports back, the coordinator turns its outcome
-into a transition - `selected_action` -> VALIDATING (1.7 fills the slot
-behind it), an escalation cause -> ESCALATED (a real terminal outcome,
-not an exception), a failed proposal call -> FAILED. A run that reaches
+into a transition - `selected_action` -> VALIDATING, an escalation cause
+-> ESCALATED (a real terminal outcome, not an exception), a failed
+proposal call -> FAILED.
+
+The 1.7 extension: at `validating` the router sends the run to the real
+`validate` node while no verdict is in state; when it reports back, a
+FAIL transitions back to `remediation_pending` with the plan outputs
+cleared (the single-retry hook - the failed fingerprint is already in
+`excluded_candidates` so the planner cannot re-propose it), and a SECOND
+consecutive FAIL escalates (the single retry is exhausted; the full
+retry-budget machinery is 1.10). PASS and NOT_VALIDATABLE produce no
+transition - `validating` is a resumable non-terminal status and the 1.8
+policy/execution node will pick the run up from here. A run that reaches
 `awaiting_approval` ends suspended - the checkpoint holds state until
 something resumes it (1.8, D13).
 """
@@ -31,9 +41,16 @@ from agent.state import WorkflowState
 from helix.observability import trace_workflow_step
 from state import models
 from state.machine import IncidentStatus, transition
+from state.models import ValidationOutcome
 
 if TYPE_CHECKING:
     from agent.graph import GraphDeps
+
+
+#: Validation passes allowed per run before escalation - the single
+#: retry hook (1.7): one failed candidate may be replanned once; a second
+#: consecutive FAIL exhausts the hook (full retry-budget machinery: 1.10).
+MAX_VALIDATION_ATTEMPTS = 2
 
 
 @dataclass(frozen=True)
@@ -43,6 +60,7 @@ class _Decision:
     to_status: IncidentStatus | None
     cause: str
     bump_attempt: bool = False  # failed -> diagnosing re-entry counts an attempt
+    replan: bool = False  # validation failed: re-enter planning, plan outputs cleared
 
 
 def _decide(state: WorkflowState) -> _Decision:
@@ -87,9 +105,34 @@ def _decide(state: WorkflowState) -> _Decision:
             IncidentStatus.ESCALATED,
             state.get("escalation_cause") or "planner found no safe action",
         )
-    # validating and every later status: no move for now. Their routing
-    # lands with validation (1.7), policy and execution (1.8), and
-    # verification (1.9).
+    if status == IncidentStatus.VALIDATING:
+        validation = state.get("validation")
+        if not validation:
+            # The validate node has not run in this status yet - the
+            # router sends the run to it.
+            return _Decision(None, "")
+        outcome = validation.get("outcome")
+        if outcome == ValidationOutcome.FAIL.value:
+            action = validation.get("action", "?")
+            if state.get("validation_attempts", 0) >= MAX_VALIDATION_ATTEMPTS:
+                return _Decision(
+                    IncidentStatus.ESCALATED,
+                    f"validation failed again for {action} after replan: "
+                    f"{validation.get('reason')} (single retry exhausted)",
+                )
+            return _Decision(
+                IncidentStatus.REMEDIATION_PENDING,
+                f"validation failed for {action}: {validation.get('reason')}",
+                replan=True,
+            )
+        # pass / not_validatable: no transition. NOT_VALIDATABLE is NOT a
+        # pass - it means "proceed to the policy/execution decision
+        # unchecked", recorded distinctly so provenance can tell the two
+        # apart. `validating` stays the (resumable) status; the 1.8 node
+        # picks up from here.
+        return _Decision(None, "")
+    # Later statuses (awaiting_approval, executing, verifying) route with
+    # policy/execution (1.8) and verification (1.9).
     return _Decision(None, "")
 
 
@@ -121,6 +164,13 @@ def coordinator_node(deps: "GraphDeps"):
                     # survive into the rediagnosis.
                     update["hypothesis"] = None
                     update["diagnosis_complete"] = False
+                if decision.replan:
+                    # Validation failed: the next remediation_pending pass
+                    # must route to the planner, not reuse the failed
+                    # selection or its verdict.
+                    update["plan_complete"] = False
+                    update["selected_action"] = None
+                    update["validation"] = None
                 if decision.to_status is not None:
                     transition(
                         incident,
@@ -144,16 +194,23 @@ _DIAGNOSIS_NODE = {"E": "diagnosis", "B": "diagnose_and_plan", "A": "rules_diagn
 #: planning step - its fused call lands in 1.11.
 _PLAN_NODE = {"E": "plan", "A": "rules_plan", "B": None}
 
+#: Per-arm node key behind `validating` (1.7): E and A share the real
+#: validate node; B has no validate step at all.
+_VALIDATE_NODE = {"E": "validate", "A": "validate", "B": None}
+
 
 def make_router(arm: str):
     """Conditional edge out of the coordinator: status -> next node key.
 
-    Two hops carry work: `diagnosing` -> the arm's diagnosis node, and
+    Three hops carry work: `diagnosing` -> the arm's diagnosis node,
     `remediation_pending` -> the arm's plan node (while the planner has
-    not yet reported). Everything else ends the run: `validating` waits
-    for the 1.7 slot, `escalated`/`failed` are terminal outcomes."""
+    not yet reported), and `validating` -> the arm's validate node (while
+    no verdict is in state). Everything else ends the run: `validating`
+    with a verdict waits for the 1.8 policy/execution node,
+    `escalated`/`failed` are terminal outcomes."""
     diagnosis_key = _DIAGNOSIS_NODE[arm]
     plan_key = _PLAN_NODE[arm]
+    validate_key = _VALIDATE_NODE[arm]
 
     def _route(state: WorkflowState) -> str:
         from langgraph.graph import END
@@ -162,6 +219,8 @@ def make_router(arm: str):
             return diagnosis_key
         if state.get("status") == IncidentStatus.REMEDIATION_PENDING:
             return plan_key or END
+        if state.get("status") == IncidentStatus.VALIDATING and not state.get("validation"):
+            return validate_key or END
         return END
 
     return _route
