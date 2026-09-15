@@ -1,0 +1,41 @@
+# Host-side PostgreSQL for Helix incident state (subphase 1.4), per
+# decision D3: Helix state is part of the observer plane, so it runs in
+# Docker on the host and must not live inside the kind cluster being
+# deliberately broken - same reasoning as D1 for Jenkins and the ELK stack
+# in infra/docker-compose.yml.
+#
+# The project name is pinned rather than left to Compose's default (the
+# compose file's parent directory, "infra"), for the same reason
+# infra/docker-compose.yml pins "helix-logging": that default collides with
+# an unrelated project on this host that also uses <repo>/infra as its
+# compose directory.
+#
+# Credentials come from POSTGRES_USER / POSTGRES_PASSWORD / POSTGRES_DB with
+# local-sandbox defaults - set them in the environment or a .env file passed
+# via `docker compose --env-file`. These are placeholder credentials for a
+# local, single-user sandbox, not a real secret, and the port is bound to
+# loopback only.
+name: helix-state
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: helix-postgres
+    restart: unless-stopped
+    environment:
+      - POSTGRES_USER=${POSTGRES_USER:-helix}
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD:-helix}
+      - POSTGRES_DB=${POSTGRES_DB:-helix}
+    mem_limit: 512m
+    ports:
+      - "127.0.0.1:5432:5432"
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER:-helix} -d $${POSTGRES_DB:-helix}"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+
+volumes:
+  postgres-data:

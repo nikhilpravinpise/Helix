@@ -116,4 +116,25 @@ pipeline {
             }
         }
     }
+
+    post {
+        failure {
+            // Notify Helix intake (decision D6, push model). The intake API
+            // runs on the host; host.docker.internal resolves to it from
+            // this container on Docker Desktop. catchError plus `|| true`:
+            // intake being down must NEVER change the pipeline outcome - a
+            // signal that cannot be delivered is lost, not retried.
+            // signature.job + signature.stage are the dedup fingerprint's
+            // jenkins fields; STAGE_NAME may be unset in a pipeline-level
+            // post block, hence the fallback.
+            catchError(buildResult: 'SUCCESS', stageResult: 'SUCCESS') {
+                sh '''
+                    curl -sS --max-time 10 -o /dev/null -X POST \
+                      -H 'Content-Type: application/json' \
+                      -d "{\"source\":\"jenkins\",\"service\":\"payment-api\",\"environment\":\"sandbox\",\"signature\":{\"job\":\"${JOB_NAME}\",\"stage\":\"${STAGE_NAME:-unknown}\"},\"raw\":{\"job\":\"${JOB_NAME}\",\"build_number\":${BUILD_NUMBER},\"build_url\":\"${BUILD_URL}\"}}" \
+                      http://host.docker.internal:8787/intake/jenkins || true
+                '''
+            }
+        }
+    }
 }
