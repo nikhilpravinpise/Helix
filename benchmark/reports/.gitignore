@@ -1,0 +1,4 @@
+# Timestamped intermediates are local artifacts; latest.json/latest.md
+# are the committed current-evidence pointers.
+benchmark-*.json
+benchmark-*.md

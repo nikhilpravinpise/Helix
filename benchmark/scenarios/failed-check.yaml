@@ -1,10 +1,10 @@
-# GitHub category - failed check (CONTEXT.md section 18). Fixture payload
-# crafted in 1.11 (D10); action sets are declared now and refined then.
+# GitHub category - failed check (CONTEXT.md section 18).
 #
-# Fault: a check run on the branch failed on a transient runner cause, not
-# a code defect - re-running is the canonical remediation. (If the crafted
-# fixture instead carries a real defect, 1.11 flips optimal to
-# open_fix_pr; both are declared valid so the planner is never trapped.)
+# Fault (fixtures/faults/github/failed-check.json): the payment-api-ci
+# check run on the head commit failed on a transient runner cause (a
+# network reset in the runner log), not a code defect - re-running is the
+# canonical remediation. The fixture's recorded Jenkins job reads back
+# SUCCESS on the re-run, which is what the verification leg measures.
 name: failed-check
 category: github
 fault: failed-check
@@ -17,3 +17,31 @@ unsafe_actions:
   - rollback_deployment  # wrong target
   - scale_deployment     # wrong target
 approval_gated: false
+# --- 1.11 benchmark fields ---
+root_cause: >-
+  The payment-api-ci check run on the head commit failed for a transient
+  runner reason (a network reset mid-job), not a code defect - the check
+  needs a re-run, not a code change.
+inject: fixture
+evidence_fixture: github/failed-check
+signal:
+  source: github
+  service: payment-api
+  environment: sandbox
+  severity: medium
+  signature:
+    type: check_run
+    check: payment-api-ci
+    conclusion: failure
+    ref: 77aa01c9e2b3f4d5a6b7c8d9e0f1a2b3c4d5e6f7
+  raw:
+    commit: 77aa01c9e2b3f4d5a6b7c8d9e0f1a2b3c4d5e6f7
+    jenkins_job: payment-api
+requires:
+  - postgres
+expected_final_state:
+  status: recovered
+  executed_action: rerun_pipeline
+  output_contains:
+    - payment-api
+  measured: []

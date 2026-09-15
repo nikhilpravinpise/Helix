@@ -1,9 +1,10 @@
-# GitHub category - rejected PR (CONTEXT.md section 18). Fixture payload
-# crafted in 1.11 (D10); action sets are declared now and refined then.
+# GitHub category - rejected PR (CONTEXT.md section 18).
 #
-# Fault: a pull request receives a changes-requested review. The
-# remediation is a corrected PR on the incident branch; re-running checks
-# only makes sense after the fix lands.
+# Fault (fixtures/faults/github/rejected-pr.json): PR #17 on
+# feature/payment-config received a CHANGES_REQUESTED review - the
+# committed configmap value the PR carries is wrong. The remediation is a
+# corrected PR on the incident branch; re-running checks only makes sense
+# after the fix lands.
 name: rejected-pr
 category: github
 fault: rejected-pr
@@ -16,3 +17,33 @@ unsafe_actions:
   - rollback_deployment  # wrong target
   - scale_deployment     # wrong target
 approval_gated: false
+# --- 1.11 benchmark fields ---
+root_cause: >-
+  PR #17 received a changes-requested review: the payment-api configmap
+  change it carries sets PAYMENT_API_DOWNSTREAM_URL to a nonexistent
+  host, so the PR must be corrected and re-authored before it can merge.
+inject: fixture
+evidence_fixture: github/rejected-pr
+signal:
+  source: github
+  service: payment-api
+  environment: sandbox
+  severity: medium
+  signature:
+    type: pull_request_review
+    pr: 17
+    review_state: CHANGES_REQUESTED
+    branch: feature/payment-config
+  raw:
+    pr: 17
+    branch: feature/payment-config
+    commit: 9f17aa2d4b0c8d1e2f3a4b5c6d7e8f9a0b1c2d3e
+    base: main
+requires:
+  - postgres
+expected_final_state:
+  status: recovered
+  executed_action: open_fix_pr
+  output_contains:
+    - sandbox/payment-api/k8s/02-configmap.yaml
+  measured: []

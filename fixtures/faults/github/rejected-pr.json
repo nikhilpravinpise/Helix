@@ -1,0 +1,64 @@
+{
+  "fault": "rejected-pr",
+  "layer": "github",
+  "captured_at": "2026-08-29T09:14:00Z",
+  "trigger": "PR #17 (feature/payment-config -> main) received a CHANGES_REQUESTED review: the PR sets PAYMENT_API_DOWNSTREAM_URL in 02-configmap.yaml to a host that does not exist.",
+  "evidence": {
+    "github": {
+      "pr_info": {
+        "number": 17,
+        "title": "Point payment-api at the new downstream endpoint",
+        "state": "open",
+        "merged": false,
+        "mergeable": true,
+        "draft": false,
+        "head_sha": "9f17aa2d4b0c8d1e2f3a4b5c6d7e8f9a0b1c2d3e",
+        "head_ref": "feature/payment-config",
+        "base_ref": "main",
+        "author": "dev-sandbox",
+        "url": "https://github.com/nikhilpravinpise/Helix/pull/17"
+      },
+      "pr_reviews": {
+        "number": 17,
+        "items": [
+          {
+            "id": 9101,
+            "user": "reviewer-sandbox",
+            "state": "CHANGES_REQUESTED",
+            "body": "This points PAYMENT_API_DOWNSTREAM_URL at downstream-does-not-exist.invalid - that host does not exist in the sandbox namespace. Keep the downstream-stub hostname or the readiness checks will 503.",
+            "submitted_at": "2026-08-29T09:10:00Z"
+          }
+        ]
+      },
+      "branch_state": {
+        "name": "feature/payment-config",
+        "sha": "9f17aa2d4b0c8d1e2f3a4b5c6d7e8f9a0b1c2d3e",
+        "protected": false,
+        "base": "main",
+        "ahead_by": 1,
+        "behind_by": 0,
+        "comparison": "ahead"
+      },
+      "commit": {
+        "sha": "9f17aa2d4b0c8d1e2f3a4b5c6d7e8f9a0b1c2d3e",
+        "message": "Point payment-api at the new downstream endpoint",
+        "author_name": "dev-sandbox",
+        "author_date": "2026-08-29T08:55:00Z",
+        "parents": ["1a2b3c4d5e6f7a8b9c0d1e2f3a4b5c6d7e8f9a0b"],
+        "url": "https://github.com/nikhilpravinpise/Helix/commit/9f17aa2d4b0c8d1e2f3a4b5c6d7e8f9a0b1c2d3e"
+      },
+      "diff": {
+        "sha": "9f17aa2d4b0c8d1e2f3a4b5c6d7e8f9a0b1c2d3e",
+        "files": [
+          {
+            "filename": "sandbox/payment-api/k8s/02-configmap.yaml",
+            "status": "modified",
+            "additions": 1,
+            "deletions": 1,
+            "patch": "@@ -10,1 +10,1 @@\n-  PAYMENT_API_DOWNSTREAM_URL: \"http://downstream-stub.payment-api.svc.cluster.local\"\n+  PAYMENT_API_DOWNSTREAM_URL: \"http://downstream-does-not-exist.invalid\""
+          }
+        ]
+      }
+    }
+  }
+}

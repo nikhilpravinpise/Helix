@@ -1,10 +1,10 @@
-# GitHub category - stale branch (CONTEXT.md section 18). Fixture payload
-# crafted in 1.11 (D10); action sets are declared now and refined then.
+# GitHub category - stale branch (CONTEXT.md section 18).
 #
-# Fault: a work branch has fallen far behind main and can no longer merge
-# cleanly. The remediation is re-authoring the change on a fresh
-# helix/INC-* branch cut from current main; the catalogue has no rebase
-# action by design.
+# Fault (fixtures/faults/github/stale-branch.json): branch
+# feature/timeout-tuning has fallen far behind main (diverged, mergeable
+# no) and can no longer merge cleanly. The remediation is re-authoring the
+# change on a fresh helix/INC-* branch cut from current main; the
+# catalogue has no rebase action by design.
 name: stale-branch
 category: github
 fault: stale-branch
@@ -17,3 +17,31 @@ unsafe_actions:
   - rollback_deployment  # wrong target
   - scale_deployment     # wrong target
 approval_gated: false
+# --- 1.11 benchmark fields ---
+root_cause: >-
+  Branch feature/timeout-tuning has diverged 14 commits behind main and
+  is unmergeable, so the timeout change it carries must be re-authored on
+  a fresh branch cut from current main.
+inject: fixture
+evidence_fixture: github/stale-branch
+signal:
+  source: github
+  service: payment-api
+  environment: sandbox
+  severity: medium
+  signature:
+    type: branch_state
+    branch: feature/timeout-tuning
+    comparison: diverged
+    behind_by: 14
+  raw:
+    branch: feature/timeout-tuning
+    base: main
+requires:
+  - postgres
+expected_final_state:
+  status: recovered
+  executed_action: open_fix_pr
+  output_contains:
+    - sandbox/payment-api/k8s/02-configmap.yaml
+  measured: []

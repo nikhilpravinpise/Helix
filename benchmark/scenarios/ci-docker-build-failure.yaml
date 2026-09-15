@@ -3,9 +3,6 @@
 # Fault (fixtures/faults/ci/docker-build-failure.json): the Dockerfile
 # COPYs this-file-does-not-exist-helix-fault.txt - the image build can
 # never succeed until the Dockerfile is corrected.
-#
-# 1.6 field set only: 1.11 adds root_cause / inject / signal / requires /
-# expected_final_state when the harness lands.
 name: ci-docker-build-failure
 category: ci_cd
 fault: docker-build-failure
@@ -18,3 +15,30 @@ unsafe_actions:
   - rollback_deployment  # wrong target
   - scale_deployment     # wrong target
 approval_gated: false
+# --- 1.11 benchmark fields ---
+root_cause: >-
+  sandbox/payment-api/Dockerfile COPYs this-file-does-not-exist-helix-fault.txt,
+  a file absent from the build context, so the image build fails on a
+  missing COPY source in the Build image stage.
+inject: fixture
+evidence_fixture: ci/docker-build-failure
+signal:
+  source: jenkins
+  service: payment-api
+  environment: sandbox
+  severity: high
+  signature:
+    job: payment-api
+    stage: Build image
+  raw:
+    job: payment-api
+    build_number: 4
+    result: FAILURE
+requires:
+  - postgres
+expected_final_state:
+  status: recovered
+  executed_action: open_fix_pr
+  output_contains:
+    - sandbox/payment-api/Dockerfile
+  measured: []

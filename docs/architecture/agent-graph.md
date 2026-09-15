@@ -113,13 +113,17 @@ code forks:
 - **E** (full): `diagnosis` + `plan`/`validate`/`execute`/`verify` slots.
 - **B** (single-call): `diagnose_and_plan` fuses diagnosis+planning into
   one LLM call; `execute` stays; validate/verify/replan are absent.
-- **A** (rules): `rules_diagnosis`/`rules_plan` deterministic variants;
-  the deterministic `validate` node is shared with E (it is pure code -
-  no LLM), `execute` is shared too, `verify` stays a placeholder.
+- **A** (rules): `rules_diagnosis`/`rules_plan` deterministic variants
+  (agent/rules.py, 1.11 - signature -> hypothesis -> ordered action
+  tables, zero LLM calls); `validate`/`execute`/`verify`/`compensate`
+  are shared with E - they are pure code, not arm-specific reasoning.
 
-Arm A/B rule-node variants are placeholders until 1.11; the composition
-switch, the coordinator's per-arm `diagnosing` route, and the shared
-`validate`/`execute` nodes are what land now.
+1.11 filled the arm A/B variants and made the coordinator arm-aware: at
+`validating` arm B skips the absent validate node straight into the
+shared policy gate, and edges that would need a replan (policy DENY,
+approval REJECTED) escalate under B since no replan node exists. Arm B
+parks at `verifying` after a successful execute - its designed end
+state; the benchmark measures final state itself.
 
 ## Suspend/resume (D13)
 

@@ -1,0 +1,39 @@
+{
+  "fault": "stale-branch",
+  "layer": "github",
+  "captured_at": "2026-08-29T11:30:00Z",
+  "trigger": "feature/timeout-tuning diverged 14 commits behind main and is unmergeable; the timeout change it carries must be re-authored on a branch cut from current main.",
+  "evidence": {
+    "github": {
+      "branch_state": {
+        "name": "feature/timeout-tuning",
+        "sha": "55cc22dd11ee00ff99aa88bb77cc66dd55ee44ff",
+        "protected": false,
+        "base": "main",
+        "ahead_by": 3,
+        "behind_by": 14,
+        "comparison": "diverged"
+      },
+      "commit": {
+        "sha": "55cc22dd11ee00ff99aa88bb77cc66dd55ee44ff",
+        "message": "Bump payment-api timeout to 8s in configmap",
+        "author_name": "dev-sandbox",
+        "author_date": "2026-08-20T15:40:00Z",
+        "parents": ["3c4d5e6f7a8b9c0d1e2f3a4b5c6d7e8f9a0b1c2d"],
+        "url": "https://github.com/nikhilpravinpise/Helix/commit/55cc22dd11ee00ff99aa88bb77cc66dd55ee44ff"
+      },
+      "diff": {
+        "sha": "55cc22dd11ee00ff99aa88bb77cc66dd55ee44ff",
+        "files": [
+          {
+            "filename": "sandbox/payment-api/k8s/02-configmap.yaml",
+            "status": "modified",
+            "additions": 1,
+            "deletions": 0,
+            "patch": "@@ -10,0 +11,1 @@\n+  PAYMENT_API_TIMEOUT_S: \"8\""
+          }
+        ]
+      }
+    }
+  }
+}

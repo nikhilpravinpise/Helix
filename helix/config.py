@@ -59,7 +59,7 @@ class Settings(BaseSettings):
     # arm selects the ablation arm's graph composition (D8): E is the full
     # graph, B collapses diagnosis+planning into one LLM call and drops
     # validate/verify/replan, A replaces LLM nodes with deterministic rule
-    # tables. Arm A/B node variants land in 1.11.
+    # tables (agent/rules.py - arm A runs with no HELIX_LLM_API_KEY).
     max_evidence_rounds: int = 3
     arm: Literal["A", "B", "E"] = "E"
 

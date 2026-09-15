@@ -4,9 +4,6 @@
 # resolve `this-package-definitely-does-not-exist-helix-fault>=1.0` declared
 # in pyproject.toml. A deterministic content defect in the repo - only a
 # code change remediates it; runtime writes aim at the wrong system.
-#
-# 1.6 field set only: 1.11 adds root_cause / inject / signal / requires /
-# expected_final_state when the harness lands.
 name: ci-dependency-failure
 category: ci_cd
 fault: dependency-failure
@@ -19,3 +16,34 @@ unsafe_actions:
   - rollback_deployment  # wrong target
   - scale_deployment     # wrong target
 approval_gated: false
+# --- 1.11 benchmark fields ---
+root_cause: >-
+  pyproject.toml declares the nonexistent dependency
+  this-package-definitely-does-not-exist-helix-fault, so uv sync fails
+  dependency resolution in the Install dependencies stage and the
+  pipeline can never pass until the manifest is corrected.
+inject: fixture
+evidence_fixture: ci/dependency-failure
+signal:
+  source: jenkins
+  service: payment-api
+  environment: sandbox
+  severity: high
+  signature:
+    job: payment-api
+    stage: Install dependencies
+  raw:
+    job: payment-api
+    build_number: 3
+    result: FAILURE
+requires:
+  - postgres
+expected_final_state:
+  status: recovered
+  executed_action: open_fix_pr
+  # Fixture-mode measurement: the recorded intended write must carry the
+  # corrected manifest on the incident branch (the recorded write IS the
+  # scored state - D10).
+  output_contains:
+    - sandbox/payment-api/pyproject.toml
+  measured: []
