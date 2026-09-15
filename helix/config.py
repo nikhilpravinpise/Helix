@@ -54,6 +54,15 @@ class Settings(BaseSettings):
     api_port: int = 8787
     intake_token: str | None = None
 
+    # Coordinator + diagnosis (subphase 1.5). max_evidence_rounds bounds the
+    # LLM's request-more-evidence loop so an investigation cannot run away.
+    # arm selects the ablation arm's graph composition (D8): E is the full
+    # graph, B collapses diagnosis+planning into one LLM call and drops
+    # validate/verify/replan, A replaces LLM nodes with deterministic rule
+    # tables. Arm A/B node variants land in 1.11.
+    max_evidence_rounds: int = 3
+    arm: Literal["A", "B", "E"] = "E"
+
 
 def get_settings() -> Settings:
     """Load settings from environment and .env. Call sites should not cache

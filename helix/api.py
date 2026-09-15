@@ -19,6 +19,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from helix.config import get_settings
+from helix.logging import get_logger
 from state import models
 from state.db import session_scope
 from state.intake import IntakeResult, Signal, SignalSource, intake_signal
@@ -68,14 +69,37 @@ def _intake(signal: Signal, expected_source: SignalSource, session: Session) -> 
     return intake_signal(session, signal)
 
 
+def _maybe_run(run: bool, session: Session, result: IntakeResult) -> None:
+    """The intake -> agent hook (D6 direct call, wired in 1.5): POSTs with
+    `?run=true` drive the workflow graph in-process after the signal is
+    recorded. The signal is committed first so the runner's own sessions
+    see it; a run failure is logged but never fails the intake - the
+    incident is already durable and `helix run` can drive it later."""
+    if not run:
+        return
+    session.commit()
+    from agent.runner import run_incident
+
+    try:
+        run_incident(result.incident_id)
+    except Exception as exc:  # the run's outcome lives in workflow_runs
+        get_logger().warning(
+            "intake run hook failed", incident_id=result.incident_id, error=str(exc)
+        )
+
+
 @app.post("/intake/kubernetes", response_model=IntakeResult)
 def post_intake_kubernetes(
     signal: Signal,
     session: DbSession,
     _: Annotated[None, Depends(require_intake_token)],
+    run: bool = False,
 ) -> IntakeResult:
-    """Receive a Kubernetes failure signal (e.g. from scripts/emit-signal.sh)."""
-    return _intake(signal, SignalSource.KUBERNETES, session)
+    """Receive a Kubernetes failure signal (e.g. from scripts/emit-signal.sh).
+    `?run=true` also drives the incident's workflow in-process."""
+    result = _intake(signal, SignalSource.KUBERNETES, session)
+    _maybe_run(run, session, result)
+    return result
 
 
 @app.post("/intake/jenkins", response_model=IntakeResult)
@@ -83,9 +107,13 @@ def post_intake_jenkins(
     signal: Signal,
     session: DbSession,
     _: Annotated[None, Depends(require_intake_token)],
+    run: bool = False,
 ) -> IntakeResult:
-    """Receive a Jenkins build-failure signal (Jenkinsfile post{failure})."""
-    return _intake(signal, SignalSource.JENKINS, session)
+    """Receive a Jenkins build-failure signal (Jenkinsfile post{failure}).
+    `?run=true` also drives the incident's workflow in-process."""
+    result = _intake(signal, SignalSource.JENKINS, session)
+    _maybe_run(run, session, result)
+    return result
 
 
 class IncidentOut(BaseModel):

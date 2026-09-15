@@ -1,12 +1,13 @@
 """Helix CLI entry point.
 
-Subcommands are added per subphase (see phase1-remaining-plan.md). This
-subphase (1.4) implements `serve` (uvicorn over helix/api.py), `intake`
-(read a signal JSON file or stdin, call the same state.intake.intake_signal
-the API uses - no server needed, D6) and `incidents` (list incidents). The
-rest of the CLI surface is stubbed so `helix <cmd>` parses and reports the
-subphase it lands in: run (1.5), approve/reject/approvals (1.8),
-provenance (1.9).
+Subcommands are added per subphase (see phase1-remaining-plan.md).
+Implemented so far: `serve` (uvicorn over helix/api.py), `intake` (read a
+signal JSON file or stdin, call the same state.intake.intake_signal the
+API uses - no server needed, D6; `--run` then drives the workflow
+in-process), `incidents` (list incidents), and `run` (drive an incident's
+workflow graph to its next stopping point). The rest of the CLI surface
+is stubbed so `helix <cmd>` parses and reports the subphase it lands in:
+approve/reject/approvals (1.8), provenance (1.9).
 """
 
 import argparse
@@ -16,7 +17,6 @@ import sys
 # Subcommands that exist only as stubs for later subphases: name -> where
 # the real implementation lands.
 _STUB_COMMANDS = {
-    "run": "1.5",
     "approve": "1.8",
     "reject": "1.8",
     "approvals": "1.8",
@@ -43,8 +43,20 @@ def build_parser() -> argparse.ArgumentParser:
         default="-",
         help="signal JSON file; omit or pass '-' to read stdin",
     )
+    intake.add_argument(
+        "--run",
+        action="store_true",
+        help="after recording the signal, drive the incident's workflow in-process",
+    )
 
     subparsers.add_parser("incidents", help="list incidents, newest first")
+
+    run = subparsers.add_parser(
+        "run",
+        help="drive an incident's workflow to its next stopping point "
+        "(1.5: diagnosis -> remediation_pending)",
+    )
+    run.add_argument("incident_id", metavar="INC_ID", help="the incident id (INC-*)")
 
     for name, subphase in _STUB_COMMANDS.items():
         stub = subparsers.add_parser(name, help=f"(lands in subphase {subphase})")
@@ -104,6 +116,54 @@ def _cmd_intake(args: argparse.Namespace) -> int:
     print(result.incident_id)
     verb = "created" if result.created else "attached to"
     print(f"helix intake: {verb} incident {result.incident_id}", file=sys.stderr)
+
+    if args.run:
+        _run_hook(result.incident_id)
+    return 0
+
+
+def _run_hook(incident_id: str) -> None:
+    """The intake -> run hook (plan.md 1.4's in-process direct call, D6):
+    drive the workflow graph after a signal is recorded. The signal is
+    already persisted, so a run failure is reported but never fails the
+    intake itself."""
+    from agent.runner import run_incident
+
+    try:
+        result = run_incident(incident_id)
+    except Exception as exc:
+        print(f"helix intake --run: run failed: {exc}", file=sys.stderr)
+        return
+    print(
+        f"helix intake --run: status={result.status} run={result.run_status}",
+        file=sys.stderr,
+    )
+    if result.error:
+        print(f"helix intake --run: run error: {result.error}", file=sys.stderr)
+
+
+def _cmd_run(args: argparse.Namespace) -> int:
+    from agent.runner import IncidentNotFoundError, RunConflictError, run_incident
+
+    try:
+        result = run_incident(args.incident_id)
+    except IncidentNotFoundError:
+        print(f"helix run: no such incident: {args.incident_id}", file=sys.stderr)
+        return 2
+    except RunConflictError as exc:
+        print(f"helix run: {exc}", file=sys.stderr)
+        return 2
+
+    print(f"{result.incident_id}: status={result.status} run={result.run_status}")
+    if result.hypothesis:
+        hyp = result.hypothesis
+        print(f"hypothesis: {hyp['claim']} (confidence={hyp['confidence']})")
+        print(f"evidence_refs: {', '.join(hyp['evidence_refs']) or '(none)'}")
+    for note in result.errors:
+        print(f"note: {note}", file=sys.stderr)
+    if result.error:
+        print(f"helix run: run failed: {result.error}", file=sys.stderr)
+        return 1
     return 0
 
 
@@ -147,6 +207,8 @@ def main(argv: list[str] | None = None) -> int:
         return _cmd_intake(args)
     if args.command == "incidents":
         return _cmd_incidents()
+    if args.command == "run":
+        return _cmd_run(args)
     # Stub subcommand: parses, then reports where it lands.
     print(
         f"helix {args.command}: not implemented yet "
