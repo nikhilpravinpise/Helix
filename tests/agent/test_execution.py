@@ -114,8 +114,10 @@ class TestPolicyGateE2E:
 
     def test_low_risk_sandbox_executes_through_fake(self, sqlite_sessions, store):
         """Low-tier write in non-prod -> ALLOW_WITH_CHECKS -> the fake
-        jenkins write records the intended trigger and the run ends at
-        verifying with a complete executions row."""
+        jenkins write records the intended trigger, the executions row is
+        complete, and the 1.9 verify node then runs: the fixture's latest
+        build is FAILURE so verification fails, the retryable action
+        replans, and the empty replan escalates."""
         deps, caps = make_deps(
             sqlite_sessions, _llm([_pipeline_plan()]), "ci/test-regression", store
         )
@@ -124,7 +126,7 @@ class TestPolicyGateE2E:
         result = run_incident(incident_id, deps=deps)
 
         assert result.error is None
-        assert result.status == IncidentStatus.VERIFYING
+        assert result.status == IncidentStatus.ESCALATED
         assert result.run_status == models.RunStatus.TERMINAL
 
         rows = _executions(sqlite_sessions, incident_id)
@@ -144,9 +146,18 @@ class TestPolicyGateE2E:
         assert caps["jenkins_write"].methods() == ["trigger_build"]
         assert caps["jenkins_write"].impl.calls[0]["job"] == "payment-api"
 
+        # The verification ran and failed honestly: the recorded fixture
+        # build never went green.
+        verifications = _rows(sqlite_sessions, models.Verification, incident_id)
+        assert len(verifications) == 1
+        assert verifications[0].outcome == models.VerificationOutcome.FAIL
+        assert verifications[0].action == "rerun_pipeline"
+
     def test_medium_risk_sandbox_executes_with_checks(self, sqlite_sessions, store):
         """Medium-tier write in non-prod -> ALLOW_WITH_CHECKS with the
-        verification requirement recorded on the executions row."""
+        verification requirement recorded on the executions row; the 1.9
+        verify node then runs (the crashloop fixture still fails, so the
+        compensable action replans and the empty replan escalates)."""
         deps, caps = make_deps(
             sqlite_sessions, _llm([_manifest_plan()]), "cluster/crashloop", store
         )
@@ -154,7 +165,7 @@ class TestPolicyGateE2E:
 
         result = run_incident(incident_id, deps=deps)
 
-        assert result.status == IncidentStatus.VERIFYING
+        assert result.status == IncidentStatus.ESCALATED
         rows = _executions(sqlite_sessions, incident_id)
         assert len(rows) == 1
         assert rows[0].action == "reapply_manifest"
@@ -164,6 +175,11 @@ class TestPolicyGateE2E:
         assert rows[0].output["op"] == "apply_manifest"
         assert rows[0].output["path"].endswith("04-deployment.yaml")
         assert caps["kube_write"].methods() == ["apply_manifest"]
+
+        verifications = _rows(sqlite_sessions, models.Verification, incident_id)
+        assert len(verifications) == 1
+        assert verifications[0].outcome == models.VerificationOutcome.FAIL
+        assert verifications[0].needs_compensation is True
 
     def test_production_write_halts_at_awaiting_approval(self, sqlite_sessions, store):
         """Layer 1 - routing: even a medium-tier write against production
@@ -480,15 +496,18 @@ class TestApprovalLifecycle:
         assert approval.decided_by == "alice"
         assert approval.decided_at is not None
 
-        # The resumed run executed through the fake and reached verifying.
+        # The resumed run executed through the fake, verified against the
+        # still-broken fixture (fail), replanned, and escalated.
         with sqlite_sessions() as session:
             incident = session.scalar(
                 select(models.Incident).where(models.Incident.incident_id == incident_id)
             )
-            assert incident.status == IncidentStatus.VERIFYING
-        assert _transitions(sqlite_sessions, incident_id)[-2:] == [
+            assert incident.status == IncidentStatus.ESCALATED
+        assert _transitions(sqlite_sessions, incident_id)[-4:] == [
             ("awaiting_approval", "executing"),
             ("executing", "verifying"),
+            ("verifying", "remediation_pending"),
+            ("remediation_pending", "escalated"),
         ]
         rows = _executions(sqlite_sessions, incident_id)
         assert len(rows) == 1
@@ -567,16 +586,18 @@ class TestApprovalLifecycle:
         assert all(r.fingerprint != rejected_fp for r in rows)
         err = capsys.readouterr().err
         assert "identical params already" in err
-        # And the incident replanned rather than ending.
+        # And the incident replanned rather than ending; the fallback's
+        # own verification also failed (fixture still broken) so it
+        # escalated through a second replan cycle.
         with sqlite_sessions() as session:
             incident = session.scalar(
                 select(models.Incident).where(models.Incident.incident_id == incident_id)
             )
-            assert incident.status == IncidentStatus.VERIFYING
-            assert (
-                "awaiting_approval",
-                "remediation_pending",
-            ) in _transitions(sqlite_sessions, incident_id)
+            assert incident.status == IncidentStatus.ESCALATED
+            transitions = _transitions(sqlite_sessions, incident_id)
+            assert ("awaiting_approval", "remediation_pending") in transitions
+            assert ("executing", "verifying") in transitions
+            assert ("verifying", "remediation_pending") in transitions
 
     def test_duplicate_approve_is_a_noop_not_double_execution(
         self, sqlite_sessions, store, monkeypatch, capsys

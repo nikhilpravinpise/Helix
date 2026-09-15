@@ -631,6 +631,18 @@ def _validations(sessions, incident_id: str) -> list[models.Validation]:
         )
 
 
+def _verifications(sessions, incident_id: str) -> list[models.Verification]:
+    with sessions() as session:
+        return list(
+            session.scalars(
+                select(models.Verification)
+                .join(models.Incident)
+                .where(models.Incident.incident_id == incident_id)
+                .order_by(models.Verification.id)
+            )
+        )
+
+
 class TestValidateNode:
     """The node: dispatch, persistence, exclusion bookkeeping."""
 
@@ -711,10 +723,12 @@ class TestValidationE2E:
         result = run_incident(incident_id, deps=deps)
 
         assert result.error is None
-        # 1.8: a PASSing medium-tier sandbox action clears the policy
-        # gate and executes through the recording fake - the run ends at
-        # verifying (the 1.9 verify node is still a slot).
-        assert result.status == IncidentStatus.VERIFYING
+        # 1.9: a PASSing medium-tier sandbox action clears the policy
+        # gate, executes through the recording fake, and the real verify
+        # node then runs - the crashloop fixture still shows the fault,
+        # so verification fails, the compensable action replans, and the
+        # exhausted FakeLLM's empty plan escalates.
+        assert result.status == IncidentStatus.ESCALATED
         assert result.run_status == models.RunStatus.TERMINAL
         rows = _validations(sqlite_sessions, incident_id)
         assert [r.outcome for r in rows] == [ValidationOutcome.PASS]
@@ -730,31 +744,90 @@ class TestValidationE2E:
                 (r.from_status.value if r.from_status else None, r.to_status.value)
                 for r in incident.transitions
             ]
-        assert pairs[-2:] == [("validating", "executing"), ("executing", "verifying")]
+        assert pairs[-4:] == [
+            ("validating", "executing"),
+            ("executing", "verifying"),
+            ("verifying", "remediation_pending"),
+            ("remediation_pending", "escalated"),
+        ]
 
-    def test_rerun_at_verifying_is_a_noop(self, sqlite_sessions, store):
-        """A fresh `helix run` on an incident parked at `verifying` is a
-        no-op: the coordinator owns the status, the 1.9 verify node is
-        still a slot, and no new work runs."""
-        plan = CandidateList(
-            candidates=[
-                CandidateProposal(
-                    action="reapply_manifest",
-                    params={"path": DEPLOYMENT_PATH},
-                    rationale="re-assert the deployment manifest",
-                )
-            ]
-        )
-        deps, _ = make_deps(sqlite_sessions, self._llm([plan]), "cluster/crashloop", store)
+    def test_rerun_at_verifying_runs_verification(self, sqlite_sessions, store):
+        """A fresh `helix run` on an incident parked at `verifying` is not
+        a no-op anymore (1.9): the coordinator routes to the real verify
+        node, which reloads the persisted execution (action + params +
+        fingerprint from the executions row), verifies against the
+        fixture, and routes onward - the fault still shows, so it fails
+        and replans."""
+        from datetime import UTC, datetime
+
+        from state.machine import transition
+
+        deps, _ = make_deps(sqlite_sessions, self._llm([]), "cluster/crashloop", store)
         incident_id = _make_incident(sqlite_sessions, K8S_SIGNAL)
-        assert run_incident(incident_id, deps=deps).status == IncidentStatus.VERIFYING
+        # Park the incident at verifying with a persisted successful
+        # execution - the state a crashed mid-verify run leaves behind.
+        params = {"path": DEPLOYMENT_PATH}
+        with sqlite_sessions() as session:
+            incident = session.scalar(
+                select(models.Incident).where(models.Incident.incident_id == incident_id)
+            )
+            cand = models.Candidate(
+                incident_id=incident.id,
+                attempt=0,
+                rank=1,
+                action="reapply_manifest",
+                params=params,
+                rationale="seeded",
+                evidence_refs=[],
+                score=1.5,
+                risk_tier="medium",
+                selected=True,
+                components={},
+            )
+            session.add(cand)
+            session.flush()
+            session.add(
+                models.Execution(
+                    incident_id=incident.id,
+                    candidate_id=cand.id,
+                    attempt=0,
+                    action="reapply_manifest",
+                    params=params,
+                    fingerprint=candidate_fingerprint("reapply_manifest", params),
+                    policy_decision="allow_with_checks",
+                    verification_required=True,
+                    decided_by=None,
+                    approval_id=None,
+                    origin="fixture",
+                    result=models.ExecutionResult.SUCCESS,
+                    detail="applied",
+                    output={"op": "apply_manifest", "path": DEPLOYMENT_PATH},
+                    started_at=datetime.now(UTC),
+                    finished_at=datetime.now(UTC),
+                )
+            )
+            for status in (
+                IncidentStatus.DIAGNOSING,
+                IncidentStatus.REMEDIATION_PENDING,
+                IncidentStatus.VALIDATING,
+                IncidentStatus.EXECUTING,
+                IncidentStatus.VERIFYING,
+            ):
+                transition(incident, status, cause="seed", session=session)
 
-        second = run_incident(incident_id, deps=deps)
+        result = run_incident(incident_id, deps=deps)
 
-        assert second.error is None
-        assert second.status == IncidentStatus.VERIFYING
-        rows = _validations(sqlite_sessions, incident_id)
-        assert [r.outcome for r in rows] == [ValidationOutcome.PASS]
+        assert result.error is None
+        # The verify pass ran and failed against the crashloop fixture,
+        # then replanned (exhausted FakeLLM -> empty plan -> escalate).
+        assert result.status == IncidentStatus.ESCALATED
+        verifications = _verifications(sqlite_sessions, incident_id)
+        assert len(verifications) == 1
+        assert verifications[0].outcome == models.VerificationOutcome.FAIL
+        assert verifications[0].action == "reapply_manifest"
+        # No new validation rows - the verify node did not re-run earlier
+        # stages.
+        assert _validations(sqlite_sessions, incident_id) == []
 
     def test_fail_replans_with_exclusion_then_passes(self, sqlite_sessions, store):
         """Fail -> REMEDIATION_PENDING -> replan excluding the failed
@@ -798,8 +871,9 @@ class TestValidationE2E:
         # replanned selection is NOT the excluded fingerprint.
         assert any("already failed validation" in e for e in result.errors)
         assert result.selected_action["action"] == "reapply_manifest"
-        # 1.8: the PASSing replanned candidate executes -> verifying.
-        assert result.status == IncidentStatus.VERIFYING
+        # 1.9: the PASSing replanned candidate executes -> verify fails
+        # (fixture still broken) -> replan -> empty -> escalate.
+        assert result.status == IncidentStatus.ESCALATED
         with sqlite_sessions() as session:
             incident = session.scalar(
                 select(models.Incident).where(models.Incident.incident_id == incident_id)
@@ -817,6 +891,8 @@ class TestValidationE2E:
             ("remediation_pending", "validating"),  # new selection
             ("validating", "executing"),
             ("executing", "verifying"),
+            ("verifying", "remediation_pending"),  # verify failed -> replan
+            ("remediation_pending", "escalated"),  # exhausted LLM -> empty plan
         ]
 
     def test_second_consecutive_fail_escalates(self, sqlite_sessions, store):
@@ -877,8 +953,11 @@ class TestValidationE2E:
 
     def test_rerun_pipeline_on_ci_fixture_passes(self, sqlite_sessions, store):
         """rerun_pipeline over a CI fixture: the job exists with builds ->
-        PASS through the real fixture capability, then 1.8 executes the
-        low-tier write through the recording jenkins fake -> verifying."""
+        PASS through the real fixture capability, executes the low-tier
+        write through the recording jenkins fake, then the 1.9 verify
+        node checks the build - the fixture's latest build is FAILURE,
+        so verification fails, the retryable action replans, and the
+        empty replan escalates."""
         plan = CandidateList(
             candidates=[
                 CandidateProposal(
@@ -905,10 +984,13 @@ class TestValidationE2E:
         result = run_incident(incident_id, deps=deps)
 
         assert result.error is None
-        assert result.status == IncidentStatus.VERIFYING
+        assert result.status == IncidentStatus.ESCALATED
         rows = _validations(sqlite_sessions, incident_id)
         assert [r.outcome for r in rows] == [ValidationOutcome.PASS]
         assert caps["jenkins_write"].methods() == ["trigger_build"]
+        verifications = _verifications(sqlite_sessions, incident_id)
+        assert [v.outcome for v in verifications] == [models.VerificationOutcome.FAIL]
+        assert verifications[0].action == "rerun_pipeline"
 
 
 # --- Live prechecks (integration tier) --------------------------------------

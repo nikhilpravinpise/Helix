@@ -72,6 +72,21 @@ class Settings(BaseSettings):
     allowed_kube_contexts: str = "kind-helix-sandbox"
     operator: str = "operator"
 
+    # Verification agent (subphase 1.9). verify_window is how many seconds the
+    # post-action desired state must hold before an incident may close; the
+    # window is sampled every verify_poll seconds, and a pod that was Ready
+    # then is not - inside the window - counts as flapping, not recovered.
+    # elk_error_threshold is the count of error-level log lines allowed in a
+    # poll-sized post-action window (default 0: any fresh ERROR fails the leg).
+    # verify_functional toggles the port-forward functional leg (browser + API
+    # round-trip). Turn it off for headless/CI contexts; it is required in
+    # live benchmark mode. A disabled or fixture-mode leg is recorded as
+    # skipped, never as passed.
+    verify_window: int = 60
+    verify_poll: int = 20
+    elk_error_threshold: int = 0
+    verify_functional: bool = True
+
     def allowed_kube_context_set(self) -> frozenset[str]:
         """HELIX_ALLOWED_KUBE_CONTEXTS parsed into a set of context names."""
         return frozenset(

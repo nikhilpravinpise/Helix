@@ -13,7 +13,10 @@ verdicts, whose `fail` rows also serve as the persisted exclusion list
 the replan consults). Subphase 1.8 adds `approvals` (the pending/decided
 gate decisions that mediate the AWAITING_APPROVAL suspension) and
 `executions` (the execution audit record: who, what, when, under which
-policy decision). Later subphases add their own tables alongside
+policy decision). Subphase 1.9 adds `verifications` (the per-attempt
+desired-state check record, whose `fail` rows extend the exclusion list
+and whose `needs_compensation` flag records the compensation debt 1.10
+consumes). Later subphases add their own tables alongside
 these - the schema grows with the code that uses it.
 
 Notes on the choices made here:
@@ -129,6 +132,9 @@ class Incident(Base):
     )
     executions: Mapped[list["Execution"]] = relationship(
         back_populates="incident", order_by="Execution.id"
+    )
+    verifications: Mapped[list["Verification"]] = relationship(
+        back_populates="incident", order_by="Verification.id"
     )
 
 
@@ -542,3 +548,83 @@ class Execution(Base):
     incident: Mapped[Incident] = relationship(back_populates="executions")
     candidate: Mapped[Candidate | None] = relationship()
     approval: Mapped[Approval | None] = relationship()
+
+
+class VerificationOutcome(StrEnum):
+    """The Verification Agent's verdict on one executed action (1.9).
+
+    `pass` - every check that ran held desired state across the window;
+    the incident may close as RECOVERED. `fail` - a check observed the
+    system still broken, flapped mid-window, or could not run (a check
+    that cannot run never counts toward recovery). There is deliberately
+    no third outcome: per-check `skipped`/`error` detail lives in
+    `checks`, while the verdict stays binary so a failed verification can
+    never pretend success.
+    """
+
+    PASS = "pass"
+    FAIL = "fail"
+
+
+def _verification_outcome_type() -> Enum:
+    """VerificationOutcome as stored strings; same non-native-enum rationale."""
+    return Enum(
+        VerificationOutcome,
+        native_enum=False,
+        validate_strings=True,
+        values_callable=lambda e: [m.value for m in e],
+        name="verification_outcome",
+        length=16,
+    )
+
+
+class Verification(Base):
+    """One post-action verification pass (subphase 1.9).
+
+    Written once per verify-node run: the execution it verified
+    (`execution_id`, nullable - a resumed run verifies the newest
+    successful executions row), the action + params + fingerprint checked,
+    the per-check record (`checks` is a JSONB list of {name, status,
+    detail, evidence_id} where status is pass|fail|skipped|error), the
+    binary verdict, the stability window sampled, and the window
+    timestamps.
+
+    `needs_compensation` marks a failed verification whose compensable
+    action left a persistent change un-undone - the compensation hook
+    itself is 1.10; this flag plus the row IS the recorded debt.
+
+    `fail` rows double as repeat-action prevention: intake rebuilds the
+    exclusion list from them (alongside failed validations, rejected
+    approvals and refused/error executions), so a verified-broken action
+    is never blindly re-proposed.
+    """
+
+    __tablename__ = "verifications"
+
+    id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
+    incident_id: Mapped[int] = mapped_column(
+        ForeignKey("incidents.id", ondelete="CASCADE"), index=True
+    )
+    execution_id: Mapped[int | None] = mapped_column(
+        ForeignKey("executions.id", ondelete="SET NULL"), nullable=True
+    )
+    candidate_id: Mapped[int | None] = mapped_column(
+        ForeignKey("candidates.id", ondelete="SET NULL"), nullable=True
+    )
+    attempt: Mapped[int] = mapped_column(Integer, default=0, server_default="0")
+    action: Mapped[str] = mapped_column(String(64))
+    params: Mapped[dict[str, Any]] = mapped_column(_json_doc())
+    fingerprint: Mapped[str] = mapped_column(String(64))
+    outcome: Mapped[VerificationOutcome] = mapped_column(_verification_outcome_type())
+    detail: Mapped[str] = mapped_column(Text)
+    checks: Mapped[list[dict[str, Any]]] = mapped_column(_json_doc())
+    window_seconds: Mapped[float] = mapped_column(Float)
+    poll_seconds: Mapped[float] = mapped_column(Float)
+    needs_compensation: Mapped[bool] = mapped_column(Boolean, default=False, server_default="false")
+    started_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    finished_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+    incident: Mapped[Incident] = relationship(back_populates="verifications")
+    execution: Mapped[Execution | None] = relationship()
+    candidate: Mapped[Candidate | None] = relationship()

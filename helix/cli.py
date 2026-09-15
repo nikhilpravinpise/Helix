@@ -5,21 +5,16 @@ Implemented so far: `serve` (uvicorn over helix/api.py), `intake` (read a
 signal JSON file or stdin, call the same state.intake.intake_signal the
 API uses - no server needed, D6; `--run` then drives the workflow
 in-process), `incidents` (list incidents), `run` (drive an incident's
-workflow graph to its next stopping point), and the 1.8 approval surface:
-`approvals` (list the gate's pending/decided rows), `approve`/`reject`
-(record the decision on an incident's pending approvals row and resume
-the suspended run). `provenance` remains stubbed for 1.9.
+workflow graph to its next stopping point), the 1.8 approval surface
+(`approvals` lists the gate's pending/decided rows; `approve`/`reject`
+record the decision on an incident's pending approvals row and resume
+the suspended run), and `provenance` (1.9 - print an incident's decision
+provenance as Markdown).
 """
 
 import argparse
 import json
 import sys
-
-# Subcommands that exist only as stubs for later subphases: name -> where
-# the real implementation lands.
-_STUB_COMMANDS = {
-    "provenance": "1.9",
-}
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -52,8 +47,9 @@ def build_parser() -> argparse.ArgumentParser:
     run = subparsers.add_parser(
         "run",
         help="drive an incident's workflow to its next stopping point "
-        "(1.8: diagnosis -> plan -> validate -> executing -> verifying, "
-        "suspending at awaiting_approval when policy requires a decision)",
+        "(diagnosis -> plan -> validate -> execute -> verify, ending "
+        "recovered/escalated/failed or suspending at awaiting_approval "
+        "when policy requires a decision)",
     )
     run.add_argument("incident_id", metavar="INC_ID", help="the incident id (INC-*)")
 
@@ -90,9 +86,13 @@ def build_parser() -> argparse.ArgumentParser:
     )
     reject.add_argument("--note", default="", help="optional decision note")
 
-    for name, subphase in _STUB_COMMANDS.items():
-        stub = subparsers.add_parser(name, help=f"(lands in subphase {subphase})")
-        stub.add_argument("args", nargs="*", help=argparse.SUPPRESS)
+    provenance = subparsers.add_parser(
+        "provenance",
+        help="print an incident's decision provenance as Markdown "
+        "(trigger -> evidence -> hypothesis -> candidates -> decision -> "
+        "validation -> approval -> execution -> verification)",
+    )
+    provenance.add_argument("incident_id", metavar="INC_ID", help="the incident id (INC-*)")
 
     return parser
 
@@ -200,6 +200,9 @@ def _cmd_run(args: argparse.Namespace) -> int:
             f"execution: {exe['action']} -> {exe['result']} ({exe['detail']}) "
             f"[policy={exe['policy_decision']}, origin={exe['origin']}]"
         )
+    if result.verification:
+        ver = result.verification
+        print(f"verification: {ver['action']} -> {ver['outcome']} ({ver['detail']})")
     for note in result.errors:
         print(f"note: {note}", file=sys.stderr)
     if result.error:
@@ -359,11 +362,38 @@ def _cmd_decide(args: argparse.Namespace, approved: bool) -> int:
     if result.execution:
         exe = result.execution
         print(f"execution: {exe['action']} -> {exe['result']} ({exe['detail']})")
+    if result.verification:
+        ver = result.verification
+        print(f"verification: {ver['action']} -> {ver['outcome']} ({ver['detail']})")
     for note in result.errors:
         print(f"note: {note}", file=sys.stderr)
     if result.error:
         print(f"helix {verb}: run failed: {result.error}", file=sys.stderr)
         return 1
+    return 0
+
+
+def _cmd_provenance(args: argparse.Namespace) -> int:
+    """Print the incident's decision-provenance record as Markdown -
+    state.provenance.render_markdown over the assembled record."""
+    from sqlalchemy.exc import SQLAlchemyError
+
+    from state.db import session_scope
+    from state.provenance import assemble_provenance, render_markdown
+
+    try:
+        with session_scope() as session:
+            record = assemble_provenance(session, args.incident_id)
+    except SQLAlchemyError as exc:
+        print(
+            f"helix provenance: database error (is Postgres up? see scripts/db-up.sh): {exc}",
+            file=sys.stderr,
+        )
+        return 1
+    if record is None:
+        print(f"helix provenance: no such incident: {args.incident_id}", file=sys.stderr)
+        return 2
+    print(render_markdown(record), end="")
     return 0
 
 
@@ -387,10 +417,6 @@ def main(argv: list[str] | None = None) -> int:
         return _cmd_decide(args, approved=True)
     if args.command == "reject":
         return _cmd_decide(args, approved=False)
-    # Stub subcommand: parses, then reports where it lands.
-    print(
-        f"helix {args.command}: not implemented yet "
-        f"(lands in subphase {_STUB_COMMANDS[args.command]})",
-        file=sys.stderr,
-    )
+    if args.command == "provenance":
+        return _cmd_provenance(args)
     return 2

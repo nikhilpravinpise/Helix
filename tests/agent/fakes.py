@@ -106,22 +106,35 @@ class Recording:
 def make_deps(
     session_factory,
     llm,
-    fixture: str,
+    fixture: "str | dict",
     store,
     *,
     database_url: str = "sqlite://",
     max_evidence_rounds: int = 3,
     prechecks=None,
+    verify_window: float = 4.0,
+    verify_poll: float = 2.0,
+    elk_error_threshold: int = 0,
+    verify_functional: bool = True,
+    sleep=lambda _s: None,
 ) -> tuple[GraphDeps, dict[str, Recording]]:
     """GraphDeps over one fixture's Fixture*Evidence impls, each wrapped in
-    a Recording proxy. Returns (deps, recorders-by-domain).
+    a Recording proxy. Returns (deps, recorders-by-domain). `fixture` is a
+    fault name (`store.load`) or a synthetic fixture document dict - the
+    verification tests build docs by hand to control pod/log state across
+    samples.
 
     `prechecks` defaults to the fixture impl (canned pass); pass a stub to
     script can_i/dry_run_apply verdicts in validation tests. The write
     transports are the recording fakes (D10): each `.impl.calls` is the
     in-memory list of intended writes, so tests assert exactly what Helix
-    would have written without any real system being touched."""
-    doc = store.load(fixture)
+    would have written without any real system being touched.
+
+    Verification (1.9) runs fast: a 4s window sampled every 2s over a
+    no-op `sleep`, so legs still take multiple samples (flapping is
+    exercised) without costing wall-clock time. `origin="fixture"` makes
+    the functional leg record `skipped` - no live service exists."""
+    doc = fixture if isinstance(fixture, dict) else store.load(fixture)
     caps = {
         "kubernetes": Recording(FixtureKubernetesEvidence(doc)),
         "jenkins": Recording(FixtureJenkinsEvidence(doc)),
@@ -148,5 +161,10 @@ def make_deps(
         database_url=database_url,
         write_origin="fixture",
         max_evidence_rounds=max_evidence_rounds,
+        verify_window=verify_window,
+        verify_poll=verify_poll,
+        elk_error_threshold=elk_error_threshold,
+        verify_functional=verify_functional,
+        sleep=sleep,
     )
     return deps, caps

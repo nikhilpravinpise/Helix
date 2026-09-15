@@ -163,7 +163,11 @@ class TestDurableApprovalResume:
 
         second = run_incident(incident_id, deps=deps)
 
-        assert second.status == IncidentStatus.VERIFYING
+        # 1.9: the resumed run executes, then the real verify node runs -
+        # the crashloop fixture still shows the fault, so verification
+        # fails, the compensable action replans, and the empty replan
+        # escalates.
+        assert second.status == IncidentStatus.ESCALATED
         assert second.run_status == models.RunStatus.TERMINAL
         assert caps["kube_write"].methods() == ["apply_manifest"]
         with pg_sessions() as session:
@@ -268,10 +272,12 @@ class TestLiveDiagnosis:
 
         assert result.error is None
         # With the real model the plan is whatever it proposes: a selected
-        # action executes (verifying), a gated action suspends
-        # (awaiting_approval), an empty/unsafe-only list escalates.
+        # action executes and verifies (recovered when it lands, a
+        # verifying -> replan/escalate hop when the fixture still faults),
+        # a gated action suspends (awaiting_approval), an empty/unsafe-only
+        # list escalates.
         assert result.status in (
-            IncidentStatus.VERIFYING,
+            IncidentStatus.RECOVERED,
             IncidentStatus.AWAITING_APPROVAL,
             IncidentStatus.ESCALATED,
         )
