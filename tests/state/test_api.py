@@ -157,6 +157,140 @@ class TestIncidentReads:
         assert client.get("/incidents/INC-nope0000").status_code == 404
 
 
+class TestApprovalEndpoints:
+    """The 1.8 approval surface: list pending/decided rows, decide, and
+    resume. The resume call is monkeypatched - the unit contract is the
+    durable decision, not the graph drive."""
+
+    def _seed_pending(self, sqlite_engine, incident_id: str) -> int:
+        """An approvals row as the coordinator would have parked it."""
+        with session_scope(sqlite_engine) as session:
+            incident = session.scalar(
+                select(models.Incident).where(models.Incident.incident_id == incident_id)
+            )
+            row = models.Approval(
+                incident_id=incident.id,
+                action="reapply_manifest",
+                params={"path": "sandbox/payment-api/k8s/03-secret.yaml"},
+                fingerprint="fp-test",
+                status=models.ApprovalStatus.PENDING,
+            )
+            session.add(row)
+            session.flush()
+            return row.id
+
+    def test_list_approvals(self, client, sqlite_engine):
+        incident_id = client.post("/intake/kubernetes", json=K8S_SIGNAL).json()["incident_id"]
+        approval_id = self._seed_pending(sqlite_engine, incident_id)
+        response = client.get("/approvals")
+        assert response.status_code == 200
+        rows = response.json()
+        assert len(rows) == 1
+        assert rows[0]["id"] == approval_id
+        assert rows[0]["incident_id"] == incident_id
+        assert rows[0]["status"] == "pending"
+        assert rows[0]["action"] == "reapply_manifest"
+
+    def test_list_approvals_filters(self, client, sqlite_engine):
+        incident_id = client.post("/intake/kubernetes", json=K8S_SIGNAL).json()["incident_id"]
+        self._seed_pending(sqlite_engine, incident_id)
+        assert client.get("/approvals", params={"status": "pending"}).json()
+        assert client.get("/approvals", params={"status": "approved"}).json() == []
+        assert client.get("/approvals", params={"incident_id": "INC-nope"}).json() == []
+
+    def test_approve_decides_and_resumes(self, client, sqlite_engine, monkeypatch):
+        from agent.runner import RunResult
+
+        incident_id = client.post("/intake/kubernetes", json=K8S_SIGNAL).json()["incident_id"]
+        approval_id = self._seed_pending(sqlite_engine, incident_id)
+        calls = []
+
+        def fake_run(iid, **kw):
+            calls.append(iid)
+            return RunResult(
+                incident_id=iid,
+                status="verifying",
+                run_status=models.RunStatus.TERMINAL,
+            )
+
+        monkeypatch.setattr("agent.runner.run_incident", fake_run)
+        response = client.post(f"/approvals/{approval_id}/approve", json={"actor": "carol"})
+
+        assert response.status_code == 200
+        body = response.json()
+        assert body["approval"]["status"] == "approved"
+        assert body["approval"]["decided_by"] == "carol"
+        assert body["resumed"] is True
+        assert body["status"] == "verifying"
+        assert calls == [incident_id]
+
+    def test_reject_decides_and_resumes(self, client, sqlite_engine, monkeypatch):
+        from agent.runner import RunResult
+
+        incident_id = client.post("/intake/kubernetes", json=K8S_SIGNAL).json()["incident_id"]
+        approval_id = self._seed_pending(sqlite_engine, incident_id)
+        monkeypatch.setattr(
+            "agent.runner.run_incident",
+            lambda iid, **kw: RunResult(
+                incident_id=iid,
+                status="remediation_pending",
+                run_status=models.RunStatus.TERMINAL,
+            ),
+        )
+        response = client.post(
+            f"/approvals/{approval_id}/reject",
+            json={"actor": "carol", "note": "wait for the freeze"},
+        )
+        body = response.json()
+        assert response.status_code == 200
+        assert body["approval"]["status"] == "rejected"
+        assert body["approval"]["note"] == "wait for the freeze"
+
+    def test_unknown_approval_404(self, client):
+        response = client.post("/approvals/9999/approve", json={"actor": "x"})
+        assert response.status_code == 404
+
+    def test_already_decided_409(self, client, sqlite_engine, monkeypatch):
+        from agent.runner import RunResult
+
+        incident_id = client.post("/intake/kubernetes", json=K8S_SIGNAL).json()["incident_id"]
+        approval_id = self._seed_pending(sqlite_engine, incident_id)
+        monkeypatch.setattr(
+            "agent.runner.run_incident",
+            lambda iid, **kw: RunResult(
+                incident_id=iid,
+                status="verifying",
+                run_status=models.RunStatus.TERMINAL,
+            ),
+        )
+        assert (
+            client.post(f"/approvals/{approval_id}/approve", json={"actor": "carol"}).status_code
+            == 200
+        )
+        second = client.post(f"/approvals/{approval_id}/reject", json={"actor": "dave"})
+        assert second.status_code == 409
+
+    def test_missing_actor_is_422(self, client, sqlite_engine):
+        incident_id = client.post("/intake/kubernetes", json=K8S_SIGNAL).json()["incident_id"]
+        approval_id = self._seed_pending(sqlite_engine, incident_id)
+        response = client.post(f"/approvals/{approval_id}/approve", json={})
+        assert response.status_code == 422
+
+    def test_approval_decisions_require_intake_token_when_set(
+        self, client, sqlite_engine, monkeypatch
+    ):
+        """Decisions carry the same local-only trust as intake POSTs."""
+        monkeypatch.setenv("HELIX_INTAKE_TOKEN", "test-token")
+        incident_id = client.post(
+            "/intake/kubernetes",
+            json=K8S_SIGNAL,
+            headers={"Authorization": "Bearer test-token"},
+        ).json()["incident_id"]
+        approval_id = self._seed_pending(sqlite_engine, incident_id)
+        response = client.post(f"/approvals/{approval_id}/approve", json={"actor": "x"})
+        assert response.status_code == 401
+
+
 @pytest.mark.integration
 def test_intake_endpoint_against_real_postgres(pg):
     """The unmodified app (no dependency override) writes through the real

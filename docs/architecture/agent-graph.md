@@ -1,4 +1,4 @@
-# Agent graph, coordinator, and diagnosis (subphases 1.5-1.7)
+# Agent graph, coordinator, and diagnosis (subphases 1.5-1.8)
 
 The workflow is a LangGraph `StateGraph` over `agent.state.WorkflowState`
 - a flat, JSON-serializable TypedDict that is both the checkpointer
@@ -9,8 +9,8 @@ START -> intake -> coordinator --> diagnosis --> coordinator --> END
                       ^    |                       ^    |
                       |    v                       |    |
                       +-- plan -> validate -> execute -> verify
-                          (1.7: validate is real; execute/verify are
-                          still slots routed by the coordinator)
+                          (1.8: execute is real behind the coordinator's
+                          policy gate; verify is the remaining slot, 1.9)
 ```
 
 ## Nodes
@@ -22,7 +22,8 @@ START -> intake -> coordinator --> diagnosis --> coordinator --> END
 | `diagnosis` | `agent/agents/diagnosis.py` | Collects evidence through `integrations.capabilities` protocols, runs the bounded request-more-evidence loop, interprets into `Hypothesis`, persists `evidence_items` + `hypotheses` rows. |
 | `plan` | `agent/agents/planner.py` | (1.6) LLM proposes a `CandidateList` constrained to the action catalogue; a deterministic ranker orders it (dropping `excluded_candidates` fingerprints); the full list lands in `candidates` rows. See [action-catalogue.md](action-catalogue.md). |
 | `validate` | `agent/agents/validation.py` + `agent/validation/` | (1.7) Re-validates the selected candidate's params, dispatches to a per-family strategy (kubernetes target, manifest dry-run, fix-PR content, pipeline existence), persists a `validations` row, and on FAIL adds the candidate fingerprint to `excluded_candidates`. Never executes the action. See [validation.md](validation.md). |
-| `execute` / `verify` | placeholders | Registered slots that raise `NotImplementedError` until subphases 1.8-1.9 fill them in. |
+| `execute` | `agent/agents/execution.py` + `agent/execution/` | (1.8) Re-checks the policy verdict (executor-side gate), dispatches to the action-family executor, and persists one `executions` audit row per attempt. The transports are `integrations/writes.py` protocols - live clients or recording fakes depending on `HELIX_EVIDENCE_SOURCE`. See [safety-policy.md](safety-policy.md). |
+| `verify` | placeholder | Registered slot - the 1.9 desired-state check. |
 
 ## Coordinator owns every transition
 
@@ -44,18 +45,26 @@ coordinator, which alone decides the next status. The decision table
 | `validating` | no verdict in state yet | none | `validate` |
 | `validating` | verdict FAIL, first validation pass | `validating -> remediation_pending` (plan outputs cleared; failed fingerprint is in `excluded_candidates`) | `plan` (replan) |
 | `validating` | verdict FAIL, second pass | `validating -> escalated` (single retry exhausted) | END |
-| `validating` | verdict PASS or NOT_VALIDATABLE | none | END (1.8's policy node picks up from `validating`) |
+| `validating` | verdict PASS / NOT_VALIDATABLE, policy ALLOW_WITH_CHECKS | `validating -> executing` | `execute` |
+| `validating` | verdict PASS / NOT_VALIDATABLE, policy REQUIRE_APPROVAL | `validating -> awaiting_approval` (pending approvals row persisted in the same transaction) | END (suspended until decided) |
+| `validating` | verdict PASS / NOT_VALIDATABLE, policy DENY | `validating -> remediation_pending` (fingerprint excluded; refused executions row) | `plan` (replan) |
+| `awaiting_approval` | approvals row approved | `awaiting_approval -> executing` | `execute` |
+| `awaiting_approval` | approvals row rejected | `awaiting_approval -> remediation_pending` (fingerprint excluded) | `plan` (replan) |
+| `awaiting_approval` | approvals row still pending | none | END (suspended) |
+| `executing` | no executions row in state yet | none | `execute` |
+| `executing` | executions row `success` | `executing -> verifying` | `verify` slot (END today - 1.9) |
+| `executing` | executions row `error` / `refused` | `executing -> failed` (fingerprint excluded) | END |
 | `failed` | - | `failed -> diagnosing` (rediagnosis; `attempt_count` bumped, stale hypothesis cleared) | `diagnosis` |
-| later statuses, terminal | - | none | END |
+| `verifying`, terminal | - | none | END (1.9 fills the verify node) |
 
-`validating` is a resumable non-terminal status: a PASS or
-NOT_VALIDATABLE run ends there and `helix run` on the incident reloads
-the persisted selection and re-validates it. A FAIL verdict replans in
-the same run - once; a second consecutive failure escalates (the
-single-retry hook; full retry-budget machinery is 1.10).
-NOT_VALIDATABLE is never treated as PASS: it means "proceed to the
-policy/execution decision unchecked" and is recorded distinctly so
-provenance can tell a validated candidate from an uncheckable one.
+A FAIL verdict replans in the same run - once; a second consecutive
+failure escalates (the single-retry hook; full retry-budget machinery is
+1.10). NOT_VALIDATABLE is never treated as PASS: it means "proceed to
+the policy/execution decision unchecked" and is recorded distinctly so
+provenance can tell a validated candidate from an uncheckable one. The
+policy gate rows are the 1.8 access table - see
+[safety-policy.md](safety-policy.md) for the verdict rules and the
+executor-side second enforcement layer.
 
 ## Diagnosis evidence flow
 
@@ -93,22 +102,33 @@ code forks:
   one LLM call; `execute` stays; validate/verify/replan are absent.
 - **A** (rules): `rules_diagnosis`/`rules_plan` deterministic variants;
   the deterministic `validate` node is shared with E (it is pure code -
-  no LLM), `execute`/`verify` stay placeholders.
+  no LLM), `execute` is shared too, `verify` stays a placeholder.
 
 Arm A/B rule-node variants are placeholders until 1.11; the composition
 switch, the coordinator's per-arm `diagnosing` route, and the shared
-`validate` node are what land now.
+`validate`/`execute` nodes are what land now.
 
 ## Suspend/resume (D13)
 
 `build_graph` compiles with a `PostgresSaver` checkpointer when
 HELIX_DATABASE_URL is Postgres (`agent.graph.open_checkpointer`), with
-`thread_id = incident_id`. That makes a suspended run resumable by any
-process - `helix run`, `helix approve` (1.8), or the API - and gives the
-`workflow_runs` single-active-run guard its substrate. Non-Postgres URLs
-fall back to no checkpointer (state lives only for the invoke). Nothing
-suspends in 1.5; the mechanism is wired and proven by the
-integration-marked checkpoint round-trip test (`interrupt_before`).
+`thread_id = incident_id`. Two suspension shapes exist:
+
+- **Mid-graph interrupt** (test-only today, `interrupt_before`): the
+  checkpoint has pending nodes and the resume invokes with no input.
+- **The approval gate** (1.8): `awaiting_approval` is a clean stop - the
+  graph completes with nothing pending, and the resume re-enters at
+  `intake`, which reloads the persisted selection, hypothesis, evidence,
+  exclusion union, and the latest executions row. The coordinator then
+  decides from `status + approvals row`, so the gate works even with no
+  checkpointer at all - the durable pieces are Postgres rows, not graph
+  memory.
+
+That makes a suspended run resumable by any process - `helix run`,
+`helix approve`, or the API - and gives the `workflow_runs`
+single-active-run guard its substrate. Non-Postgres URLs fall back to no
+checkpointer (state lives only for the invoke; the approval-resume path
+still works because intake rebuilds state from the rows).
 
 ## Runs
 
@@ -117,7 +137,8 @@ integration-marked checkpoint round-trip test (`interrupt_before`).
 `suspended` (graph parked mid-flow, or incident at `awaiting_approval`),
 or `failed`. A second `running` run for one incident is refused - the
 partial unique index `ux_workflow_runs_one_running` is the hard backstop.
-A `suspended` run is resumed in place on the next `helix run`.
+A `suspended` run resumes on the next `helix run`: in place when the
+checkpoint has pending nodes, otherwise by re-entry at `intake`.
 
 Entry points: `helix run INC-*`, `helix intake --run`, and
 `POST /intake/*?run=true` - all drive the graph in-process (plan.md 1.4's

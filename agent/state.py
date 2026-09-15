@@ -56,8 +56,10 @@ class WorkflowState(TypedDict, total=False):
     escalation_cause: str | None  # 1.6 - why the planner escalated (-> ESCALATED)
     validation: dict[str, Any]  # 1.7 - latest ValidationResult dict (+ action/params)
     validation_attempts: int  # 1.7 - validate passes this run; the single-retry bound
-    excluded_candidates: list[str]  # 1.7 - fingerprints validation failed; never re-proposed
-    execution: dict[str, Any]  # 1.8
+    excluded_candidates: list[str]  # 1.7+ - fingerprints never re-proposed (fail/deny/reject)
+    policy: dict[str, Any]  # 1.8 - latest PolicyVerdict snapshot (agent/policy.py)
+    approval: dict[str, Any]  # 1.8 - latest approvals-row snapshot for the selection
+    execution: dict[str, Any]  # 1.8 - executions-row summary the execute node wrote
     verification: dict[str, Any]  # 1.9
     attempts: int  # incident.attempt_count mirrored for hypothesis rows
     errors: list[str]  # node-level failure notes; coordinator consumes them

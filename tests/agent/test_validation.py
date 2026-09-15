@@ -695,7 +695,7 @@ class TestValidationE2E:
             ]
         )
 
-    def test_pass_run_ends_at_validating(self, sqlite_sessions, store):
+    def test_pass_run_executes_and_ends_at_verifying(self, sqlite_sessions, store):
         plan = CandidateList(
             candidates=[
                 CandidateProposal(
@@ -711,12 +711,17 @@ class TestValidationE2E:
         result = run_incident(incident_id, deps=deps)
 
         assert result.error is None
-        assert result.status == IncidentStatus.VALIDATING
+        # 1.8: a PASSing medium-tier sandbox action clears the policy
+        # gate and executes through the recording fake - the run ends at
+        # verifying (the 1.9 verify node is still a slot).
+        assert result.status == IncidentStatus.VERIFYING
         assert result.run_status == models.RunStatus.TERMINAL
         rows = _validations(sqlite_sessions, incident_id)
         assert [r.outcome for r in rows] == [ValidationOutcome.PASS]
         # The fixture precheck's dry-run was exercised by the dispatch.
         assert caps["prechecks"].methods() == ["dry_run_apply"]
+        # The write went through the recording fake, not a cluster.
+        assert caps["kube_write"].methods() == ["apply_manifest"]
         with sqlite_sessions() as session:
             incident = session.scalar(
                 select(models.Incident).where(models.Incident.incident_id == incident_id)
@@ -725,13 +730,12 @@ class TestValidationE2E:
                 (r.from_status.value if r.from_status else None, r.to_status.value)
                 for r in incident.transitions
             ]
-        # PASS adds no transition: validating is the resumable end state.
-        assert pairs[-1] == ("remediation_pending", "validating")
+        assert pairs[-2:] == [("validating", "executing"), ("executing", "verifying")]
 
-    def test_rerun_at_validating_revalidates(self, sqlite_sessions, store):
-        """A fresh `helix run` on an incident parked at `validating`
-        reloads the persisted selection and re-validates it - the verdict
-        is re-checked, not blindly trusted."""
+    def test_rerun_at_verifying_is_a_noop(self, sqlite_sessions, store):
+        """A fresh `helix run` on an incident parked at `verifying` is a
+        no-op: the coordinator owns the status, the 1.9 verify node is
+        still a slot, and no new work runs."""
         plan = CandidateList(
             candidates=[
                 CandidateProposal(
@@ -743,14 +747,14 @@ class TestValidationE2E:
         )
         deps, _ = make_deps(sqlite_sessions, self._llm([plan]), "cluster/crashloop", store)
         incident_id = _make_incident(sqlite_sessions, K8S_SIGNAL)
-        assert run_incident(incident_id, deps=deps).status == IncidentStatus.VALIDATING
+        assert run_incident(incident_id, deps=deps).status == IncidentStatus.VERIFYING
 
         second = run_incident(incident_id, deps=deps)
 
         assert second.error is None
-        assert second.status == IncidentStatus.VALIDATING
+        assert second.status == IncidentStatus.VERIFYING
         rows = _validations(sqlite_sessions, incident_id)
-        assert [r.outcome for r in rows] == [ValidationOutcome.PASS, ValidationOutcome.PASS]
+        assert [r.outcome for r in rows] == [ValidationOutcome.PASS]
 
     def test_fail_replans_with_exclusion_then_passes(self, sqlite_sessions, store):
         """Fail -> REMEDIATION_PENDING -> replan excluding the failed
@@ -786,7 +790,6 @@ class TestValidationE2E:
         result = run_incident(incident_id, deps=deps)
 
         assert result.error is None
-        assert result.status == IncidentStatus.VALIDATING
         rows = _validations(sqlite_sessions, incident_id)
         assert [r.outcome for r in rows] == [ValidationOutcome.FAIL, ValidationOutcome.PASS]
         assert rows[0].action == "restart_deployment"
@@ -795,6 +798,8 @@ class TestValidationE2E:
         # replanned selection is NOT the excluded fingerprint.
         assert any("already failed validation" in e for e in result.errors)
         assert result.selected_action["action"] == "reapply_manifest"
+        # 1.8: the PASSing replanned candidate executes -> verifying.
+        assert result.status == IncidentStatus.VERIFYING
         with sqlite_sessions() as session:
             incident = session.scalar(
                 select(models.Incident).where(models.Incident.incident_id == incident_id)
@@ -810,6 +815,8 @@ class TestValidationE2E:
             ("remediation_pending", "validating"),
             ("validating", "remediation_pending"),  # failed -> replan
             ("remediation_pending", "validating"),  # new selection
+            ("validating", "executing"),
+            ("executing", "verifying"),
         ]
 
     def test_second_consecutive_fail_escalates(self, sqlite_sessions, store):
@@ -870,7 +877,8 @@ class TestValidationE2E:
 
     def test_rerun_pipeline_on_ci_fixture_passes(self, sqlite_sessions, store):
         """rerun_pipeline over a CI fixture: the job exists with builds ->
-        PASS through the real fixture capability."""
+        PASS through the real fixture capability, then 1.8 executes the
+        low-tier write through the recording jenkins fake -> verifying."""
         plan = CandidateList(
             candidates=[
                 CandidateProposal(
@@ -891,15 +899,16 @@ class TestValidationE2E:
                 plan,
             ]
         )
-        deps, _ = make_deps(sqlite_sessions, llm, "ci/test-regression", store)
+        deps, caps = make_deps(sqlite_sessions, llm, "ci/test-regression", store)
         incident_id = _make_incident(sqlite_sessions, JENKINS_SIGNAL)
 
         result = run_incident(incident_id, deps=deps)
 
         assert result.error is None
-        assert result.status == IncidentStatus.VALIDATING
+        assert result.status == IncidentStatus.VERIFYING
         rows = _validations(sqlite_sessions, incident_id)
         assert [r.outcome for r in rows] == [ValidationOutcome.PASS]
+        assert caps["jenkins_write"].methods() == ["trigger_build"]
 
 
 # --- Live prechecks (integration tier) --------------------------------------

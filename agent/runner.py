@@ -9,13 +9,17 @@ lifecycle hardening is 1.10). A run ends `terminal` when the graph
 finishes, `suspended` when work is parked (interrupt or
 awaiting_approval), `failed` on an unexpected error.
 
-Resume semantics: a `suspended` run is continued in place (the
-checkpointer holds the graph state under thread_id = incident_id, so any
-process can resume it - `helix run`, `helix approve` (1.8), or the API).
-An incident in `failed` re-enters via the failed -> diagnosing edge the
-coordinator owns. A run that dies unexpectedly leaves the incident
-mid-status; the next `helix run` picks it up because the coordinator
-decides from the persisted status, not from memory.
+Resume semantics: a `suspended` run is continued by thread_id =
+incident_id, so any process can resume it - `helix run`, `helix approve`
+(1.8), or the API. Two suspension shapes exist: a mid-graph interrupt
+leaves pending nodes the checkpointer resumes in place (invoke with no
+input), while the approval gate ends the graph cleanly at
+`awaiting_approval` - that resume re-enters at `intake` and the
+coordinator decides from the persisted status plus the approvals row, so
+it works even with no checkpointer at all. An incident in `failed`
+re-enters via the failed -> diagnosing edge the coordinator owns. A run
+that dies unexpectedly leaves the incident mid-status; the next
+`helix run` picks it up the same way.
 """
 
 from dataclasses import dataclass, field
@@ -51,6 +55,7 @@ class RunResult:
     run_status: models.RunStatus
     hypothesis: dict[str, Any] | None = None
     selected_action: dict[str, Any] | None = None  # 1.6: rank-1 candidate, if any
+    execution: dict[str, Any] | None = None  # 1.8: latest executions-row summary
     errors: list[str] = field(default_factory=list)
     error: str | None = None
 
@@ -128,6 +133,31 @@ def _selected_candidate(session: Session, incident_pk: int) -> dict[str, Any] | 
     }
 
 
+def _latest_execution(session: Session, incident_pk: int) -> dict[str, Any] | None:
+    """The newest executions row - the audit summary a resumed or
+    approving caller wants to see."""
+    row = session.scalar(
+        select(models.Execution)
+        .where(models.Execution.incident_id == incident_pk)
+        .order_by(models.Execution.id.desc())
+        .limit(1)
+    )
+    if row is None:
+        return None
+    return {
+        "execution_id": row.id,
+        "action": row.action,
+        "params": row.params,
+        "fingerprint": row.fingerprint,
+        "policy_decision": row.policy_decision,
+        "result": row.result.value,
+        "detail": row.detail,
+        "approval_id": row.approval_id,
+        "decided_by": row.decided_by,
+        "origin": row.origin,
+    }
+
+
 def run_incident(
     incident_id: str,
     *,
@@ -172,7 +202,19 @@ def run_incident(
     try:
         with open_checkpointer(deps.database_url) as checkpointer:
             graph = build_graph(deps, arm=arm, checkpointer=checkpointer)
-            invoke_input = None if resuming else {"incident_id": incident_id}
+            invoke_input: WorkflowState | None = {"incident_id": incident_id}
+            if resuming and checkpointer is not None:
+                try:
+                    # Pending nodes mean the earlier invoke parked mid-graph
+                    # (interrupt_before) - resume it in place with None. A
+                    # completed graph (the approval suspension ends cleanly
+                    # at awaiting_approval) has nothing pending, so the
+                    # resume re-enters at intake and the coordinator
+                    # decides from the persisted status + approvals row.
+                    has_pending = bool(graph.get_state(config).next)
+                except ValueError:
+                    has_pending = False
+                invoke_input = None if has_pending else {"incident_id": incident_id}
             final_state = graph.invoke(invoke_input, config) or {}
             try:
                 # Pending nodes mean the run parked mid-graph (interrupt /
@@ -194,6 +236,7 @@ def run_incident(
         finish_run(session, run_id, outcome)
         hypothesis = _latest_hypothesis(session, incident.id)
         selected = _selected_candidate(session, incident.id)
+        execution = _latest_execution(session, incident.id)
         status = IncidentStatus(incident.status).value
 
     return RunResult(
@@ -202,6 +245,7 @@ def run_incident(
         run_status=outcome,
         hypothesis=hypothesis,
         selected_action=selected,
+        execution=execution,
         errors=list(final_state.get("errors", [])),
         error=error,
     )

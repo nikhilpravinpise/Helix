@@ -63,6 +63,21 @@ class Settings(BaseSettings):
     max_evidence_rounds: int = 3
     arm: Literal["A", "B", "E"] = "E"
 
+    # Safety policy + execution (subphase 1.8). allowed_kube_contexts is the
+    # comma-separated allowlist of kube contexts the write client may mutate
+    # - enforced in the client itself, so a wrong context is refused even
+    # when policy would allow. operator is the default approver identity for
+    # CLI approval decisions (`helix approve --actor` overrides; the API
+    # takes `actor` in the request body).
+    allowed_kube_contexts: str = "kind-helix-sandbox"
+    operator: str = "operator"
+
+    def allowed_kube_context_set(self) -> frozenset[str]:
+        """HELIX_ALLOWED_KUBE_CONTEXTS parsed into a set of context names."""
+        return frozenset(
+            name.strip() for name in self.allowed_kube_contexts.split(",") if name.strip()
+        )
+
 
 def get_settings() -> Settings:
     """Load settings from environment and .env. Call sites should not cache

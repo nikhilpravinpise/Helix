@@ -4,10 +4,11 @@ Subcommands are added per subphase (see phase1-remaining-plan.md).
 Implemented so far: `serve` (uvicorn over helix/api.py), `intake` (read a
 signal JSON file or stdin, call the same state.intake.intake_signal the
 API uses - no server needed, D6; `--run` then drives the workflow
-in-process), `incidents` (list incidents), and `run` (drive an incident's
-workflow graph to its next stopping point). The rest of the CLI surface
-is stubbed so `helix <cmd>` parses and reports the subphase it lands in:
-approve/reject/approvals (1.8), provenance (1.9).
+in-process), `incidents` (list incidents), `run` (drive an incident's
+workflow graph to its next stopping point), and the 1.8 approval surface:
+`approvals` (list the gate's pending/decided rows), `approve`/`reject`
+(record the decision on an incident's pending approvals row and resume
+the suspended run). `provenance` remains stubbed for 1.9.
 """
 
 import argparse
@@ -17,9 +18,6 @@ import sys
 # Subcommands that exist only as stubs for later subphases: name -> where
 # the real implementation lands.
 _STUB_COMMANDS = {
-    "approve": "1.8",
-    "reject": "1.8",
-    "approvals": "1.8",
     "provenance": "1.9",
 }
 
@@ -54,10 +52,43 @@ def build_parser() -> argparse.ArgumentParser:
     run = subparsers.add_parser(
         "run",
         help="drive an incident's workflow to its next stopping point "
-        "(1.7: diagnosis -> plan -> validate -> validating, replanned once "
-        "on a failed check, or escalated)",
+        "(1.8: diagnosis -> plan -> validate -> executing -> verifying, "
+        "suspending at awaiting_approval when policy requires a decision)",
     )
     run.add_argument("incident_id", metavar="INC_ID", help="the incident id (INC-*)")
+
+    approvals = subparsers.add_parser(
+        "approvals",
+        help="list approval requests (pending by default; --all includes decided)",
+    )
+    approvals.add_argument(
+        "--all", action="store_true", help="include decided rows, not just pending"
+    )
+    approvals.add_argument("--incident", metavar="INC_ID", default=None, help="only this incident")
+
+    approve = subparsers.add_parser(
+        "approve",
+        help="approve an incident's pending action and resume its suspended run",
+    )
+    approve.add_argument("incident_id", metavar="INC_ID", help="the incident id (INC-*)")
+    approve.add_argument(
+        "--actor",
+        default=None,
+        help="approver identity recorded on the row (default: HELIX_OPERATOR)",
+    )
+    approve.add_argument("--note", default="", help="optional decision note")
+
+    reject = subparsers.add_parser(
+        "reject",
+        help="reject an incident's pending action; the incident replans without it",
+    )
+    reject.add_argument("incident_id", metavar="INC_ID", help="the incident id (INC-*)")
+    reject.add_argument(
+        "--actor",
+        default=None,
+        help="decider identity recorded on the row (default: HELIX_OPERATOR)",
+    )
+    reject.add_argument("--note", default="", help="optional decision note")
 
     for name, subphase in _STUB_COMMANDS.items():
         stub = subparsers.add_parser(name, help=f"(lands in subphase {subphase})")
@@ -163,6 +194,12 @@ def _cmd_run(args: argparse.Namespace) -> int:
     if result.selected_action:
         act = result.selected_action
         print(f"selected: {act['action']} {act['params']} (score={act['score']})")
+    if result.execution:
+        exe = result.execution
+        print(
+            f"execution: {exe['action']} -> {exe['result']} ({exe['detail']}) "
+            f"[policy={exe['policy_decision']}, origin={exe['origin']}]"
+        )
     for note in result.errors:
         print(f"note: {note}", file=sys.stderr)
     if result.error:
@@ -199,6 +236,137 @@ def _cmd_incidents() -> int:
     return 0
 
 
+def _cmd_approvals(args: argparse.Namespace) -> int:
+    """List approval rows - pending by default, `--all` includes decided."""
+    from sqlalchemy import select
+    from sqlalchemy.exc import SQLAlchemyError
+
+    from state import models
+    from state.db import session_scope
+
+    try:
+        with session_scope() as session:
+            query = select(models.Approval).order_by(models.Approval.id.desc())
+            if not args.all:
+                query = query.where(models.Approval.status == models.ApprovalStatus.PENDING)
+            if args.incident:
+                query = query.join(models.Incident).where(
+                    models.Incident.incident_id == args.incident
+                )
+            # Extract plain values inside the session - the rows go
+            # detached as soon as the scope exits.
+            rows = [
+                (
+                    row.id,
+                    row.incident.incident_id,
+                    row.action,
+                    row.status.value,
+                    row.decided_by,
+                    row.decided_at,
+                    row.params,
+                )
+                for row in session.scalars(query).all()
+            ]
+    except SQLAlchemyError as exc:
+        print(
+            f"helix approvals: database error (is Postgres up? see scripts/db-up.sh): {exc}",
+            file=sys.stderr,
+        )
+        return 1
+    if not rows:
+        print("no approvals pending" if not args.all else "no approvals")
+        return 0
+    for row_id, incident_id, action, status, decided_by, decided_at, params in rows:
+        decided = f" by {decided_by} at {decided_at}" if decided_by else ""
+        print(f"#{row_id}  {incident_id}  {action:<20} {status:<8}{decided}  params={params}")
+    return 0
+
+
+def _cmd_decide(args: argparse.Namespace, approved: bool) -> int:
+    """Record the approve/reject decision on the incident's pending
+    approvals row, then resume the suspended run.
+
+    Idempotent: an already-decided row reports its recorded decision and
+    returns without resuming - a second approve can never double-execute.
+    The decision commits before the resume so the runner's sessions see it;
+    a resume conflict (another process already driving) is reported, not
+    fatal - the decision itself is durable."""
+    verb = "approve" if approved else "reject"
+    from sqlalchemy import select
+    from sqlalchemy.exc import SQLAlchemyError
+
+    from helix.config import get_settings
+    from state import models
+    from state.approvals import latest_for_incident, pending_for_incident, record_decision
+    from state.db import session_scope
+
+    actor = args.actor or get_settings().operator
+    try:
+        with session_scope() as session:
+            incident = session.scalar(
+                select(models.Incident).where(models.Incident.incident_id == args.incident_id)
+            )
+            if incident is None:
+                print(
+                    f"helix {verb}: no such incident: {args.incident_id}",
+                    file=sys.stderr,
+                )
+                return 2
+            pending = pending_for_incident(session, incident.id)
+            if pending is None:
+                latest = latest_for_incident(session, incident.id)
+                if latest is not None:
+                    print(
+                        f"{args.incident_id}: approval #{latest.id} already "
+                        f"{latest.status.value} by {latest.decided_by} - nothing to decide",
+                    )
+                    return 0
+                print(
+                    f"helix {verb}: no pending approval for {args.incident_id}",
+                    file=sys.stderr,
+                )
+                return 2
+            record_decision(session, pending, approved, actor, args.note)
+            approval_id = pending.id
+            action = pending.action
+    except SQLAlchemyError as exc:
+        print(
+            f"helix {verb}: database error (is Postgres up? see scripts/db-up.sh): {exc}",
+            file=sys.stderr,
+        )
+        return 1
+
+    decision = "approved" if approved else "rejected"
+    print(f"{args.incident_id}: approval #{approval_id} {decision} by {actor} ({action})")
+
+    from agent.runner import RunConflictError, run_incident
+
+    try:
+        result = run_incident(args.incident_id)
+    except RunConflictError as exc:
+        # Another process holds the run row; the decision is durable and
+        # that run (or a later `helix run`) picks it up.
+        print(f"helix {verb}: decision recorded; resume deferred: {exc}", file=sys.stderr)
+        return 0
+    except Exception as exc:
+        print(
+            f"helix {verb}: decision recorded; resume failed "
+            f"(`helix run {args.incident_id}` drives it later): {exc}",
+            file=sys.stderr,
+        )
+        return 0
+    print(f"{result.incident_id}: status={result.status} run={result.run_status}")
+    if result.execution:
+        exe = result.execution
+        print(f"execution: {exe['action']} -> {exe['result']} ({exe['detail']})")
+    for note in result.errors:
+        print(f"note: {note}", file=sys.stderr)
+    if result.error:
+        print(f"helix {verb}: run failed: {result.error}", file=sys.stderr)
+        return 1
+    return 0
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = build_parser()
     args = parser.parse_args(argv)
@@ -213,6 +381,12 @@ def main(argv: list[str] | None = None) -> int:
         return _cmd_incidents()
     if args.command == "run":
         return _cmd_run(args)
+    if args.command == "approvals":
+        return _cmd_approvals(args)
+    if args.command == "approve":
+        return _cmd_decide(args, approved=True)
+    if args.command == "reject":
+        return _cmd_decide(args, approved=False)
     # Stub subcommand: parses, then reports where it lands.
     print(
         f"helix {args.command}: not implemented yet "
