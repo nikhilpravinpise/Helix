@@ -21,11 +21,15 @@ from pydantic import BaseModel
 from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 
+from agent.agents.diagnosis import EvidencePlan
+from agent.agents.planner import CandidateList, CandidateProposal
 from agent.graph import build_graph, open_checkpointer
 from agent.runner import run_incident
+from agent.state import Hypothesis
 from helix.config import get_settings
 from helix.llm import OpenAICompatibleLLMClient
 from state import models
+from state.approvals import pending_for_incident, record_decision
 from state.intake import intake_signal
 from state.machine import IncidentStatus
 
@@ -107,6 +111,76 @@ class TestRunGuardIndex:
                 session.add(
                     models.WorkflowRun(incident_id=incident.id, status=models.RunStatus.RUNNING)
                 )
+
+
+class TestDurableApprovalResume:
+    """Subphase 1.8's D13/D10 claim, end to end on compose Postgres: the
+    run suspends at awaiting_approval, a DIFFERENT session (a different
+    "process") records the decision, and a fresh `run_incident` resumes
+    the incident through the real checkpointer to the executed write."""
+
+    def test_suspend_approve_resume_executes(self, pg, pg_sessions, store):
+        prod_signal = {**K8S_SIGNAL_PG, "environment": "production"}
+        plan = CandidateList(
+            candidates=[
+                CandidateProposal(
+                    action="reapply_manifest",
+                    params={"path": "sandbox/payment-api/k8s/04-deployment.yaml"},
+                    rationale="re-assert the deployment manifest",
+                )
+            ]
+        )
+        deps, caps = make_deps(
+            pg_sessions,
+            FakeLLM(
+                [
+                    EvidencePlan(requests=[]),
+                    Hypothesis(claim="deployment manifest drifted", confidence=0.8),
+                    plan,
+                ]
+            ),
+            "cluster/crashloop",
+            store,
+            database_url=get_settings().database_url,
+        )
+        incident_id = _make_incident(pg_sessions, prod_signal)
+
+        first = run_incident(incident_id, deps=deps)
+
+        assert first.status == IncidentStatus.AWAITING_APPROVAL
+        assert first.run_status == models.RunStatus.SUSPENDED
+        assert caps["kube_write"].calls == []
+
+        # A different session - a different process, for this test's
+        # purposes - records the decision on the durable row.
+        with pg_sessions() as session:
+            incident = session.scalar(
+                select(models.Incident).where(models.Incident.incident_id == incident_id)
+            )
+            pending = pending_for_incident(session, incident.id)
+            assert pending is not None
+            record_decision(session, pending, approved=True, actor="integration-op")
+
+        second = run_incident(incident_id, deps=deps)
+
+        assert second.status == IncidentStatus.VERIFYING
+        assert second.run_status == models.RunStatus.TERMINAL
+        assert caps["kube_write"].methods() == ["apply_manifest"]
+        with pg_sessions() as session:
+            incident = session.scalar(
+                select(models.Incident).where(models.Incident.incident_id == incident_id)
+            )
+            execution = session.scalar(
+                select(models.Execution)
+                .where(models.Execution.incident_id == incident.id)
+                .order_by(models.Execution.id.desc())
+            )
+            assert execution.result == models.ExecutionResult.SUCCESS
+            assert execution.decided_by == "integration-op"
+            assert execution.approval_id == pending.id
+            # The suspended run row was resumed and finished, not replaced.
+            runs = [r.status for r in incident.workflow_runs]
+            assert runs == [models.RunStatus.TERMINAL]
 
 
 K8S_SIGNAL_PG = {
@@ -194,8 +268,13 @@ class TestLiveDiagnosis:
 
         assert result.error is None
         # With the real model the plan is whatever it proposes: a selected
-        # action reaches validating, an empty/unsafe-only list escalates.
-        assert result.status in (IncidentStatus.VALIDATING, IncidentStatus.ESCALATED)
+        # action executes (verifying), a gated action suspends
+        # (awaiting_approval), an empty/unsafe-only list escalates.
+        assert result.status in (
+            IncidentStatus.VERIFYING,
+            IncidentStatus.AWAITING_APPROVAL,
+            IncidentStatus.ESCALATED,
+        )
         assert result.hypothesis is not None
         hyp = result.hypothesis
         assert hyp["claim"].strip()

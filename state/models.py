@@ -10,7 +10,10 @@ single-active-run guard, hardened in 1.10). Subphase 1.6 adds
 `candidates` (the full ranked candidate list per planning attempt).
 Subphase 1.7 adds `validations` (the Validation Agent's per-candidate
 verdicts, whose `fail` rows also serve as the persisted exclusion list
-the replan consults). Later subphases add their own tables alongside
+the replan consults). Subphase 1.8 adds `approvals` (the pending/decided
+gate decisions that mediate the AWAITING_APPROVAL suspension) and
+`executions` (the execution audit record: who, what, when, under which
+policy decision). Later subphases add their own tables alongside
 these - the schema grows with the code that uses it.
 
 Notes on the choices made here:
@@ -120,6 +123,12 @@ class Incident(Base):
     )
     validations: Mapped[list["Validation"]] = relationship(
         back_populates="incident", order_by="Validation.id"
+    )
+    approvals: Mapped[list["Approval"]] = relationship(
+        back_populates="incident", order_by="Approval.id"
+    )
+    executions: Mapped[list["Execution"]] = relationship(
+        back_populates="incident", order_by="Execution.id"
     )
 
 
@@ -381,3 +390,155 @@ class WorkflowRun(Base):
     ended_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
 
     incident: Mapped[Incident] = relationship(back_populates="workflow_runs")
+
+
+class ApprovalStatus(StrEnum):
+    """Approval-gate lifecycle (approvals.status). `pending` is the row a
+    REQUIRE_APPROVAL verdict parks on; `approved`/`rejected` are the
+    recorded decisions that resume the suspended run."""
+
+    PENDING = "pending"
+    APPROVED = "approved"
+    REJECTED = "rejected"
+
+
+def _approval_status_type() -> Enum:
+    """ApprovalStatus as stored strings; same non-native-enum rationale as
+    the incident status type."""
+    return Enum(
+        ApprovalStatus,
+        native_enum=False,
+        validate_strings=True,
+        values_callable=lambda e: [m.value for m in e],
+        name="approval_status",
+        length=16,
+    )
+
+
+class Approval(Base):
+    """One approval request for a policy-gated action (subphase 1.8).
+
+    Created `pending` by the coordinator in the same transaction as the
+    validating -> awaiting_approval transition, so an incident can never
+    sit at awaiting_approval without a row to decide. `fingerprint` is
+    sha256(action | canonical(params)) - the same identity validation and
+    exclusions use - so a granted approval can only ever bless the exact
+    (action, params) it was recorded for.
+
+    `decided_by` is the operator identity (`HELIX_OPERATOR` / `--actor` on
+    the CLI, `actor` in the API body); `decided_at`/`note` complete the
+    audit. A rejection sends the incident back to remediation_pending with
+    the fingerprint excluded - these rows are part of the persisted
+    exclusion set the planner consults.
+    """
+
+    __tablename__ = "approvals"
+    __table_args__ = (
+        # At most one pending decision per incident - `helix approve` /
+        # the API resolve THE pending row, unambiguously.
+        Index(
+            "ux_approvals_one_pending",
+            "incident_id",
+            unique=True,
+            postgresql_where=text("status = 'pending'"),
+            sqlite_where=text("status = 'pending'"),
+        ),
+    )
+
+    id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
+    incident_id: Mapped[int] = mapped_column(
+        ForeignKey("incidents.id", ondelete="CASCADE"), index=True
+    )
+    candidate_id: Mapped[int | None] = mapped_column(
+        ForeignKey("candidates.id", ondelete="SET NULL"), nullable=True
+    )
+    action: Mapped[str] = mapped_column(String(64))
+    params: Mapped[dict[str, Any]] = mapped_column(_json_doc())
+    fingerprint: Mapped[str] = mapped_column(String(64))
+    status: Mapped[ApprovalStatus] = mapped_column(
+        _approval_status_type(), default=ApprovalStatus.PENDING
+    )
+    decided_by: Mapped[str | None] = mapped_column(String(128))
+    decided_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    note: Mapped[str | None] = mapped_column(Text)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+    incident: Mapped[Incident] = relationship(back_populates="approvals")
+    candidate: Mapped[Candidate | None] = relationship()
+
+
+class ExecutionResult(StrEnum):
+    """How an execution attempt ended (executions.result).
+
+    `success` - the write transport completed. `error` - the transport
+    raised/timed out; the action may or may not have landed. `refused` -
+    a code-level bound stopped the write before any call (policy DENY, or
+    a REQUIRE_APPROVAL action with no granted approvals row): nothing was
+    executed, by design."""
+
+    SUCCESS = "success"
+    ERROR = "error"
+    REFUSED = "refused"
+
+
+def _execution_result_type() -> Enum:
+    """ExecutionResult as stored strings; same non-native-enum rationale."""
+    return Enum(
+        ExecutionResult,
+        native_enum=False,
+        validate_strings=True,
+        values_callable=lambda e: [m.value for m in e],
+        name="execution_result",
+        length=16,
+    )
+
+
+class Execution(Base):
+    """The execution audit record: one row per attempt (subphase 1.8).
+
+    Written for allowed, approved, AND refused actions alike - the audit
+    trail covers what was attempted under which policy decision, not just
+    what succeeded. `policy_decision` holds the agent/policy.py verdict
+    value (`allow`, `allow_with_checks`, `require_approval`, `deny`); a
+    `require_approval` row with NULL `approval_id` is by definition an
+    unsafe execution - that is exactly what the benchmark's
+    executed-without-approval check (D2) scans for.
+
+    `decided_by` copies the approver identity off the approvals row;
+    `output` keeps the transport's result payload - for fixture-mode fake
+    transports this is the RECORDED intended write, which is what the
+    benchmark scores (D10). `origin` says live vs fixture.
+    """
+
+    __tablename__ = "executions"
+
+    id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
+    incident_id: Mapped[int] = mapped_column(
+        ForeignKey("incidents.id", ondelete="CASCADE"), index=True
+    )
+    candidate_id: Mapped[int | None] = mapped_column(
+        ForeignKey("candidates.id", ondelete="SET NULL"), nullable=True
+    )
+    approval_id: Mapped[int | None] = mapped_column(
+        ForeignKey("approvals.id", ondelete="SET NULL"), nullable=True
+    )
+    attempt: Mapped[int] = mapped_column(Integer, default=0, server_default="0")
+    action: Mapped[str] = mapped_column(String(64))
+    params: Mapped[dict[str, Any]] = mapped_column(_json_doc())
+    fingerprint: Mapped[str] = mapped_column(String(64))
+    policy_decision: Mapped[str] = mapped_column(String(32))
+    verification_required: Mapped[bool] = mapped_column(
+        Boolean, default=False, server_default="false"
+    )
+    decided_by: Mapped[str | None] = mapped_column(String(128))
+    origin: Mapped[str] = mapped_column(String(16))
+    result: Mapped[ExecutionResult] = mapped_column(_execution_result_type())
+    detail: Mapped[str] = mapped_column(Text)
+    output: Mapped[dict[str, Any] | None] = mapped_column(_json_doc(), nullable=True)
+    started_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    finished_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+    incident: Mapped[Incident] = relationship(back_populates="executions")
+    candidate: Mapped[Candidate | None] = relationship()
+    approval: Mapped[Approval | None] = relationship()

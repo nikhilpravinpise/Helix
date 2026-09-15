@@ -13,6 +13,7 @@ from agent.agents.diagnosis import EvidencePlan
 from agent.graph import GraphDeps
 from agent.state import Hypothesis
 from helix.llm import LLMResponse
+from integrations.fakes import FakeGitHubWrite, FakeJenkinsWrite, FakeKubernetesWrite
 from integrations.fixtures import (
     FixtureDockerEvidence,
     FixtureElkEvidence,
@@ -116,7 +117,10 @@ def make_deps(
     a Recording proxy. Returns (deps, recorders-by-domain).
 
     `prechecks` defaults to the fixture impl (canned pass); pass a stub to
-    script can_i/dry_run_apply verdicts in validation tests."""
+    script can_i/dry_run_apply verdicts in validation tests. The write
+    transports are the recording fakes (D10): each `.impl.calls` is the
+    in-memory list of intended writes, so tests assert exactly what Helix
+    would have written without any real system being touched."""
     doc = store.load(fixture)
     caps = {
         "kubernetes": Recording(FixtureKubernetesEvidence(doc)),
@@ -125,6 +129,9 @@ def make_deps(
         "github": Recording(FixtureGitHubEvidence(doc)),
         "docker": Recording(FixtureDockerEvidence(doc)),
         "prechecks": Recording(prechecks or FixtureKubernetesPrechecks()),
+        "kube_write": Recording(FakeKubernetesWrite()),
+        "github_write": Recording(FakeGitHubWrite()),
+        "jenkins_write": Recording(FakeJenkinsWrite()),
     }
     deps = GraphDeps(
         session_scope=session_factory,
@@ -135,7 +142,11 @@ def make_deps(
         github=caps["github"],
         docker=caps["docker"],
         kube_prechecks=caps["prechecks"],
+        kubernetes_write=caps["kube_write"],
+        github_write=caps["github_write"],
+        jenkins_write=caps["jenkins_write"],
         database_url=database_url,
+        write_origin="fixture",
         max_evidence_rounds=max_evidence_rounds,
     )
     return deps, caps

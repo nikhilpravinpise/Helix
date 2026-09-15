@@ -97,11 +97,12 @@ class TestCoordinatorFlow:
     VALIDATING (1.6), each hop persisted as a transitions row, and ALL of
     them written by the coordinator (worker nodes never touch status)."""
 
-    def test_run_reaches_validating_with_transition_rows(self, sqlite_sessions, store):
-        # 1.6 requirements change: the run continues past
-        # remediation_pending into planning, ending at validating. The
-        # FakeLLM queue is consumed in call order: evidence plan,
-        # interpretation, candidate proposal.
+    def test_run_reaches_verifying_with_transition_rows(self, sqlite_sessions, store):
+        # 1.8 requirements change: the run continues past validating
+        # through the policy gate into execution, ending at verifying
+        # (the 1.9 verify node is still a slot). The reapply_manifest
+        # candidate is medium-tier in sandbox -> ALLOW_WITH_CHECKS ->
+        # executed through the recording fake write transport.
         llm = FakeLLM(
             [
                 EvidencePlan(requests=[]),
@@ -109,31 +110,35 @@ class TestCoordinatorFlow:
                 _one_plan(),
             ]
         )
-        deps, _ = make_deps(sqlite_sessions, llm, "cluster/crashloop", store)
+        deps, caps = make_deps(sqlite_sessions, llm, "cluster/crashloop", store)
         incident_id = _make_incident(sqlite_sessions, K8S_SIGNAL)
 
         result = run_incident(incident_id, deps=deps)
 
-        assert result.status == IncidentStatus.VALIDATING
+        assert result.status == IncidentStatus.VERIFYING
         assert result.run_status == models.RunStatus.TERMINAL
         assert result.error is None
         with sqlite_sessions() as session:
             pairs = _transition_pairs(session, incident_id)
-        # intake_signal's creation row, then the three coordinator hops -
+        # intake_signal's creation row, then the coordinator hops -
         # nothing else writes transitions.
         assert pairs == [
             (None, "received"),
             ("received", "diagnosing"),
             ("diagnosing", "remediation_pending"),
             ("remediation_pending", "validating"),
+            ("validating", "executing"),
+            ("executing", "verifying"),
         ]
         assert result.hypothesis is not None
         assert result.selected_action is not None
+        # The manifest apply went through the recording fake, not a cluster.
+        assert caps["kube_write"].methods() == ["apply_manifest"]
         with sqlite_sessions() as session:
             incident = session.scalar(
                 select(models.Incident).where(models.Incident.incident_id == incident_id)
             )
-            assert incident.status == IncidentStatus.VALIDATING
+            assert incident.status == IncidentStatus.VERIFYING
 
     def test_empty_plan_escalates_through_coordinator(self, sqlite_sessions, store):
         llm = FakeLLM(
@@ -200,7 +205,9 @@ class TestCoordinatorFlow:
 
         result = run_incident(incident_id, deps=deps)
 
-        assert result.status == IncidentStatus.VALIDATING
+        # 1.8: the run now continues through validation + execution into
+        # verifying (reapply_manifest is medium-tier in sandbox).
+        assert result.status == IncidentStatus.VERIFYING
         with sqlite_sessions() as session:
             incident = session.scalar(
                 select(models.Incident).where(models.Incident.incident_id == incident_id)

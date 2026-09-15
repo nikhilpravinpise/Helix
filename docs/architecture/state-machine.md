@@ -49,6 +49,16 @@ same transaction, so the persisted timeline cannot disagree with the
 status. Incident creation writes the timeline's first row as
 `NULL -> received` (`machine.record_creation`).
 
+The 1.8 edges carry the safety gate: `validating -> awaiting_approval`
+parks a `pending` approvals row in the same transaction (the gate can
+never exist without a decision to make), `awaiting_approval ->
+executing` fires only once that row is `approved`, and `awaiting_approval
+-> remediation_pending` replans with the rejected fingerprint excluded.
+`executing -> verifying`/`failed` come from the persisted `executions`
+row's result. The full gate semantics - verdict table, durable
+suspension, the executor's second check - live in
+[safety-policy.md](safety-policy.md).
+
 ## Scope: what CONTEXT.md section 14 does NOT mean here
 
 Section 14's example lifecycle (`TRIAGED -> OWNER_ASSIGNED ->

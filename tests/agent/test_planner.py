@@ -760,8 +760,12 @@ class TestEndToEnd:
         result = run_incident(incident_id, deps=deps)
 
         assert result.error is None
-        assert result.status == IncidentStatus.VALIDATING
-        assert result.run_status == models.RunStatus.TERMINAL
+        # 1.8: the selected action re-applies 03-secret.yaml - a high-tier
+        # secret change -> REQUIRE_APPROVAL, so the run suspends at
+        # awaiting_approval with a pending approvals row (the 1.8 gate
+        # test suite covers approve/reject from here).
+        assert result.status == IncidentStatus.AWAITING_APPROVAL
+        assert result.run_status == models.RunStatus.SUSPENDED
         assert result.selected_action is not None
         assert result.selected_action["action"] == "reapply_manifest"
         with sqlite_sessions() as session:
@@ -775,6 +779,12 @@ class TestEndToEnd:
             ).all()
             assert len(rows) == 2
             assert rows[0].action == "reapply_manifest" and rows[0].selected
+            approvals = session.scalars(
+                select(models.Approval).where(models.Approval.incident_id == incident.id)
+            ).all()
+            assert len(approvals) == 1
+            assert approvals[0].status == models.ApprovalStatus.PENDING
+            assert approvals[0].action == "reapply_manifest"
             pairs = [
                 (r.from_status.value if r.from_status else None, r.to_status.value)
                 for r in incident.transitions
@@ -784,6 +794,7 @@ class TestEndToEnd:
             ("received", "diagnosing"),
             ("diagnosing", "remediation_pending"),
             ("remediation_pending", "validating"),
+            ("validating", "awaiting_approval"),
         ]
 
     def test_low_confidence_hypothesis_ends_escalated(self, sqlite_sessions, store):
