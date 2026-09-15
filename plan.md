@@ -45,6 +45,30 @@ Two of the three questions this plan originally left open are engineering calls,
 
 **D2. Benchmark runs use a scripted approver, and bypassing a gate always scores as unsafe.** Wired into 1.11. Approval-gated scenarios are neither auto-failed nor quietly auto-approved. The harness approves only where the scenario declares the optimal action to be approval-gated, records that approval as its own outcome class, and counts any action executed without a required approval as unsafe regardless of whether it worked. Human intervention rate is reported separately so gate frequency stays visible.
 
+**D3. PostgreSQL runs in Docker on the host** (`infra/postgres-compose.yml`, container `helix-postgres`). Helix state is part of the observer plane and must not live inside the cluster being broken - same reasoning as D1.
+
+**D4. Redaction is proven on the real evidence path, not only synthetically.** The Kubernetes capability exposes `secret_info` (Secret metadata, never values); a captured `kubectl get secret -o yaml` fixture carries real base64 data through normalization + redaction, plus a synthetic `Bearer` log line proves the redactor itself.
+
+**D5. The GitHub integration targets this repository.** `payment-api` lives here, so commits/diffs/PRs/checks are real. Controlled writes are restricted to `helix/INC-*` branches touching only `sandbox/payment-api/` paths.
+
+**D6. Intake is push-model.** The benchmark harness / `scripts/emit-signal.sh` / a guarded Jenkinsfile `post { failure }` block deliver failure signals; no always-on watcher exists in Phase 1 (that is E3 territory).
+
+**D7. `complete_structured(prompt, schema)`** on the LLM interface returns a validated pydantic model, via the provider's JSON-schema response format with a prompt-instructed JSON fallback.
+
+**D8. Ablation arms are graph-composition config** (`HELIX_ARM=A|B|E`), not code forks: E is the full graph, B collapses diagnose+plan into one LLM call and drops validate/verify/replan, A replaces LLM nodes with deterministic rule tables.
+
+**D9. Test tiers are enforced by pytest addopts.** `addopts = "-m 'not integration'"` means every pytest invocation - including CI's bare `uv run pytest` - excludes live-infra tests by default; `make test-integration` opts in.
+
+**D10. Benchmark scenarios are live where cheap, fixture-replay where not.** Cluster faults run their real fault scripts; CI faults (which have no fault scripts - they were one-off uncommitted edits) and the rejected-pr/failed-check/stale-branch GitHub scenarios replay captured fixtures, with writes recorded by fake transports rather than mutating the real repo.
+
+**D11. The operator UI is server-rendered** (FastAPI + Jinja2 + static assets, no node toolchain), served by the same `helix serve` process as the API.
+
+**D12. Terraform manages the kind cluster, host-side containers, and k8s objects**; `scripts/*.sh` remain the debugging escape hatch.
+
+**D13. Workflow suspend/resume uses the LangGraph Postgres checkpointer** (`thread_id` = incident id), making approval suspension, crash recovery, and the single-active-run guard real instead of conventional.
+
+**D14. The LLM provider is Groq via the OpenAI-compatible API** (`openai` SDK, `HELIX_LLM_BASE_URL|MODEL|API_KEY`). Groq's free tier supports `temperature` and `seed`, so the determinism policy in 1.1 is implemented literally - replacing the Anthropic client whose model family rejected those parameters. Provider-neutral config means the same single client also serves a local Ollama or any OpenAI-compatible endpoint; a bespoke multi-provider abstraction stays deferred.
+
 ### Input still needed
 
 - Is there a hard submission deadline for DJS23OLOE501 that should compress Phase 2 scope? The plan does not block on this: if the schedule tightens, cut in the order given under Scope Compression Order below.

@@ -1,29 +1,46 @@
-"""Thin LLM access interface. Callers never see the Anthropic SDK's types.
+"""Thin LLM access interface. Callers never see the provider SDK's types.
 
-Determinism policy lives here, in one place: pinned model, pinned effort.
-Every evaluation subphase depends on this being stable and single-sourced.
+Determinism policy lives here, in one place: pinned model, temperature=0,
+fixed seed. Every evaluation subphase depends on this being stable and
+single-sourced.
 
-The Claude 5 model family removes the sampling controls that a determinism
-policy would traditionally pin. `temperature`, `top_p`, and `top_k` are
-rejected with a 400, and the API exposes no random seed. What remains is the
-pinned model id plus a pinned `effort` level, so reproducibility is
-established by the documented tolerance band over repeated runs that
-plan.md 1.11 already requires, not by a seed.
+The provider is Groq's OpenAI-compatible API (decision D14): the `openai`
+SDK with a configurable base_url, so the same client serves Groq's free
+tier, a local Ollama, or any OpenAI-compatible endpoint - configured via
+HELIX_LLM_BASE_URL / HELIX_LLM_MODEL / HELIX_LLM_API_KEY. A bespoke
+multi-provider abstraction stays deferred (plan.md, Explicitly Deferred);
+the config surface is the abstraction.
 
-This is deliberately a single-provider interface - a multi-provider
-abstraction is deferred until a second provider is actually required (see
-plan.md, Explicitly Deferred).
+This restores the determinism plan.md 1.1 originally specified: the earlier
+Claude 5 family rejected temperature/top_p/top_k and exposed no seed, which
+is why the 1.1 implementation shipped "pinned model + pinned effort". Groq
+accepts temperature and seed, so the pinned-model + temperature=0 + fixed-
+seed policy is now implemented literally.
 """
 
+import json
+import time
 from dataclasses import dataclass
-from typing import Protocol
+from typing import Protocol, TypeVar
 
-import anthropic
+import openai
+from pydantic import BaseModel
 
-# Determinism policy: pinned model, pinned effort. No sampling parameters and
-# no seed are available on this model family.
-MODEL = "claude-opus-5"
-EFFORT = "high"
+from helix.config import get_settings
+from helix.observability import llm_call_counter, llm_call_latency
+
+# Determinism policy: pinned model, temperature 0, fixed seed.
+DEFAULT_MODEL = "llama-3.3-70b-versatile"
+TEMPERATURE = 0.0
+SEED = 42
+
+
+class LLMError(Exception):
+    """Provider call failed."""
+
+
+class LLMStructuredOutputError(LLMError):
+    """The model's response did not validate against the requested schema."""
 
 
 @dataclass
@@ -35,31 +52,108 @@ class LLMResponse:
     stop_reason: str | None
 
 
+T = TypeVar("T", bound=BaseModel)
+
+
 class LLMClient(Protocol):
-    """Interface agents call through. No Anthropic types cross this boundary."""
+    """Interface agents call through. No provider SDK types cross this boundary."""
 
     def complete(self, prompt: str, *, max_tokens: int = 1024) -> LLMResponse: ...
 
+    def complete_structured(self, prompt: str, schema: type[T], *, max_tokens: int = 2048) -> T: ...
 
-class AnthropicLLMClient:
-    """Anthropic implementation of LLMClient.
 
-    Does not require a live API key at import time or at construction time -
-    only when complete() is actually called, at which point the underlying
-    SDK client will raise if no key is configured.
+class OpenAICompatibleLLMClient:
+    """OpenAI-compatible implementation of LLMClient (Groq by default, D14).
+
+    Does not require a live API key at import or construction time - only
+    when a call is actually made, at which point the provider will reject a
+    missing/invalid key. A placeholder key is passed to the SDK purely so
+    construction never fails on missing config.
     """
 
-    def __init__(self, api_key: str | None = None) -> None:
-        self._client = anthropic.Anthropic(api_key=api_key)
+    def __init__(
+        self,
+        api_key: str | None = None,
+        base_url: str | None = None,
+        model: str | None = None,
+    ) -> None:
+        settings = get_settings()
+        self._model = model or settings.llm_model or DEFAULT_MODEL
+        self._client = openai.OpenAI(
+            api_key=api_key or settings.llm_api_key or "helix-missing-key",
+            base_url=base_url or settings.llm_base_url,
+            max_retries=3,  # SDK-level retry with backoff; free-tier rate limits need it
+        )
 
     def complete(self, prompt: str, *, max_tokens: int = 1024) -> LLMResponse:
-        response = self._client.messages.create(
-            model=MODEL,
-            max_tokens=max_tokens,
-            output_config={"effort": EFFORT},
-            messages=[{"role": "user", "content": prompt}],
+        response = self._chat(prompt, max_tokens=max_tokens)
+        choice = response.choices[0]
+        return LLMResponse(
+            text=choice.message.content or "",
+            model=response.model,
+            stop_reason=choice.finish_reason,
         )
-        if response.stop_reason == "refusal":
-            return LLMResponse(text="", model=response.model, stop_reason="refusal")
-        text = "".join(block.text for block in response.content if block.type == "text")
-        return LLMResponse(text=text, model=response.model, stop_reason=response.stop_reason)
+
+    def complete_structured(self, prompt: str, schema: type[T], *, max_tokens: int = 2048) -> T:
+        """Single call constrained to JSON matching `schema`, validated by pydantic.
+
+        Prefers the provider's JSON-schema response format; falls back to
+        plain JSON mode with the schema inlined into the prompt for models
+        that reject json_schema.
+        """
+        json_schema = {
+            "name": schema.__name__,
+            "schema": schema.model_json_schema(),
+        }
+        try:
+            response = self._chat(
+                prompt,
+                max_tokens=max_tokens,
+                response_format={"type": "json_schema", "json_schema": json_schema},
+                kind="structured",
+            )
+        except openai.BadRequestError:
+            hinted = (
+                prompt
+                + "\n\nRespond with a single JSON object matching this JSON schema:\n"
+                + json.dumps(json_schema["schema"])
+            )
+            response = self._chat(
+                hinted,
+                max_tokens=max_tokens,
+                response_format={"type": "json_object"},
+                kind="structured",
+            )
+        text = response.choices[0].message.content or ""
+        try:
+            return schema.model_validate_json(text)
+        except Exception as exc:  # pydantic.ValidationError or json.JSONDecodeError
+            raise LLMStructuredOutputError(
+                f"response did not validate as {schema.__name__}: {exc}"
+            ) from exc
+
+    def _chat(
+        self,
+        prompt: str,
+        *,
+        max_tokens: int,
+        response_format: dict | None = None,
+        kind: str = "text",
+    ):
+        start = time.monotonic()
+        kwargs = {
+            "model": self._model,
+            "temperature": TEMPERATURE,
+            "seed": SEED,
+            "max_tokens": max_tokens,
+            "messages": [{"role": "user", "content": prompt}],
+        }
+        if response_format is not None:
+            kwargs["response_format"] = response_format
+        try:
+            response = self._client.chat.completions.create(**kwargs)
+        finally:
+            llm_call_latency.record(time.monotonic() - start)
+            llm_call_counter.add(1, {"model": self._model, "kind": kind})
+        return response
