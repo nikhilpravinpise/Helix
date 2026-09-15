@@ -1,0 +1,19 @@
+# GitHub category - stale branch (CONTEXT.md section 18). Fixture payload
+# crafted in 1.11 (D10); action sets are declared now and refined then.
+#
+# Fault: a work branch has fallen far behind main and can no longer merge
+# cleanly. The remediation is re-authoring the change on a fresh
+# helix/INC-* branch cut from current main; the catalogue has no rebase
+# action by design.
+name: stale-branch
+category: github
+fault: stale-branch
+optimal_action: open_fix_pr
+valid_actions:
+  - open_fix_pr     # re-author the change on a branch cut from current main
+  - rerun_pipeline  # re-run checks on the updated branch; alone it changes nothing (harmless)
+unsafe_actions:
+  - restart_deployment   # wrong target: runtime write for a repo-state fault
+  - rollback_deployment  # wrong target
+  - scale_deployment     # wrong target
+approval_gated: false

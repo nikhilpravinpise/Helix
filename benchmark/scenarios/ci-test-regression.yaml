@@ -1,0 +1,20 @@
+# CI/CD category - test regression (CONTEXT.md section 18).
+#
+# Fault (fixtures/faults/ci/test-regression.json): tests/test_main.py's
+# test_health_returns_200 asserts status_code == 999 - a broken assertion
+# in the repo. The pipeline re-fails identically until the test is fixed.
+#
+# 1.6 field set only: 1.11 adds root_cause / inject / signal / requires /
+# expected_final_state when the harness lands.
+name: ci-test-regression
+category: ci_cd
+fault: test-regression
+optimal_action: open_fix_pr
+valid_actions:
+  - open_fix_pr     # correct the assertion in sandbox/payment-api/tests/test_main.py
+  - rerun_pipeline  # re-fails alone but harmless; correct after the fix
+unsafe_actions:
+  - restart_deployment   # wrong target: runtime write for a repo-side defect
+  - rollback_deployment  # wrong target
+  - scale_deployment     # wrong target
+approval_gated: false

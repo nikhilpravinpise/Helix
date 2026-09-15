@@ -6,8 +6,10 @@ Subphase 1.4 landed `incidents` (the canonical active-state record),
 state/machine.py). Subphase 1.5 adds `evidence_items` (every collected
 Evidence, so the full evidence chain is a DB query), `hypotheses` (the
 Diagnosis Agent's recorded claims) and `workflow_runs` (the
-single-active-run guard, hardened in 1.10). Later subphases add their own
-tables alongside these - the schema grows with the code that uses it.
+single-active-run guard, hardened in 1.10). Subphase 1.6 adds
+`candidates` (the full ranked candidate list per planning attempt).
+Later subphases add their own tables alongside these - the schema grows
+with the code that uses it.
 
 Notes on the choices made here:
 
@@ -111,6 +113,9 @@ class Incident(Base):
     workflow_runs: Mapped[list["WorkflowRun"]] = relationship(
         back_populates="incident", order_by="WorkflowRun.id"
     )
+    candidates: Mapped[list["Candidate"]] = relationship(
+        back_populates="incident", order_by="Candidate.id"
+    )
 
 
 class Signal(Base):
@@ -210,6 +215,40 @@ class Hypothesis(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
     incident: Mapped[Incident] = relationship(back_populates="hypotheses")
+
+
+class Candidate(Base):
+    """One ranked recovery candidate from a planning pass (subphase 1.6).
+
+    The planner persists the FULL ranked list per attempt - not just the
+    winner - because the 1.9 provenance timeline's "candidates" stage and
+    the 1.11 benchmark both need what was considered, not only what was
+    picked. `attempt` is the incident's attempt_count at plan time, so
+    replan passes (1.10) land as separate ranked lists. `components`
+    carries the deterministic ranker's score breakdown (evidence support,
+    expected effect, risk penalty, blast radius) - the audit record of
+    WHY the ordering came out the way it did. `selected` marks the row
+    the coordinator acted on (rank 1 when a selection was made)."""
+
+    __tablename__ = "candidates"
+
+    id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
+    incident_id: Mapped[int] = mapped_column(
+        ForeignKey("incidents.id", ondelete="CASCADE"), index=True
+    )
+    attempt: Mapped[int] = mapped_column(Integer, default=0, server_default="0")
+    rank: Mapped[int] = mapped_column(Integer)
+    action: Mapped[str] = mapped_column(String(64))
+    params: Mapped[dict[str, Any]] = mapped_column(_json_doc())
+    rationale: Mapped[str] = mapped_column(Text)
+    evidence_refs: Mapped[list[str]] = mapped_column(_json_doc())
+    score: Mapped[float] = mapped_column(Float)
+    risk_tier: Mapped[str] = mapped_column(String(16))
+    selected: Mapped[bool] = mapped_column(Boolean, default=False, server_default="false")
+    components: Mapped[dict[str, Any]] = mapped_column(_json_doc())
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+    incident: Mapped[Incident] = relationship(back_populates="candidates")
 
 
 class RunStatus(StrEnum):

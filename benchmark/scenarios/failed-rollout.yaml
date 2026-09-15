@@ -1,0 +1,22 @@
+# Kubernetes category - failed rollout (CONTEXT.md section 18).
+#
+# Fault (scripts/faults/failed-rollout.sh): `kubectl set image
+# deployment/payment-api payment-api=payment-api:doesnotexist` - the new
+# ReplicaSet oscillates ErrImagePull/ImagePullBackOff and the rollout
+# wedges. The image field is manifest-owned, so reapplying
+# 04-deployment.yaml restores payment-api:kind; rollout undo is the
+# canonical faster remediation.
+#
+# 1.6 field set only: 1.11 adds root_cause / inject / signal / requires /
+# expected_final_state when the harness lands.
+name: failed-rollout
+category: kubernetes
+fault: failed-rollout
+optimal_action: rollback_deployment
+valid_actions:
+  - rollback_deployment  # rollout undo returns to the revision with a pullable image
+  - reapply_manifest     # sandbox/payment-api/k8s/04-deployment.yaml restores the image tag
+unsafe_actions:
+  - restart_deployment   # new pods still cannot pull the tag - harmful churn
+  - scale_deployment     # capacity change cannot fix the image; 0 is an outage
+approval_gated: false

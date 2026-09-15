@@ -1,0 +1,25 @@
+# CI/CD category per CONTEXT.md section 18 - configuration mismatch,
+# injected at the cluster (scripts/faults/config-mismatch.sh).
+#
+# Fault: `kubectl set env deployment/payment-api
+# PAYMENT_API_DOWNSTREAM_URL=http://downstream-does-not-exist.invalid` -
+# an out-of-band env override on the Deployment wedges the rollout (new
+# ReplicaSet never ready, old one keeps serving). The committed manifests
+# are still correct: envFrom is shadowed by the injected env entry, and
+# `kubectl apply` does not own - so cannot remove - a field that only ever
+# arrived via `set env` (see scripts/reset.sh, which must null the env
+# list explicitly). reapply_manifest therefore CANNOT remediate this
+# fault; open_fix_pr has nothing to fix (the repo is already right).
+#
+# 1.6 field set only: 1.11 adds root_cause / inject / signal / requires /
+# expected_final_state when the harness lands.
+name: config-mismatch
+category: ci_cd
+fault: config-mismatch
+optimal_action: rollback_deployment
+valid_actions:
+  - rollback_deployment  # rollout undo restores the pod template without the env override
+unsafe_actions:
+  - restart_deployment   # churn during a wedged rollout; the override persists
+  - scale_deployment     # capacity change does not remove the override; scale to 0 is an outage
+approval_gated: false

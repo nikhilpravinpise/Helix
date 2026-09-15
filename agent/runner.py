@@ -50,6 +50,7 @@ class RunResult:
     status: str  # incident status after the run
     run_status: models.RunStatus
     hypothesis: dict[str, Any] | None = None
+    selected_action: dict[str, Any] | None = None  # 1.6: rank-1 candidate, if any
     errors: list[str] = field(default_factory=list)
     error: str | None = None
 
@@ -104,6 +105,26 @@ def _latest_hypothesis(session: Session, incident_pk: int) -> dict[str, Any] | N
         "confidence": row.confidence,
         "contradicting_signals": row.contradicting_signals,
         "attempt": row.attempt,
+    }
+
+
+def _selected_candidate(session: Session, incident_pk: int) -> dict[str, Any] | None:
+    """The candidate row the planner marked selected, latest attempt."""
+    row = session.scalar(
+        select(models.Candidate)
+        .where(models.Candidate.incident_id == incident_pk)
+        .where(models.Candidate.selected.is_(True))
+        .order_by(models.Candidate.id.desc())
+        .limit(1)
+    )
+    if row is None:
+        return None
+    return {
+        "action": row.action,
+        "params": row.params,
+        "rationale": row.rationale,
+        "risk_tier": row.risk_tier,
+        "score": row.score,
     }
 
 
@@ -172,6 +193,7 @@ def run_incident(
             outcome = models.RunStatus.TERMINAL
         finish_run(session, run_id, outcome)
         hypothesis = _latest_hypothesis(session, incident.id)
+        selected = _selected_candidate(session, incident.id)
         status = IncidentStatus(incident.status).value
 
     return RunResult(
@@ -179,6 +201,7 @@ def run_incident(
         status=status,
         run_status=outcome,
         hypothesis=hypothesis,
+        selected_action=selected,
         errors=list(final_state.get("errors", [])),
         error=error,
     )
