@@ -39,6 +39,21 @@ class Settings(BaseSettings):
     evidence_source: Literal["live", "fixtures"] = "live"
     fixture_path: str | None = None
 
+    # Incident state + intake (subphase 1.4). database_url points at the
+    # host Postgres from infra/postgres-compose.yml (D3); it is a full
+    # SQLAlchemy URL so tests can substitute e.g. an in-memory SQLite. The
+    # host is literal 127.0.0.1, not "localhost": on Windows localhost
+    # resolves IPv6-first and connecting to ::1 stalls instead of being
+    # refused, while the compose port is bound to IPv4 loopback only.
+    # api_bind/api_port set where `helix serve` listens - 8787 avoids the
+    # payment-api (8000), Jenkins (8080) and Elasticsearch (9200) ports.
+    # intake_token, when set, requires intake POSTs to carry
+    # `Authorization: Bearer <token>`; unset means local-only trust.
+    database_url: str = "postgresql+psycopg://helix:helix@127.0.0.1:5432/helix"
+    api_bind: str = "127.0.0.1"
+    api_port: int = 8787
+    intake_token: str | None = None
+
 
 def get_settings() -> Settings:
     """Load settings from environment and .env. Call sites should not cache
