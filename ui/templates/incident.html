@@ -1,0 +1,269 @@
+{% extends "base.html" %}
+{% block title %}{{ i.incident_id }} - Helix{% endblock %}
+{% block content %}
+<article data-incident-id="{{ i.incident_id }}" data-incident-status="{{ i.status }}">
+  <div class="page-head">
+    <h1 class="mono">{{ i.incident_id }}</h1>
+    <span class="badge badge-lg st-{{ i.status }}">{{ i.status }}</span>
+    {% if not terminal %}<span class="live muted" id="live-check">live - polling</span>{% endif %}
+  </div>
+
+  <section class="card">
+    <dl class="fields">
+      <div><dt>service</dt><dd>{{ i.service }}</dd></div>
+      <div><dt>environment</dt><dd>{{ i.environment }}</dd></div>
+      <div><dt>severity</dt><dd><span class="badge sev-{{ i.severity }}">{{ i.severity }}</span></dd></div>
+      <div><dt>attempts</dt><dd class="num">{{ i.attempt_count }}</dd></div>
+      <div><dt>linked PR</dt><dd class="mono">{{ i.linked_pr or "-" }}</dd></div>
+      <div><dt>linked deploy</dt><dd class="mono">{{ i.linked_deployment or "-" }}</dd></div>
+      <div><dt>opened</dt><dd class="mono">{{ i.created_at|dt }}</dd></div>
+      <div><dt>updated</dt><dd class="mono">{{ i.updated_at|dt }}</dd></div>
+      <div class="span"><dt>fingerprint</dt><dd class="mono">{{ i.fingerprint }}</dd></div>
+    </dl>
+    {% if i.escalation_cause %}
+    <p class="callout"><strong>Escalated:</strong> {{ i.escalation_cause }}</p>
+    {% endif %}
+  </section>
+
+  <h2 class="timeline-title">Provenance</h2>
+  <ol class="timeline">
+
+    <li class="stage">
+      <h3><span class="stage-dot"></span>Trigger</h3>
+      {% if stages.trigger %}
+        {% for s in stages.trigger %}
+        <div class="record">
+          <div class="record-head">
+            <span class="mono strong">signal #{{ s.signal_id }}</span>
+            <span class="badge">{{ s.source }}</span>
+            <span class="badge sev-{{ s.severity }}">{{ s.severity }}</span>
+            <span class="muted">{{ s.environment }}</span>
+            <span class="mono muted ts">{{ s.created_at|dt }}</span>
+          </div>
+          {% if s.signature %}<pre class="code">{{ s.signature|jsonpp }}</pre>{% endif %}
+          {% if s.raw %}
+          <details><summary>raw payload</summary><pre class="code">{{ s.raw|jsonpp }}</pre></details>
+          {% endif %}
+        </div>
+        {% endfor %}
+      {% else %}<p class="none">none recorded</p>{% endif %}
+    </li>
+
+    <li class="stage">
+      <h3><span class="stage-dot"></span>Evidence</h3>
+      {% if stages.evidence %}
+        {% for e in stages.evidence %}
+        <div class="record">
+          <div class="record-head">
+            <span class="mono strong">{{ e.evidence_id }}</span>
+            <span class="badge">{{ e.source }}/{{ e.kind }}</span>
+            <span class="badge origin-{{ e.origin }}">{{ e.origin }}</span>
+            <span class="mono muted ts">{{ e.collected_at|dt }}</span>
+          </div>
+          <p class="record-body">{{ e.summary }}</p>
+          {% if e.truncated %}
+          <p class="muted small">truncated{% if e.total is not none %} - {{ e.total }} total hits{% endif %}</p>
+          {% endif %}
+        </div>
+        {% endfor %}
+      {% else %}<p class="none">none recorded</p>{% endif %}
+    </li>
+
+    <li class="stage">
+      <h3><span class="stage-dot"></span>Hypothesis</h3>
+      {% if stages.hypothesis %}
+        {% for h in stages.hypothesis %}
+        <div class="record">
+          <div class="record-head">
+            <span class="mono strong">#{{ h.id }}</span>
+            <span class="muted">attempt {{ h.attempt }}</span>
+            <span class="badge">confidence {{ "%.2f"|format(h.confidence) }}</span>
+            <span class="mono muted ts">{{ h.created_at|dt }}</span>
+          </div>
+          <p class="record-body">{{ h.claim }}</p>
+          {% if h.evidence_refs %}
+          <p class="refs">cites
+            {% for r in h.evidence_refs %}<code class="chip">{{ r }}</code>{% endfor %}
+          </p>
+          {% endif %}
+          {% if h.contradicting_signals %}
+          <p class="refs">contradicted by
+            {% for r in h.contradicting_signals %}<code class="chip">{{ r }}</code>{% endfor %}
+          </p>
+          {% endif %}
+        </div>
+        {% endfor %}
+      {% else %}<p class="none">none recorded</p>{% endif %}
+    </li>
+
+    <li class="stage">
+      <h3><span class="stage-dot"></span>Candidates</h3>
+      {% if stages.candidates %}
+      <table class="table table-tight">
+        <thead>
+          <tr><th>#</th><th class="num">att</th><th class="num">rank</th><th>action</th>
+              <th>params</th><th class="num">score</th><th>risk</th><th>rationale</th><th>at</th></tr>
+        </thead>
+        <tbody>
+          {% for c in stages.candidates %}
+          <tr{% if c.selected %} class="selected"{% endif %}>
+            <td class="mono">{{ c.id }}{% if c.selected %} <span class="badge st-recovered">selected</span>{% endif %}</td>
+            <td class="num">{{ c.attempt }}</td>
+            <td class="num">{{ c.rank }}</td>
+            <td class="mono">{{ c.action }}</td>
+            <td class="mono small">{{ c.params|tojson }}</td>
+            <td class="num">{{ "%.2f"|format(c.score) }}</td>
+            <td><span class="badge risk-{{ c.risk_tier }}">{{ c.risk_tier }}</span></td>
+            <td class="small">{{ c.rationale }}</td>
+            <td class="mono muted small">{{ c.created_at|dt }}</td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+      {% else %}<p class="none">none recorded</p>{% endif %}
+    </li>
+
+    <li class="stage">
+      <h3><span class="stage-dot"></span>Decision</h3>
+      {% set d = stages.decision %}
+      {% if d %}
+      <div class="record">
+        <div class="record-head">
+          <span class="mono strong">candidate #{{ d.candidate_id }} - {{ d.action }}</span>
+          <span class="badge risk-{{ d.risk_tier }}">{{ d.risk_tier }}</span>
+          <span class="badge">score {{ "%.2f"|format(d.score) }}</span>
+          <span class="mono muted ts">{{ d.created_at|dt }}</span>
+        </div>
+        <dl class="fields">
+          <div><dt>policy</dt><dd><span class="badge pol-{{ d.policy_decision or 'none' }}">{{ d.policy_decision or "not recorded" }}</span></dd></div>
+          <div><dt>approval</dt><dd>
+            {% if d.approval_id %}
+              #{{ d.approval_id }} <span class="badge ap-{{ d.approval_status }}">{{ d.approval_status }}</span>
+              by {{ d.decided_by }} at <span class="mono">{{ d.decided_at|dt }}</span>
+            {% else %}none required{% endif %}
+          </dd></div>
+          {% if d.execution_id %}<div><dt>execution</dt><dd class="mono">#{{ d.execution_id }}</dd></div>{% endif %}
+        </dl>
+        <pre class="code">{{ d.params|jsonpp }}</pre>
+      </div>
+      {% else %}<p class="none">no selection recorded</p>{% endif %}
+    </li>
+
+    <li class="stage">
+      <h3><span class="stage-dot"></span>Validation</h3>
+      {% if stages.validation %}
+        {% for v in stages.validation %}
+        <div class="record">
+          <div class="record-head">
+            <span class="mono strong">#{{ v.id }} - {{ v.action }}</span>
+            <span class="badge vo-{{ v.outcome }}">{{ v.outcome }}</span>
+            <span class="muted">attempt {{ v.attempt }}</span>
+            {% if v.candidate_id %}<span class="mono muted">cand #{{ v.candidate_id }}</span>{% endif %}
+            <span class="mono muted ts">{{ v.created_at|dt }}</span>
+          </div>
+          <p class="record-body">{{ v.reason }}</p>
+          {% if v.details %}
+          <details><summary>check details</summary><pre class="code">{{ v.details|jsonpp }}</pre></details>
+          {% endif %}
+        </div>
+        {% endfor %}
+      {% else %}<p class="none">none recorded</p>{% endif %}
+    </li>
+
+    <li class="stage">
+      <h3><span class="stage-dot"></span>Approval</h3>
+      {% if stages.approval %}
+        {% for a in stages.approval %}
+        <div class="record">
+          <div class="record-head">
+            <span class="mono strong">#{{ a.id }} - {{ a.action }}</span>
+            <span class="badge ap-{{ a.status }}">{{ a.status }}</span>
+            {% if a.decided_by %}<span class="muted">by {{ a.decided_by }} at <span class="mono">{{ a.decided_at|dt }}</span></span>{% endif %}
+            <span class="mono muted ts">{{ a.created_at|dt }}</span>
+          </div>
+          {% if a.note %}<p class="record-body">{{ a.note }}</p>{% endif %}
+          {% if a.status == "pending" %}
+          <p class="small"><a href="/ui/approvals">decide in the approvals queue</a></p>
+          {% endif %}
+        </div>
+        {% endfor %}
+      {% else %}<p class="none">none required</p>{% endif %}
+    </li>
+
+    <li class="stage">
+      <h3><span class="stage-dot"></span>Execution</h3>
+      {% if stages.execution %}
+        {% for e in stages.execution %}
+        <div class="record">
+          <div class="record-head">
+            <span class="mono strong">#{{ e.id }} - {{ e.action }}</span>
+            <span class="badge ex-{{ e.result }}">{{ e.result }}</span>
+            <span class="badge pol-{{ e.policy_decision }}">{{ e.policy_decision }}</span>
+            <span class="badge origin-{{ e.origin }}">{{ e.origin }}</span>
+            <span class="muted">attempt {{ e.attempt }}</span>
+            {% if e.decided_by %}<span class="muted">approved by {{ e.decided_by }}</span>{% endif %}
+            {% if e.compensates_id %}<span class="badge">compensates #{{ e.compensates_id }}</span>{% endif %}
+          </div>
+          <p class="mono muted small">{{ e.started_at|dt }} -> {{ e.finished_at|dt }}</p>
+          <p class="record-body">{{ e.detail }}</p>
+          {% if e.output %}
+          <details><summary>transport output</summary><pre class="code">{{ e.output|jsonpp }}</pre></details>
+          {% endif %}
+        </div>
+        {% endfor %}
+      {% else %}<p class="none">none recorded</p>{% endif %}
+    </li>
+
+    <li class="stage">
+      <h3><span class="stage-dot"></span>Verification</h3>
+      {% if stages.verification %}
+        {% for v in stages.verification %}
+        <div class="record">
+          <div class="record-head">
+            <span class="mono strong">#{{ v.id }} - {{ v.action }}</span>
+            <span class="badge vo-{{ v.outcome }}">{{ v.outcome }}</span>
+            <span class="muted">attempt {{ v.attempt }}</span>
+            {% if v.needs_compensation %}<span class="badge st-escalated">needs compensation</span>{% endif %}
+          </div>
+          <p class="mono muted small">{{ v.started_at|dt }} -> {{ v.finished_at|dt }}
+            (window {{ v.window_seconds }}s / poll {{ v.poll_seconds }}s)</p>
+          <p class="record-body">{{ v.detail }}</p>
+          {% if v.checks %}
+          <table class="table table-tight">
+            <thead><tr><th>check</th><th>status</th><th>detail</th><th>evidence</th></tr></thead>
+            <tbody>
+              {% for c in v.checks %}
+              <tr>
+                <td class="mono">{{ c.name }}</td>
+                <td><span class="badge ck-{{ c.status }}">{{ c.status }}</span></td>
+                <td class="small">{{ c.detail }}</td>
+                <td class="mono small">{{ c.evidence_id or "-" }}</td>
+              </tr>
+              {% endfor %}
+            </tbody>
+          </table>
+          {% endif %}
+        </div>
+        {% endfor %}
+      {% else %}<p class="none">none recorded</p>{% endif %}
+    </li>
+
+  </ol>
+
+  <h2 class="timeline-title">Transitions</h2>
+  <table class="table">
+    <thead><tr><th>#</th><th>from</th><th>to</th><th>cause</th><th>at</th></tr></thead>
+    <tbody>
+      {% for t in transitions %}
+      <tr>
+        <td class="mono">{{ t.id }}</td>
+        <td><span class="badge">{{ t.from_status or "(new)" }}</span></td>
+        <td><span class="badge st-{{ t.to_status }}">{{ t.to_status }}</span></td>
+        <td class="small">{{ t.cause }}</td>
+        <td class="mono muted small">{{ t.created_at|dt }}</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</article>
+{% endblock %}

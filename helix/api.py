@@ -17,6 +17,10 @@ Subphase 1.9 adds `GET /incidents/{id}/provenance` - the assembled
 decision-provenance record (state/provenance.py), the JSON surface the
 Phase 1.12 operator timeline will render.
 
+Subphase 1.12 mounts the operator UI (helix/ui.py): server-rendered pages
+under /ui/ plus static assets at /static, with / redirecting to the
+incident list. The JSON routes below are unchanged.
+
 `helix serve` runs this app under uvicorn at HELIX_API_BIND:HELIX_API_PORT.
 """
 
@@ -31,6 +35,7 @@ from sqlalchemy.orm import Session
 
 from helix.config import get_settings
 from helix.logging import get_logger
+from helix.ui import register_ui
 from state import models
 from state.approvals import ApprovalDecidedError, record_decision
 from state.db import session_scope
@@ -352,3 +357,10 @@ def reject_approval(
     """Reject the pending row and resume: the incident replans with the
     rejected fingerprint excluded."""
     return _decide_approval(approval_id, False, body, session)
+
+
+# Subphase 1.12 (D11): mount the server-rendered operator UI - / redirects
+# to /ui/ (incident list), detail and approvals pages live under /ui/,
+# assets under /static. ui.py keeps its own session dependency so there is
+# no import cycle back into this module.
+register_ui(app)
