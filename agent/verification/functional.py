@@ -3,10 +3,11 @@
 The desired state for a recovered service is not "pods Ready" alone -
 it is "the service does its job". The leg:
 
-1. `kubectl port-forward svc/<service> :<remote_port>` - the current
-   surface; the sandbox cluster has no ingress controller, so the service
-   is reached by forward, not by ingress (the target moves to
-   `payment-api.local` through ingress in subphase 1.13).
+1. Reach the service: `kubectl port-forward svc/<service> :<remote_port>`
+   by default, or the configured base URL (`HELIX_VERIFY_BASE_URL` ->
+   `ctx.functional_base_url`) when the ingress surface is the target
+   (subphase 1.13 installed ingress-nginx + `payment-api.local`; the base
+   URL verifies the same surface operators use).
 2. A Selenium browser loads `/docs` - the Swagger UI FastAPI generates.
    For an API-only service `/docs` is the honest browser surface: a real
    browser exercise that requires no changes to payment-api.
@@ -178,18 +179,26 @@ def check_payments(base_url: str) -> tuple[bool, str]:
     return ok, f"POST /payments -> {response.status_code} status={body.get('status')!r}"
 
 
+def _probe(base_url: str) -> tuple[bool, str]:
+    """Run both legs of the probe against `base_url` and fold to
+    (ok, detail)."""
+    docs_ok, docs_detail = check_swagger_docs(base_url)
+    pay_ok, pay_detail = check_payments(base_url)
+    return docs_ok and pay_ok, f"/docs: {docs_detail}; /payments: {pay_detail}"
+
+
 def run(ctx: VerificationContext) -> CheckResult:
     """The functional leg: skipped in fixture mode or when disabled;
-    otherwise port-forward + browser + API probe. A probe that cannot run
-    (no kubectl, no browser, dead cluster) records `error` - never a
-    pass, never silently skipped."""
+    otherwise probe the service - via the configured ingress base URL when
+    `ctx.functional_base_url` is set, else a kubectl port-forward. A probe
+    that cannot run (no kubectl, no browser, dead cluster, unresolved
+    name) records `error` - never a pass, never silently skipped."""
     name = "functional"
     if ctx.is_fixture:
         return CheckResult(
             name,
             CheckStatus.SKIPPED,
-            "fixture mode: no live service to port-forward to - verifying "
-            "against recorded state instead",
+            "fixture mode: no live service to probe - verifying against recorded state instead",
         )
     if not ctx.functional_enabled:
         return CheckResult(
@@ -200,16 +209,17 @@ def run(ctx: VerificationContext) -> CheckResult:
     if ctx.functional_probe is not None:
         return ctx.functional_probe(ctx)
     try:
-        with port_forward(ctx.service, ctx.namespace, 8000) as base_url:
-            docs_ok, docs_detail = check_swagger_docs(base_url)
-            pay_ok, pay_detail = check_payments(base_url)
+        if ctx.functional_base_url:
+            ok, detail = _probe(ctx.functional_base_url)
+        else:
+            with port_forward(ctx.service, ctx.namespace, 8000) as base_url:
+                ok, detail = _probe(base_url)
     except ImportError as exc:
         return CheckResult(name, CheckStatus.ERROR, f"functional probe could not run: {exc}")
     except (PortForwardError, OSError) as exc:
         return CheckResult(name, CheckStatus.ERROR, f"functional probe could not run: {exc}")
     except Exception as exc:  # httpx errors, selenium session failures...
         return CheckResult(name, CheckStatus.ERROR, f"{type(exc).__name__}: {exc}")
-    detail = f"/docs: {docs_detail}; /payments: {pay_detail}"
-    if docs_ok and pay_ok:
+    if ok:
         return CheckResult(name, CheckStatus.PASS, detail)
     return CheckResult(name, CheckStatus.FAIL, detail)

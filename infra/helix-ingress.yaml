@@ -1,0 +1,71 @@
+# Ingress for the Helix API/UI itself (subphase 1.13): `helix.local`.
+#
+# Helix runs on the HOST (`helix serve`), not inside the cluster - the
+# observer plane must outlive the sandbox it watches (same reasoning as
+# D1/D3 for Jenkins and Postgres). The ingress controller lives inside the
+# cluster, though, so the host service has to be projected in:
+#
+#   ExternalName service -> host.docker.internal
+#
+# host.docker.internal resolves cluster-wide here because the kind node's
+# resolv.conf points at Docker Desktop's embedded resolver
+# (192.168.65.254), which knows the name. Verified on this host:
+# helix.local routed through ingress-nginx to a host listener on 8787.
+#
+# Docker Desktop specific. On a Linux kind host there is no
+# host.docker.internal inside nodes - swap the Service for a selectorless
+# Service + manual Endpoints holding the host's reachable IP instead:
+#
+#   apiVersion: v1
+#   kind: Service
+#   metadata: {name: helix, namespace: helix}
+#   spec:
+#     ports: [{port: 8787, targetPort: 8787}]
+#   ---
+#   apiVersion: v1
+#   kind: Endpoints
+#   metadata: {name: helix, namespace: helix}
+#   subsets:
+#     - addresses: [{ip: <HOST-REACHABLE-IP>}]   # e.g. the kind bridge gateway
+#       ports: [{port: 8787}]
+#
+# Either way the host process must bind a non-loopback interface for the
+# cluster to reach it: HELIX_API_BIND=0.0.0.0 uv run helix serve.
+#
+# Applied by scripts/up.sh (and by Terraform - infra/terraform). A stale
+# object is harmless: with no host listener the route simply 502s.
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: helix
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: helix
+  namespace: helix
+spec:
+  type: ExternalName
+  externalName: host.docker.internal
+  ports:
+    - port: 8787
+      targetPort: 8787
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: helix
+  namespace: helix
+spec:
+  ingressClassName: nginx
+  rules:
+    - host: helix.local
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: helix
+                port:
+                  number: 8787

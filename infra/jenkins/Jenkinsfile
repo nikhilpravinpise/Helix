@@ -45,8 +45,92 @@ pipeline {
                 sh '''
                     set -euo pipefail
                     cd "${BUILD_DIR}"
-                    uv run pytest -v
+                    uv run pytest -v --cov=payment_api --cov-report=xml:coverage.xml
                 '''
+            }
+        }
+
+        // Subphase 1.13 - the quality gate. The scan runs through the
+        // sonarsource/sonar-scanner-cli image rather than a Jenkins tool
+        // installation: SonarScanner 8.x needs Java 21 while this image is
+        // jdk17, and the container carries its own runtime and reuses the
+        // same docker socket wiring the Build stage already relies on.
+        //
+        // Guard semantics: SonarQube is an optional stack on this
+        // memory-tight host (infra/sonarqube-compose.yml, CF-4). When the
+        // server is not reachable the stages log and SKIP - the pipeline
+        // stays usable without it. But when the analysis DOES run, the
+        // gate is hard: waitForQualityGate abortPipeline fails the build
+        // on a FAILED/ERROR quality gate, before any image is built or
+        // deployed.
+        stage('SonarQube analysis') {
+            steps {
+                script {
+                    env.SONAR_ANALYZED = 'false'
+                    def sonarUp = sh(
+                        returnStatus: true,
+                        script: 'curl -sf --max-time 5 http://host.docker.internal:9000/api/system/status | grep -q \'"status":"UP"\''
+                    )
+                    if (sonarUp != 0) {
+                        echo 'SonarQube not reachable on host.docker.internal:9000 - analysis and quality gate skipped. Start infra/sonarqube-compose.yml to enable.'
+                    } else {
+                        // withSonarQubeEnv injects SONAR_HOST_URL/SONAR_TOKEN
+                        // from the `helix-sonarqube` installation (JCasC) and
+                        // records the CE task so waitForQualityGate below can
+                        // find it.
+                        //
+                        // Mount note: docker -v paths resolve on the HOST
+                        // daemon, so ${BUILD_DIR} (a path inside this
+                        // container) cannot be bind-mounted. --volumes-from
+                        // this container instead exposes the jenkins-home
+                        // volume at the SAME absolute path - the scanner's
+                        // .scannerwork/report-task.txt lands in the Jenkins
+                        // workspace, which is how waitForQualityGate finds
+                        // the task (it reads the "Working dir:" line the
+                        // scanner prints, then the report file).
+                        withSonarQubeEnv('helix-sonarqube') {
+                            // The plugin injects SONAR_HOST_URL +
+                            // SONAR_AUTH_TOKEN; the scanner image's env var
+                            // is SONAR_TOKEN - map it through.
+                            //
+                            // SCANNER_WORKDIR_PATH -> -Dsonar.working.
+                            // directory (the image's entrypoint maps it).
+                            // It must be INSIDE the workspace: the plugin
+                            // parses the scanner's "Working dir:" log line
+                            // and reads report-task.txt at that absolute
+                            // path to hand the CE task id to
+                            // waitForQualityGate. --volumes-from puts the
+                            // jenkins-home volume at the same path in both
+                            // containers, and the scanner runs as uid 1000
+                            // (same as jenkins) so the write lands.
+                            // SONAR_USER_HOME in the workspace keeps the
+                            // provisioned-JRE/plugin cache between builds.
+                            sh '''
+                                docker run --rm \
+                                  --volumes-from "$(hostname)" \
+                                  -e SONAR_HOST_URL="${SONAR_HOST_URL}" \
+                                  -e SONAR_TOKEN="${SONAR_AUTH_TOKEN:-${SONAR_TOKEN:-}}" \
+                                  -e SONAR_USER_HOME="${BUILD_DIR}/.sonar" \
+                                  -e SCANNER_WORKDIR_PATH="${BUILD_DIR}/.scannerwork" \
+                                  -w "${BUILD_DIR}" \
+                                  sonarsource/sonar-scanner-cli:12.1.0.3233_8.0.1
+                            '''
+                        }
+                        env.SONAR_ANALYZED = 'true'
+                    }
+                }
+            }
+        }
+
+        stage('Quality Gate') {
+            when {
+                expression { env.SONAR_ANALYZED == 'true' }
+            }
+            steps {
+                timeout(time: 10, unit: 'MINUTES') {
+                    // Hard gate: aborted (failed) gate fails the build.
+                    waitForQualityGate abortPipeline: true
+                }
             }
         }
 
@@ -128,10 +212,15 @@ pipeline {
             // jenkins fields; STAGE_NAME may be unset in a pipeline-level
             // post block, hence the fallback.
             catchError(buildResult: 'SUCCESS', stageResult: 'SUCCESS') {
+                // The payload is single-quoted: ${STAGE_NAME} can contain
+                // spaces ("Declarative: Post Actions") and unquoted it used
+                // to split into separate curl arguments. catchError +
+                // `|| true` still guarantee intake being down never fails
+                // the build.
                 sh '''
                     curl -sS --max-time 10 -o /dev/null -X POST \
                       -H 'Content-Type: application/json' \
-                      -d "{\"source\":\"jenkins\",\"service\":\"payment-api\",\"environment\":\"sandbox\",\"signature\":{\"job\":\"${JOB_NAME}\",\"stage\":\"${STAGE_NAME:-unknown}\"},\"raw\":{\"job\":\"${JOB_NAME}\",\"build_number\":${BUILD_NUMBER},\"build_url\":\"${BUILD_URL}\"}}" \
+                      -d '{"source":"jenkins","service":"payment-api","environment":"sandbox","signature":{"job":"'"${JOB_NAME}"'","stage":"'"${STAGE_NAME:-unknown}"'"},"raw":{"job":"'"${JOB_NAME}"'","build_number":'"${BUILD_NUMBER}"',"build_url":"'"${BUILD_URL}"'"}}' \
                       http://host.docker.internal:8787/intake/jenkins || true
                 '''
             }

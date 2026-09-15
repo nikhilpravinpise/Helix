@@ -96,6 +96,7 @@ def verification_node(deps: "GraphDeps"):
                             origin=deps.write_origin,
                             functional_enabled=False,
                             elk_error_threshold=deps.elk_error_threshold,
+                            functional_base_url=deps.verify_base_url,
                         ),
                         "(none)",
                         {},
@@ -116,6 +117,7 @@ def verification_node(deps: "GraphDeps"):
                         origin=deps.write_origin,
                         functional_enabled=deps.verify_functional,
                         elk_error_threshold=deps.elk_error_threshold,
+                        functional_base_url=deps.verify_base_url,
                     )
                     report = run_verification(
                         ctx,

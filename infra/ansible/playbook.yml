@@ -1,0 +1,137 @@
+---
+# Helix Phase 1 host toolchain - checks and, on Linux, installs the five
+# binaries the environment needs (subphase 1.13).
+#
+# Run:
+#   ansible-playbook infra/ansible/playbook.yml          (Linux / WSL2)
+#   ansible-playbook -i localhost, infra/ansible/playbook.yml
+#
+# Ansible does not run as a control node on native Windows - on the
+# Windows dev host run this inside WSL2, or treat it as a Linux-host
+# provisioner. Docker Desktop on Windows already supplies docker; the
+# remaining tools on Windows come from winget (see docs/bring-up.md),
+# which Ansible is not the right layer to drive - so the playbook checks
+# everything and installs only where it safely can (Linux).
+- name: Helix Phase 1 host toolchain
+  hosts: localhost
+  connection: local
+  gather_facts: true
+  vars:
+    tool_versions:
+      - { name: docker,    check: "docker --version" }
+      - { name: kind,      check: "kind --version" }
+      - { name: kubectl,   check: "kubectl version --client" }
+      - { name: uv,        check: "uv --version" }
+      - { name: terraform, check: "terraform version" }
+
+  tasks:
+    - name: Check each required tool
+      ansible.builtin.shell: "{{ item.check }}"
+      loop: "{{ tool_versions }}"
+      register: tool_checks
+      changed_when: false
+      failed_when: false
+
+    - name: Collect missing tools
+      ansible.builtin.set_fact:
+        missing_tools: >-
+          {{ tool_checks.results
+             | selectattr('rc', '!=', 0)
+             | map(attribute='item.name')
+             | list }}
+
+    - name: Report detected versions
+      ansible.builtin.debug:
+        msg: "{{ item.item.name }}: {{ (item.stdout_lines | default([])) | first | default('MISSING') }}"
+      loop: "{{ tool_checks.results }}"
+      loop_control:
+        label: "{{ item.item.name }}"
+
+    # --- Linux installs for the single-binary tools ---------------------
+
+    - name: Install uv on Linux (user-local, no sudo)
+      when: ansible_facts.system == "Linux" and "uv" in missing_tools
+      ansible.builtin.shell: curl -LsSf https://astral.sh/uv/install.sh | sh
+      changed_when: true
+
+    - name: Install kind on Linux
+      when: ansible_facts.system == "Linux" and "kind" in missing_tools
+      become: true
+      ansible.builtin.shell: >-
+        curl -Lo /usr/local/bin/kind
+        https://kind.sigs.k8s.io/dl/v0.33.0/kind-linux-amd64 &&
+        chmod +x /usr/local/bin/kind
+      changed_when: true
+
+    - name: Install kubectl on Linux
+      when: ansible_facts.system == "Linux" and "kubectl" in missing_tools
+      become: true
+      ansible.builtin.shell: >-
+        curl -Lo /usr/local/bin/kubectl
+        "https://dl.k8s.io/release/$(curl -Ls https://dl.k8s.io/release/stable.txt)/bin/linux/amd64/kubectl"
+        && chmod +x /usr/local/bin/kubectl
+      changed_when: true
+
+    # Docker (engine setup differs per distro and Docker Desktop on
+    # Windows/macOS is a GUI installer) and Terraform (HashiCorp apt repo)
+    # are reported missing with pointers rather than scripted - installing
+    # a container engine or a package repo is a bigger contract than a
+    # single binary drop.
+    - name: Fail if Docker or Terraform are missing
+      when: missing_tools | intersect(['docker', 'terraform']) | length > 0
+      ansible.builtin.fail:
+        msg: >-
+          Missing: {{ missing_tools | join(', ') }}. Install Docker via
+          Docker Desktop (Windows/macOS) or your distro's docker engine,
+          and Terraform via https://developer.hashicorp.com/terraform/install
+          - then re-run this playbook.
+
+    - name: Re-check tools after installs
+      ansible.builtin.shell: "{{ item.check }}"
+      loop: "{{ tool_versions }}"
+      register: tool_rechecks
+      changed_when: false
+      failed_when: false
+
+    - name: Assert nothing is still missing
+      ansible.builtin.assert:
+        that:
+          - tool_rechecks.results | selectattr('rc', '!=', 0) | list | length == 0
+        fail_msg: "Still missing after install attempts: {{ tool_rechecks.results | selectattr('rc', '!=', 0) | map(attribute='item.name') | list }}"
+
+    # --- Directories the toolchain expects -------------------------------
+
+    - name: Ensure ~/.kube exists (kind/kubectl write contexts there)
+      ansible.builtin.file:
+        path: "{{ lookup('env', 'HOME') }}/.kube"
+        state: directory
+        mode: "0700"
+
+    # --- Elasticsearch / SonarQube kernel setting ------------------------
+    # vm.max_map_count >= 524288 is required by SonarQube's embedded
+    # Elasticsearch (and comfortably covers Elasticsearch 8's own 262144).
+    # On Linux the playbook applies it live + persists it. On Windows the
+    # setting lives inside Docker Desktop's WSL2 distro, which Ansible on
+    # the WSL guest cannot reach - do it once by hand instead:
+    #   wsl -d docker-desktop -u root sysctl -w vm.max_map_count=524288
+    # (also documented in infra/sonarqube-compose.yml's header).
+
+    - name: Raise vm.max_map_count for Elasticsearch/SonarQube (Linux)
+      when: ansible_facts.system == "Linux"
+      become: true
+      ansible.builtin.sysctl:
+        name: vm.max_map_count
+        value: "524288"
+        state: present
+        reload: true
+        sysctl_file: /etc/sysctl.d/99-helix.conf
+
+    - name: Note the WSL2 sysctl step on non-Linux hosts
+      when: ansible_facts.system != "Linux"
+      ansible.builtin.debug:
+        msg: >-
+          On Docker Desktop/Windows set vm.max_map_count inside the
+          docker-desktop WSL distro before starting Elasticsearch or
+          SonarQube: wsl -d docker-desktop -u root sysctl -w
+          vm.max_map_count=524288 (runtime-only; persists via .wslconfig
+          kernelCommandLine).

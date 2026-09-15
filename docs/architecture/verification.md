@@ -68,13 +68,20 @@ recovered, replanned, or escalated.
 
 ## The functional leg
 
-Live mode only. `agent/verification/functional.py` opens a
-`kubectl port-forward` to the service (context-manager style: the
-process is always terminated, escalate-to-kill if it stalls), waits for
-the local port, then probes `/health` over HTTP and - when Selenium is
-available - renders `/docs` in a headless browser and drives a
-`POST /payments` round trip. Selenium absence degrades the browser probe
-to a `/docs` HTTP fetch, never to a skip: the health probe still proves
-the service answers. The whole leg is `skipped` only when there is no
-live service to probe (fixture mode, or `HELIX_VERIFY_FUNCTIONAL=false`
-disables the network probes explicitly).
+Live mode only. `agent/verification/functional.py` reaches the service
+one of two ways:
+
+- `HELIX_VERIFY_BASE_URL` unset (default): a `kubectl port-forward` to
+  the service (context-manager style: the process is always terminated,
+  escalate-to-kill if it stalls), waiting on the forwarded local port.
+- `HELIX_VERIFY_BASE_URL` set: the probe goes through that base URL -
+  on the kind sandbox `http://payment-api.local`, i.e. the same
+  ingress-nginx surface an operator's browser uses (subphase 1.13).
+
+The probes themselves are identical either way: a Selenium browser loads
+`/docs` (the honest browser surface for an API-only service) and an
+httpx `POST /payments` drives the business round trip. A probe that
+cannot run - no kubectl, no browser, dead cluster, unresolved ingress
+name - records `error`, never a pass. The whole leg is `skipped` only
+when there is no live service to probe (fixture mode, or
+`HELIX_VERIFY_FUNCTIONAL=false` disables the network probes explicitly).

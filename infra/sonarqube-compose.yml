@@ -1,0 +1,63 @@
+# SonarQube - the quality gate for the Helix codebase (subphase 1.13).
+# Runs on the HOST like the other observer-plane services (D1/D3); Jenkins
+# reaches it via host.docker.internal:9000.
+#
+#   docker compose -f infra/sonarqube-compose.yml up -d
+#
+# Prerequisite on Docker Desktop / WSL2 (Windows host): SonarQube's
+# embedded Elasticsearch requires vm.max_map_count >= 524288 inside the
+# docker-desktop WSL distro:
+#
+#   wsl -d docker-desktop -u root sysctl -w vm.max_map_count=524288
+#
+# (runtime-only - reapply after Docker Desktop restarts; persistent via
+# .wslconfig kernelCommandLine. On a Linux host: sysctl -w
+# vm.max_map_count=524288 + /etc/sysctl.d entry - see infra/ansible.)
+#
+# Memory (CF-4): SonarQube is the heaviest single container here
+# (~2.5-3GB RSS). Do not run it alongside ELK + Jenkins + the kind
+# cluster on a tight host - bring it up when you actually need the gate.
+#
+# The project name is pinned (same reason infra/docker-compose.yml pins
+# "helix-logging"): the compose default would be this file's parent
+# directory "infra", colliding with any other project defaulting to it.
+# It also matches the volume names the Terraform path uses.
+name: helix-sonarqube
+
+services:
+  sonarqube:
+    image: sonarqube:26.9.0.129388-community
+    container_name: helix-sonarqube
+    # All interfaces, not 127.0.0.1: the Jenkins pipeline's scanner
+    # container reaches this via host.docker.internal:9000, and Docker
+    # Desktop does not forward loopback-only published ports to containers
+    # (verified: a 127.0.0.1-published port answers on the host but not
+    # from a container; same reason Elasticsearch publishes 0.0.0.0:9200).
+    ports:
+      - "9000:9000"
+    environment:
+      # Heaps pinned small for the memory-tight sandbox host.
+      SONAR_WEB_JAVAOPTS: "-Xmx512m"
+      SONAR_CE_JAVAOPTS: "-Xmx512m"
+      SONAR_SEARCH_JAVAOPTS: "-Xms512m -Xmx512m"
+    ulimits:
+      nofile:
+        soft: 65536
+        hard: 65536
+    volumes:
+      - data:/opt/sonarqube/data
+      - extensions:/opt/sonarqube/extensions
+      - logs:/opt/sonarqube/logs
+    mem_limit: 3g
+    healthcheck:
+      test: ["CMD-SHELL", "curl -sf http://localhost:9000/api/system/status | grep -q '\"status\":\"UP\"' || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 60
+      # SonarQube boots slowly (embedded ES + DB migrations).
+      start_period: 120s
+
+volumes:
+  data:
+  extensions:
+  logs:
