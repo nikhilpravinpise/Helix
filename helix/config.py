@@ -5,6 +5,8 @@ Secrets (API keys, tokens) are read from environment variables or a local
 variable names.
 """
 
+from typing import Literal
+
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -22,6 +24,20 @@ class Settings(BaseSettings):
     llm_api_key: str | None = None
     llm_base_url: str = "https://api.groq.com/openai/v1"
     llm_model: str = "llama-3.3-70b-versatile"
+
+    # Evidence layer (subphase 1.3). evidence_source selects live vendor
+    # clients vs fixture-backed implementations; fixture_path names the
+    # fixture a fixture-mode run replays (a path to a JSON file or a fault
+    # name resolved under fixtures/faults/).
+    github_token: str | None = None
+    github_repo: str = "nikhilpravinpise/Helix"
+    jenkins_url: str = "http://localhost:8080"
+    jenkins_user: str = "admin"
+    jenkins_token: str = "admin-sandbox-placeholder"
+    es_url: str = "http://localhost:9200"
+    kube_context: str = "kind-helix-sandbox"
+    evidence_source: Literal["live", "fixtures"] = "live"
+    fixture_path: str | None = None
 
 
 def get_settings() -> Settings:
