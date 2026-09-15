@@ -18,3 +18,41 @@ Copy `.env.example` to `.env` and fill in real values for local development. Nev
 make lint
 make test
 ```
+
+## Quickstart - the Phase 1 surface
+
+The full environment bring-up (clean-machine instructions, Terraform and
+script paths, hosts file, teardown, memory notes) lives in
+[docs/bring-up.md](docs/bring-up.md). The short version:
+
+```bash
+# Incident-state Postgres (host container, 127.0.0.1:5432)
+bash scripts/db-up.sh
+
+# Helix API + operator UI at http://127.0.0.1:8787/ui/
+uv run helix serve
+
+# CLI surface: intake a signal, list/diagnose/run incidents, approvals,
+# provenance
+uv run helix --help
+```
+
+The sandbox target - a kind cluster (`helix-sandbox`) running a
+deliberately breakable `payment-api` behind ingress-nginx - is brought up
+by Terraform (`infra/terraform/`, the documented path) or
+`bash scripts/up.sh` (the escape hatch). With a hosts-file entry
+(`127.0.0.1 payment-api.local`, `127.0.0.1 helix.local`) the services are
+reachable at `http://payment-api.local` and `http://helix.local` - the
+latter routes back out to the host-running `helix serve`.
+
+Optional host stacks (memory-tight: do not run them all at once -
+docs/bring-up.md §6): Elasticsearch/Kibana
+(`infra/docker-compose.yml`), Jenkins (`infra/jenkins-compose.yml`,
+including the SonarQube quality-gate stages), SonarQube
+(`infra/sonarqube-compose.yml`).
+
+```bash
+# Controlled benchmark (subphase 1.11): fixture scenarios by default;
+# live scenarios need the sandbox stack. Reports: benchmark/reports/
+bash scripts/benchmark.sh
+```

@@ -9,3 +9,10 @@ __pycache__/
 
 # secrets
 .env
+
+# Terraform
+infra/terraform/.terraform/
+infra/terraform/*.tfstate
+infra/terraform/*.tfstate.*
+infra/terraform/terraform.tfvars
+infra/terraform/*-config

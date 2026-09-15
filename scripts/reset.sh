@@ -19,7 +19,7 @@ source "${SCRIPT_DIR}/common.sh"
 ROLLOUT_TIMEOUT=120s
 READY_MAX_ATTEMPTS=30
 
-kctl apply -f "${K8S_DIR}"
+kctl apply -f "$(winpath "${K8S_DIR}")"
 
 # Drop every `kubectl set env` override in one shot rather than naming each
 # variable. The manifests supply configuration through envFrom, so the

@@ -56,7 +56,11 @@ services:
       context: ./jenkins
     container_name: helix-jenkins
     group_add:
-      - "963" # host `docker` group GID - `getent group docker` to confirm on another host
+      # /var/run/docker.sock is root:root 0660 on Docker Desktop's VM - the
+      # socket's group is literally root, so the jenkins user joins gid 0.
+      # On a Linux host it is usually the `docker` group's gid instead:
+      # `docker exec helix-jenkins stat -c %g /var/run/docker.sock`.
+      - "0"
     networks:
       default: {}
       kind:
@@ -65,14 +69,22 @@ services:
       - jenkins-home:/var/jenkins_home
       - /var/run/docker.sock:/var/run/docker.sock
       - ../:/workspace/helix-src:ro
+    # All interfaces: SonarQube's quality-gate webhook POSTs back to this
+    # container via host.docker.internal:8080 (subphase 1.13), and Docker
+    # Desktop does not forward loopback-only published ports to
+    # containers. Same exception as Elasticsearch's 9200.
     ports:
-      - "127.0.0.1:8080:8080"
+      - "8080:8080"
     environment:
       - JAVA_OPTS=-Djenkins.install.runSetupWizard=false -Xmx512m
       # Placeholder credentials for a local, single-user sandbox - not a
       # real secret. See infra/jenkins/jenkins.yaml.
       - JENKINS_ADMIN_ID=admin
       - JENKINS_ADMIN_PASSWORD=admin-sandbox-placeholder
+      # SonarQube token for the JCasC-managed `sonarqube-token` credential
+      # (subphase 1.13). Empty placeholder until a real token is generated
+      # in the SonarQube UI - see docs/bring-up.md.
+      - SONARQUBE_TOKEN=${SONARQUBE_TOKEN:-}
     mem_limit: 1g
 
 networks:

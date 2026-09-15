@@ -1,0 +1,23 @@
+# Copy to terraform.tfvars to customize. Never commit terraform.tfvars.
+# Defaults are written for this Windows + Docker Desktop host.
+
+# Docker daemon socket. Docker Desktop on Windows uses the named pipe
+# below; on Linux use "unix:///var/run/docker.sock".
+# docker_host = "npipe:////./pipe/docker_engine"
+
+# Absolute path of the Helix repo checkout.
+# repo_root = "C:/Dev/Helix"
+
+# Memory-tight host (CF-4): disable stacks you are not using rather than
+# running everything at once. Minimal useful sandbox:
+#   enable_logging   = false
+#   enable_jenkins   = false
+#   enable_sonarqube = false
+# (kind + postgres stay on - that is the cluster plus Helix's state.)
+
+# SonarQube token Jenkins uses for analysis - created once in the SonarQube
+# UI (see docs/bring-up.md). Equivalent: TF_VAR_sonarqube_token env var.
+# sonarqube_token = ""
+
+# GID owning /var/run/docker.sock on the Docker host (`getent group docker`).
+# jenkins_docker_gid = "963"

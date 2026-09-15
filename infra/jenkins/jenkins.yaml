@@ -3,10 +3,13 @@
 # start - no manual clicking, and the setup wizard is disabled via
 # JAVA_OPTS in infra/jenkins-compose.yml.
 #
-# The one manual step this does NOT remove: nothing. Login uses the
-# placeholder admin credentials below, which is fine for a local,
-# single-user sandbox - see infra/jenkins-compose.yml for where the values
-# come from.
+# The one manual step this does NOT remove: creating the SonarQube token.
+# A real token is generated in the SonarQube UI once (My Account ->
+# Security -> Generate Token) and supplied as the SONARQUBE_TOKEN env var
+# (.env next to infra/jenkins-compose.yml / terraform.tfvars). Until then
+# the credential below holds the empty placeholder and the pipeline's
+# SonarQube stages probe server reachability before running - with no
+# server up they log and skip rather than fail the build.
 jenkins:
   systemMessage: "Helix sandbox Jenkins - payment-api pipeline (ticket #5)."
   numExecutors: 2
@@ -19,6 +22,30 @@ jenkins:
   authorizationStrategy:
     loggedInUsersCanDoAnything:
       allowAnonymousRead: false
+
+# SonarQube server wiring (subphase 1.13): the credential
+# `sonarqube-token` (Secret Text, from SONARQUBE_TOKEN) plus the named
+# server installation `helix-sonarqube` that withSonarQubeEnv(...) in the
+# Jenkinsfile refers to. serverUrl is host.docker.internal - the SonarQube
+# container publishes 9000 on all interfaces (loopback-only published
+# ports are not reachable from containers on Docker Desktop).
+credentials:
+  system:
+    domainCredentials:
+      - credentials:
+          - string:
+              scope: GLOBAL
+              id: "sonarqube-token"
+              secret: "${SONARQUBE_TOKEN}"
+              description: "SonarQube user token for analysis + quality-gate polling"
+
+unclassified:
+  sonarGlobalConfiguration:
+    buildWrapperEnabled: false
+    installations:
+      - name: "helix-sonarqube"
+        serverUrl: "http://host.docker.internal:9000"
+        credentialsId: "sonarqube-token"
 
 # Defines the single pipeline job from the Jenkinsfile checked into the
 # repo. The Helix repo is bind-mounted read-only into this container at

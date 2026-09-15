@@ -608,6 +608,44 @@ class TestFunctionalLeg:
         result = functional.run(ctx)
         assert result.status == CheckStatus.FAIL
 
+    def test_base_url_mode_probes_ingress_and_never_forwards(self, monkeypatch):
+        """HELIX_VERIFY_BASE_URL set (1.13): the leg probes the ingress
+        surface directly - no kubectl port-forward is opened."""
+        import agent.verification.functional as fn
+
+        seen: list[str] = []
+
+        def fake_docs(base_url):
+            seen.append(base_url)
+            return True, "swagger-ui rendered"
+
+        def fake_pay(base_url):
+            seen.append(base_url)
+            return True, "POST /payments -> 201 status='settled'"
+
+        def fail_forward(*a, **kw):
+            raise AssertionError("port_forward must not run in base-url mode")
+
+        monkeypatch.setattr(fn, "check_swagger_docs", fake_docs)
+        monkeypatch.setattr(fn, "check_payments", fake_pay)
+        monkeypatch.setattr(fn, "port_forward", fail_forward)
+
+        ctx = _ctx(_healthy_doc(), origin="live", functional_base_url="http://payment-api.local")
+        result = functional.run(ctx)
+        assert result.status == CheckStatus.PASS
+        assert seen == ["http://payment-api.local", "http://payment-api.local"]
+
+    def test_base_url_mode_probe_failure_is_fail(self, monkeypatch):
+        import agent.verification.functional as fn
+
+        monkeypatch.setattr(fn, "check_swagger_docs", lambda _u: (True, "rendered"))
+        monkeypatch.setattr(
+            fn, "check_payments", lambda _u: (False, "POST /payments -> 500 status=None")
+        )
+
+        ctx = _ctx(_healthy_doc(), origin="live", functional_base_url="http://payment-api.local")
+        assert functional.run(ctx).status == CheckStatus.FAIL
+
 
 class TestPortForward:
     """The leak-safe port-forward lifecycle over a fake process - no

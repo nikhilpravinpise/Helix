@@ -1,3 +1,7 @@
 configuration-as-code
 job-dsl
 workflow-aggregator
+# SonarQube Scanner plugin (withSonarQubeEnv / waitForQualityGate) and
+# plain-credentials for the JCasC-managed token credential (subphase 1.13).
+sonar
+plain-credentials

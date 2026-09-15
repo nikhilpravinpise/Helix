@@ -15,6 +15,9 @@ dependencies = [
 dev = [
     "ruff>=0.7",
     "pytest>=8.3",
+    # Feeds SonarQube's coverage measure (sonar.python.coverage.reportPaths)
+    # in the Jenkins pipeline - subphase 1.13.
+    "pytest-cov>=6.0",
 ]
 
 [build-system]

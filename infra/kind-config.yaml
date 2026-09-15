@@ -1,0 +1,16 @@
+# kind cluster config for the helix-sandbox cluster (subphase 1.13).
+# extraPortMappings expose the ingress-nginx NodePorts on the host loopback,
+# which is what makes payment-api.local/helix.local ingress work from a
+# browser or curl on this machine.
+kind: Cluster
+apiVersion: kind.x-k8s.io/v1alpha4
+name: helix-sandbox
+nodes:
+  - role: control-plane
+    extraPortMappings:
+      - containerPort: 30080
+        hostPort: 80
+        listenAddress: "127.0.0.1"
+      - containerPort: 30443
+        hostPort: 443
+        listenAddress: "127.0.0.1"

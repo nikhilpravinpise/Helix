@@ -78,14 +78,21 @@ class Settings(BaseSettings):
     # then is not - inside the window - counts as flapping, not recovered.
     # elk_error_threshold is the count of error-level log lines allowed in a
     # poll-sized post-action window (default 0: any fresh ERROR fails the leg).
-    # verify_functional toggles the port-forward functional leg (browser + API
+    # verify_functional toggles the functional leg (browser + API
     # round-trip). Turn it off for headless/CI contexts; it is required in
     # live benchmark mode. A disabled or fixture-mode leg is recorded as
     # skipped, never as passed.
+    # verify_base_url overrides HOW the leg reaches the service: unset means
+    # `kubectl port-forward svc/<service>` (works on any cluster); set it to
+    # an ingress base URL - http://payment-api.local on the kind sandbox -
+    # to verify through the same ingress surface operators use (1.13). The
+    # name must resolve locally (hosts-file entry) and the request leaves
+    # this machine and re-enters through the controller's NodePort.
     verify_window: int = 60
     verify_poll: int = 20
     elk_error_threshold: int = 0
     verify_functional: bool = True
+    verify_base_url: str | None = None
 
     # Unhappy-path bounds (subphase 1.10). max_attempts bounds the
     # diagnose -> plan -> validate -> execute -> verify loop per incident:

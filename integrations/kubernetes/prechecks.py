@@ -95,17 +95,31 @@ class KubernetesPrechecksClient:
         return self._authz
 
     def _server_apply(self, docs: list[dict]) -> None:
-        """Server-side apply with dryRun=All over already-parsed docs."""
+        """Server-side apply with dryRun=All over already-parsed docs.
+
+        `create_from_yaml` namespaces each request from its `namespace`
+        parameter (default "default") - an object declaring a different
+        metadata.namespace is rejected by the API server with "namespace
+        of the provided object does not match". Group the docs by their
+        declared namespace and apply each group under its own.
+        """
         if self._apply_fn is not None:
             self._apply_fn(docs)
             return
         config.load_kube_config(context=self._context)
-        utils.create_from_yaml(
-            client.ApiClient(),
-            yaml_objects=docs,
-            apply=True,
-            dry_run="All",
-        )
+        api_client = client.ApiClient()
+        by_namespace: dict[str, list[dict]] = {}
+        for doc in docs:
+            ns = (doc.get("metadata") or {}).get("namespace") or "default"
+            by_namespace.setdefault(ns, []).append(doc)
+        for namespace, group_docs in by_namespace.items():
+            utils.create_from_yaml(
+                api_client,
+                yaml_objects=group_docs,
+                namespace=namespace,
+                apply=True,
+                dry_run="All",
+            )
 
     def can_i(
         self,

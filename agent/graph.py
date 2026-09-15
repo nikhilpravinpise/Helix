@@ -131,6 +131,9 @@ class GraphDeps:
     verify_poll: float = 20.0
     elk_error_threshold: int = 0
     verify_functional: bool = True
+    # 1.13 - functional-leg transport: None = kubectl port-forward; set =
+    # probe this ingress base URL (e.g. http://payment-api.local).
+    verify_base_url: str | None = None
     sleep: Callable[[float], None] = time.sleep
     # 1.10 - unhappy-path bounds: per-incident retry budget (cycles of
     # diagnose->...->verify consumed), seconds a pending approvals row may
@@ -165,6 +168,7 @@ def default_deps() -> GraphDeps:
         verify_poll=settings.verify_poll,
         elk_error_threshold=settings.elk_error_threshold,
         verify_functional=settings.verify_functional,
+        verify_base_url=settings.verify_base_url,
         max_attempts=settings.max_attempts,
         approval_timeout=settings.approval_timeout,
         step_timeout=settings.step_timeout,

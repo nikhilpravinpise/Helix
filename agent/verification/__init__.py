@@ -129,6 +129,10 @@ class VerificationContext:
     origin: str  # "live" | "fixture" - mirrors HELIX_EVIDENCE_SOURCE
     functional_enabled: bool
     elk_error_threshold: int
+    # 1.13 - when set, the functional leg probes this base URL (the
+    # payment-api.local ingress surface) instead of opening a kubectl
+    # port-forward. Mirrors HELIX_VERIFY_BASE_URL.
+    functional_base_url: str | None = None
     functional_probe: Callable[["VerificationContext"], CheckResult] | None = None
 
     @property
