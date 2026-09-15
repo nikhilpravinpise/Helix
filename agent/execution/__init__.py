@@ -30,8 +30,10 @@ from sqlalchemy.orm import Session
 
 from agent.actions.catalogue import ActionSpec
 from agent.policy import PolicyDecision, PolicyVerdict, decide
+from integrations.capabilities import KubernetesEvidence
 from integrations.writes import GitHubWrite, JenkinsWrite, KubernetesWrite
 from state import models
+from state.models import execution_idempotency_key as execution_idempotency_key
 
 
 class ExecutionRefusedError(RuntimeError):
@@ -66,6 +68,12 @@ class ExecutionContext:
     jenkins: JenkinsWrite
     repo_root: Path
     origin: str  # "live" | "fixture"
+    # 1.10: the READ-side kubernetes evidence capability, used by
+    # executors that must observe pre-write state for compensation (e.g.
+    # scale_deployment records the replica count it is replacing so a
+    # scale-back knows where to land). Optional so executor-level tests
+    # that never scale need not supply it.
+    kube_evidence: KubernetesEvidence | None = None
 
 
 def _granted_approval(
@@ -108,19 +116,29 @@ def persist_execution(
     origin: str,
     started_at: datetime,
     finished_at: datetime,
+    compensates_id: int | None = None,
+    policy_decision: str | None = None,
 ) -> int:
     """Write the executions audit row (one writer - the schema lands in
     exactly one place) and return its id. Flushes so the id is assigned;
-    the caller's session owns the commit."""
+    the caller's session owns the commit.
+
+    `compensates_id` marks a 1.10 compensation row (the executions row it
+    undoes); `policy_decision` overrides the recorded verdict string for
+    executor-side operations that never went through `policy.decide`
+    (compensations record "compensation", not a fabricated allow)."""
     row = models.Execution(
         incident_id=incident_pk,
         candidate_id=latest_selected_candidate_id(session, incident_pk),
         approval_id=approval.id if approval else None,
+        compensates_id=compensates_id,
+        # idempotency_key is model-computed from these fields - one
+        # formula lives in state/models.py, never duplicated here.
         attempt=attempt,
         action=verdict.action,
         params=verdict.params,
         fingerprint=verdict.fingerprint,
-        policy_decision=verdict.decision.value,
+        policy_decision=policy_decision or verdict.decision.value,
         verification_required=verdict.verification_required,
         decided_by=approval.decided_by if approval else None,
         origin=origin,

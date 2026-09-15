@@ -27,11 +27,13 @@ from datetime import UTC, datetime
 from typing import Any
 
 from sqlalchemy import select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from agent.graph import GraphDeps, build_graph, default_deps, open_checkpointer
 from agent.state import WorkflowState
 from state import models
+from state.approvals import sweep_approval_timeout
 from state.machine import IncidentStatus
 
 
@@ -61,8 +63,18 @@ class RunResult:
     error: str | None = None
 
 
-def _load_incident(session: Session, incident_id: str) -> models.Incident | None:
-    return session.scalar(select(models.Incident).where(models.Incident.incident_id == incident_id))
+def _load_incident(
+    session: Session, incident_id: str, *, lock: bool = False
+) -> models.Incident | None:
+    query = select(models.Incident).where(models.Incident.incident_id == incident_id)
+    if lock:
+        # SELECT ... FOR UPDATE (1.10): the incident row lock serializes
+        # concurrent runs through the run-row insert - a second run either
+        # sees the committed `running` row (RunConflictError) or hits the
+        # unique index, never both racing past the check. SQLite ignores
+        # the clause.
+        query = query.with_for_update()
+    return session.scalar(query)
 
 
 def start_run(session: Session, incident: models.Incident) -> models.WorkflowRun:
@@ -83,7 +95,15 @@ def start_run(session: Session, incident: models.Incident) -> models.WorkflowRun
         )
     run = models.WorkflowRun(incident_id=incident.id, status=models.RunStatus.RUNNING)
     session.add(run)
-    session.flush()
+    try:
+        session.flush()
+    except IntegrityError as exc:
+        # The unique index caught a race the friendly check missed (1.10):
+        # two drivers inserted `running` rows at once. Translate to the
+        # readable conflict callers already handle.
+        raise RunConflictError(
+            f"{incident.incident_id}: a workflow run is already running"
+        ) from exc
     return run
 
 
@@ -140,6 +160,9 @@ def _latest_execution(session: Session, incident_pk: int) -> dict[str, Any] | No
     row = session.scalar(
         select(models.Execution)
         .where(models.Execution.incident_id == incident_pk)
+        # Compensation rows are undos - the run summary reports the
+        # remediation execution (1.10).
+        .where(models.Execution.compensates_id.is_(None))
         .order_by(models.Execution.id.desc())
         .limit(1)
     )
@@ -198,9 +221,13 @@ def run_incident(
     """
     deps = deps or default_deps()
     with deps.session_scope() as session:
-        incident = _load_incident(session, incident_id)
+        incident = _load_incident(session, incident_id, lock=True)
         if incident is None:
             raise IncidentNotFoundError(f"no such incident: {incident_id}")
+        # Approval-timeout sweep (1.10): an incident parked at
+        # awaiting_approval past HELIX_APPROVAL_TIMEOUT is rejected and
+        # escalated here, under the incident lock, before any resume.
+        sweep_approval_timeout(session, incident, deps.approval_timeout)
         suspended = session.scalar(
             select(models.WorkflowRun)
             .where(models.WorkflowRun.incident_id == incident.id)

@@ -92,7 +92,7 @@ class GitHubWriteClient:
 
     def _request(
         self, method: str, path: str, *, json: dict | None = None
-    ) -> dict[str, Any] | None:
+    ) -> dict[str, Any] | list[Any] | None:
         if not self._token:
             raise WriteAuthError("HELIX_GITHUB_TOKEN is not set")
         url = f"{GITHUB_API}{path}"
@@ -192,5 +192,55 @@ class GitHubWriteClient:
             "pr_number": pr.get("number"),
             "pr_url": pr.get("html_url"),
             "files": [c["path"] for c in files],
+            "origin": "live",
+        }
+
+    def close_pr(self, *, branch: str, pr_number: int | None = None) -> dict[str, Any]:
+        """Close the open PR on `branch` - the executor-side compensation
+        for open_fix_pr (subphase 1.10): the branch stays (it is the
+        audit trail of what was proposed) but the PR is withdrawn.
+
+        Resolves the PR by `pr_number` when the failed execution recorded
+        one, else by head-branch lookup. Idempotent: no open PR on the
+        branch (already closed, or the open call never landed) reports
+        success instead of failing - a retried compensation must not
+        error on work already done. There is still no merge - closing is
+        the inverse of opening, not of merging."""
+        _check_branch(branch)
+        number = pr_number
+        if number is None:
+            owner = self._repo.split("/", 1)[0]
+            pulls = (
+                self._request(
+                    "GET",
+                    f"/repos/{self._repo}/pulls?head={owner}:{branch}&state=open",
+                )
+                or []
+            )
+            if not pulls:
+                return {
+                    "op": "close_pr",
+                    "repo": self._repo,
+                    "branch": branch,
+                    "pr_number": None,
+                    "state": "closed",
+                    "detail": "no open PR on the branch - nothing to undo",
+                    "origin": "live",
+                }
+            number = pulls[0].get("number")
+        pr = (
+            self._request(
+                "PATCH",
+                f"/repos/{self._repo}/pulls/{number}",
+                json={"state": "closed"},
+            )
+            or {}
+        )
+        return {
+            "op": "close_pr",
+            "repo": self._repo,
+            "branch": branch,
+            "pr_number": pr.get("number", number),
+            "state": pr.get("state", "closed"),
             "origin": "live",
         }

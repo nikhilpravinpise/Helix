@@ -56,6 +56,22 @@ action's reversibility class - irreversible escalates directly (nothing
 can be compensated), everything else goes back to `remediation_pending`
 with the failed fingerprint excluded and the `needs_compensation` debt
 recorded for the 1.10 compensation hook.
+
+The 1.10 extensions:
+
+- `compensate` node: a `verifying` fail on a compensable action with an
+  unpaid debt parks (no transition) and the router sends the run to
+  `compensate` first; on its return, a success replans (the debt is
+  paid) while a refusal/error escalates - a compensable failure that
+  cannot be undone is the human-required case.
+- Retry budget: every failed cycle consumes one attempt
+  (`incidents.attempt_count`). A `verifying` failure or a `failed`
+  re-entry that would exceed `HELIX_MAX_ATTEMPTS` escalates as
+  "retry budget exhausted" instead of looping.
+- Node failure: a timed-out/crashed worker node writes
+  `state["node_failed"]`; the coordinator turns it into a FAILED
+  transition (the failed -> diagnosing re-entry then applies the budget
+  like any other failure).
 """
 
 from dataclasses import dataclass
@@ -68,6 +84,7 @@ from agent.actions.catalogue import Reversibility, get_action
 from agent.policy import PolicyDecision, PolicyVerdict, decide
 from agent.state import WorkflowState
 from agent.validation import candidate_fingerprint
+from helix.config import get_settings
 from helix.observability import trace_workflow_step
 from state import models
 from state.machine import IncidentStatus, transition
@@ -91,6 +108,7 @@ class _Decision:
     to_status: IncidentStatus | None
     cause: str
     bump_attempt: bool = False  # failed -> diagnosing re-entry counts an attempt
+    count_attempt: bool = False  # 1.10 - a failed cycle consumed one attempt
     replan: bool = False  # back to planning: plan outputs cleared
     exclude_fingerprint: str | None = None  # joins state.excluded_candidates
     request_approval: dict[str, Any] | None = None  # pending approvals row to persist
@@ -162,24 +180,48 @@ def _approval_state(approval: models.Approval) -> dict[str, Any]:
     }
 
 
-def _decide(state: WorkflowState, approval: models.Approval | None) -> _Decision:
+def _decide(
+    state: WorkflowState, approval: models.Approval | None, max_attempts: int | None = None
+) -> _Decision:
     """The Phase 1 routing policy, keyed on the persisted status.
 
     Status values come from the incident row (authoritative), so this is
     pure over (status, state, approval) - `approval` is the newest
     approvals row matching the selected candidate's fingerprint, loaded
-    by the coordinator node.
+    by the coordinator node. `max_attempts` is the 1.10 retry budget
+    (HELIX_MAX_ATTEMPTS); None falls back to settings so state-level
+    callers need not know the wiring.
     """
+    budget = max_attempts if max_attempts is not None else get_settings().max_attempts
     status = state.get("status")
     if status == IncidentStatus.RECEIVED:
         return _Decision(IncidentStatus.DIAGNOSING, "coordinator: begin diagnosis")
     if status == IncidentStatus.FAILED:
         # The failed -> diagnosing re-entry edge: a failed run may be
-        # rediagnosed by a later `helix run`.
+        # rediagnosed by a later `helix run`. The just-failed cycle
+        # consumed one attempt; when the budget is spent the incident
+        # escalates instead of re-entering forever (1.10).
+        consumed = state.get("attempts", 0) + 1
+        if consumed >= budget:
+            return _Decision(
+                IncidentStatus.ESCALATED,
+                f"retry budget exhausted: {consumed} attempts consumed "
+                f"(HELIX_MAX_ATTEMPTS={budget})",
+                count_attempt=True,
+            )
         return _Decision(
             IncidentStatus.DIAGNOSING,
             "coordinator: rediagnosis after failed run",
             bump_attempt=True,
+        )
+    # A worker node that timed out or crashed left `node_failed` in state
+    # - the coordinator fails the run through the machine (the failed ->
+    # diagnosing re-entry + budget then apply like any other failure).
+    node_failed = state.get("node_failed")
+    if node_failed:
+        return _Decision(
+            IncidentStatus.FAILED,
+            f"{node_failed.get('node', '?')}: {node_failed.get('cause', 'step timeout')}",
         )
     if status == IncidentStatus.DIAGNOSING:
         if not state.get("diagnosis_complete"):
@@ -287,17 +329,48 @@ def _decide(state: WorkflowState, approval: models.Approval | None) -> _Decision
         # a reloaded verifications row (crash mid-verify) may not carry
         # it, and the routing must not trust a field it could re-derive.
         spec = get_action(action)
+        fingerprint = verification.get("fingerprint") or None
+        detail = verification.get("detail", "")
         if spec is not None and spec.reversibility == Reversibility.IRREVERSIBLE:
             return _Decision(
                 IncidentStatus.ESCALATED,
-                f"verification failed for irreversible action {action}: "
-                f"{verification.get('detail', '')}",
+                f"verification failed for irreversible action {action}: {detail}",
+                count_attempt=True,
+            )
+        if spec is not None and spec.reversibility == Reversibility.COMPENSABLE:
+            # The undo runs BEFORE the replan decision (1.10): an unpaid
+            # debt with no compensation result yet parks this status so
+            # the router sends the run to `compensate`; a failed
+            # compensation escalates (a compensable change Helix cannot
+            # undo is the human-required case).
+            compensation = state.get("compensation")
+            if compensation is None and state.get("needs_compensation"):
+                return _Decision(None, "")
+            if compensation is not None and compensation.get("result") != "success":
+                return _Decision(
+                    IncidentStatus.ESCALATED,
+                    f"compensation for {action} failed: {compensation.get('detail', '')}",
+                    count_attempt=True,
+                )
+            # Compensated (or no debt owed): fall through to the bounded
+            # replan below.
+        # Stateless or compensated failure: consume one attempt, then
+        # replan - or escalate when the retry budget is spent.
+        consumed = state.get("attempts", 0) + 1
+        if consumed >= budget:
+            return _Decision(
+                IncidentStatus.ESCALATED,
+                f"verification failed for {action}: {detail}; retry budget "
+                f"exhausted after {consumed} attempts (HELIX_MAX_ATTEMPTS={budget})",
+                count_attempt=True,
+                exclude_fingerprint=fingerprint,
             )
         return _Decision(
             IncidentStatus.REMEDIATION_PENDING,
-            f"verification failed for {action}: {verification.get('detail', '')}",
+            f"verification failed for {action}: {detail}",
             replan=True,
-            exclude_fingerprint=verification.get("fingerprint") or None,
+            exclude_fingerprint=fingerprint,
+            count_attempt=True,
         )
     return _Decision(None, "")
 
@@ -371,11 +444,16 @@ def coordinator_node(deps: "GraphDeps"):
                         ]
                     }
                 approval = _latest_approval(session, incident.id, _selected_fingerprint(state))
-                decision = _decide(state, approval)
+                decision = _decide(state, approval, max_attempts=deps.max_attempts)
                 update: dict = {}
-                if decision.bump_attempt:
+                if decision.bump_attempt or decision.count_attempt:
+                    # A failed cycle consumed one attempt (1.10): the
+                    # counter is the persisted retry budget ledger. The
+                    # clearing below is only for the failed -> diagnosing
+                    # re-entry; replan/escalate edges just count.
                     incident.attempt_count += 1
                     update["attempts"] = incident.attempt_count
+                if decision.bump_attempt:
                     # Clear run-scoped outputs so nothing stale survives
                     # into the rediagnosis: a leftover `execution` dict
                     # would let the `executing` branch decide from a
@@ -392,19 +470,24 @@ def coordinator_node(deps: "GraphDeps"):
                     update["policy"] = None
                     update["approval"] = None
                     update["execution"] = None
+                    update["verification"] = None
+                    update["compensation"] = None
+                    update["node_failed"] = None
                 if decision.replan:
                     # Back to planning: the next remediation_pending pass
                     # must route to the planner, not reuse the failed or
                     # rejected selection, its verdict, or any stale
                     # execution/policy/verification snapshot. NOT
-                    # `needs_compensation`: the recorded compensation
-                    # debt survives the replan for the 1.10 hook.
+                    # `needs_compensation`: an unpaid compensation debt
+                    # survives the replan until the compensate node pays
+                    # it or escalates.
                     update["plan_complete"] = False
                     update["selected_action"] = None
                     update["validation"] = None
                     update["execution"] = None
                     update["policy"] = None
                     update["verification"] = None
+                    update["compensation"] = None
                 if decision.exclude_fingerprint:
                     update["excluded_candidates"] = [
                         *state.get("excluded_candidates", []),
@@ -492,6 +575,10 @@ _EXECUTE_NODE = {"E": "execute", "A": "execute", "B": "execute"}
 #: state itself, so the run ends at `verifying` for scoring).
 _VERIFY_NODE = {"E": "verify", "A": "verify", "B": None}
 
+#: Per-arm node key for the 1.10 compensation hop: parked at `verifying`
+#: while a failed compensable action still owes an un-undone change.
+_COMPENSATE_NODE = {"E": "compensate", "A": "compensate", "B": None}
+
 
 def make_router(arm: str):
     """Conditional edge out of the coordinator: status -> next node key.
@@ -501,15 +588,18 @@ def make_router(arm: str):
     not yet reported), `validating` -> the arm's validate node (while no
     verdict is in state), `executing` -> the execute node (while no
     execution result is in state), and `verifying` -> the verify node
-    (while no verification is in state). Everything else ends the run:
-    `awaiting_approval` is the suspended-on-approval status (a decided
-    row resumes the run through `helix approve`/`reject` or the API), and
-    `recovered`/`escalated`/`failed` are terminal outcomes."""
+    (while no verification is in state) or the compensate node (a failed
+    verification whose compensable change is still unpaid, 1.10).
+    Everything else ends the run: `awaiting_approval` is the
+    suspended-on-approval status (a decided row resumes the run through
+    `helix approve`/`reject` or the API), and `recovered`/`escalated`/
+    `failed` are terminal outcomes."""
     diagnosis_key = _DIAGNOSIS_NODE[arm]
     plan_key = _PLAN_NODE[arm]
     validate_key = _VALIDATE_NODE[arm]
     execute_key = _EXECUTE_NODE[arm]
     verify_key = _VERIFY_NODE[arm]
+    compensate_key = _COMPENSATE_NODE[arm]
 
     def _route(state: WorkflowState) -> str:
         from langgraph.graph import END
@@ -522,8 +612,20 @@ def make_router(arm: str):
             return validate_key or END
         if state.get("status") == IncidentStatus.EXECUTING and not state.get("execution"):
             return execute_key or END
-        if state.get("status") == IncidentStatus.VERIFYING and not state.get("verification"):
-            return verify_key or END
+        if state.get("status") == IncidentStatus.VERIFYING:
+            verification = state.get("verification")
+            if not verification:
+                return verify_key or END
+            # Failed verification + unpaid compensation debt + no
+            # compensation result yet -> the compensate node runs first;
+            # the coordinator re-decides once it reports back.
+            if (
+                verification.get("outcome") == VerificationOutcome.FAIL.value
+                and state.get("needs_compensation")
+                and state.get("compensation") is None
+            ):
+                return compensate_key or END
+            return END
         return END
 
     return _route

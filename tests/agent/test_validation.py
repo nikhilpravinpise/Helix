@@ -734,8 +734,9 @@ class TestValidationE2E:
         assert [r.outcome for r in rows] == [ValidationOutcome.PASS]
         # The fixture precheck's dry-run was exercised by the dispatch.
         assert caps["prechecks"].methods() == ["dry_run_apply"]
-        # The write went through the recording fake, not a cluster.
-        assert caps["kube_write"].methods() == ["apply_manifest"]
+        # The write went through the recording fake, not a cluster - and
+        # 1.10 ran the compensating reapply after verification failed.
+        assert caps["kube_write"].methods() == ["apply_manifest", "apply_manifest"]
         with sqlite_sessions() as session:
             incident = session.scalar(
                 select(models.Incident).where(models.Incident.incident_id == incident_id)

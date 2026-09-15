@@ -304,6 +304,8 @@ def _cmd_decide(args: argparse.Namespace, approved: bool) -> int:
     from state.db import session_scope
 
     actor = args.actor or get_settings().operator
+    from state.approvals import ApprovalDecidedError
+
     try:
         with session_scope() as session:
             incident = session.scalar(
@@ -332,6 +334,11 @@ def _cmd_decide(args: argparse.Namespace, approved: bool) -> int:
             record_decision(session, pending, approved, actor, args.note)
             approval_id = pending.id
             action = pending.action
+    except ApprovalDecidedError as exc:
+        # A race decided first - or the pending row outlived
+        # HELIX_APPROVAL_TIMEOUT (1.10): a clean refusal, never a crash.
+        print(f"helix {verb}: {exc}", file=sys.stderr)
+        return 2
     except SQLAlchemyError as exc:
         print(
             f"helix {verb}: database error (is Postgres up? see scripts/db-up.sh): {exc}",

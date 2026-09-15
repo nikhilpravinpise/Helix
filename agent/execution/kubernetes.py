@@ -16,6 +16,22 @@ from agent.execution import (
     ExecutionRefusedError,
     enforce_execution_gate,
 )
+from integrations.evidence import EvidenceError
+
+
+def _previous_replicas(ctx: ExecutionContext, params: BaseModel) -> int | None:
+    """The deployment's pre-scale replica count - the restore point a
+    scale-back compensation needs (1.10). Best-effort evidence read: an
+    unavailable count is "not captured", and the compensation path
+    escalates rather than guessing a replica count."""
+    if ctx.kube_evidence is None:
+        return None
+    try:
+        dep = ctx.kube_evidence.get_deployment_status(params.namespace, params.deployment)
+    except EvidenceError:
+        return None
+    replicas = dep.payload.get("replicas")
+    return int(replicas) if replicas is not None else None
 
 
 def execute(ctx: ExecutionContext, spec: ActionSpec, params: BaseModel) -> ExecutionOutcome:
@@ -28,7 +44,10 @@ def execute(ctx: ExecutionContext, spec: ActionSpec, params: BaseModel) -> Execu
     elif spec.name == "rollback_deployment":
         output = ctx.kubernetes.rollout_undo(params.deployment, params.namespace)
     elif spec.name == "scale_deployment":
+        previous = _previous_replicas(ctx, params)
         output = ctx.kubernetes.scale(params.deployment, params.namespace, params.replicas)
+        if previous is not None:
+            output = {**output, "previous_replicas": previous}
     elif spec.name == "reapply_manifest":
         manifest = ctx.repo_root / params.path
         output = ctx.kubernetes.apply_manifest(str(manifest))

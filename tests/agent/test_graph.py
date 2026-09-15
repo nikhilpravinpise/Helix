@@ -148,20 +148,24 @@ class TestCoordinatorFlow:
         ]
         assert result.hypothesis is not None
         assert result.selected_action is not None
-        # The manifest apply went through the recording fake, not a cluster.
-        assert caps["kube_write"].methods() == ["apply_manifest"]
+        # The manifest apply went through the recording fake, not a
+        # cluster - and 1.10 ran the compensating reapply (the failed
+        # verification's debt) before the replan.
+        assert caps["kube_write"].methods() == ["apply_manifest", "apply_manifest"]
         with sqlite_sessions() as session:
             incident = session.scalar(
                 select(models.Incident).where(models.Incident.incident_id == incident_id)
             )
             assert incident.status == IncidentStatus.ESCALATED
         # The verify pass was persisted: failed against the crashloop
-        # fixture, and reapply_manifest is compensable so the debt is
-        # recorded for the 1.10 compensation hook.
+        # fixture, and reapply_manifest is compensable so the debt was
+        # recorded - and paid by the compensation executions row.
         verifications = _rows(sqlite_sessions, models.Verification, incident_id)
         assert len(verifications) == 1
         assert verifications[0].outcome == models.VerificationOutcome.FAIL
         assert verifications[0].needs_compensation is True
+        executions = _rows(sqlite_sessions, models.Execution, incident_id)
+        assert [e.compensates_id for e in executions] == [None, executions[0].id]
 
     def test_empty_plan_escalates_through_coordinator(self, sqlite_sessions, store):
         llm = FakeLLM(
@@ -237,7 +241,10 @@ class TestCoordinatorFlow:
             incident = session.scalar(
                 select(models.Incident).where(models.Incident.incident_id == incident_id)
             )
-            assert incident.attempt_count == 1
+            # 1.10 attempt accounting: the failed -> diagnosing re-entry
+            # consumes one attempt, and the failed verification's replan
+            # consumes the next.
+            assert incident.attempt_count == 2
             pairs = _transition_pairs(session, incident_id)
         assert ("failed", "diagnosing") in pairs
         # The rediagnosis hypothesis is tagged with the attempt.

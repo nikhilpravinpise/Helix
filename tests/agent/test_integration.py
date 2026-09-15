@@ -169,7 +169,9 @@ class TestDurableApprovalResume:
         # escalates.
         assert second.status == IncidentStatus.ESCALATED
         assert second.run_status == models.RunStatus.TERMINAL
-        assert caps["kube_write"].methods() == ["apply_manifest"]
+        # The remediation apply plus its 1.10 compensation (the failed
+        # verification's compensable reapply is undone before replan).
+        assert caps["kube_write"].methods() == ["apply_manifest", "apply_manifest"]
         with pg_sessions() as session:
             incident = session.scalar(
                 select(models.Incident).where(models.Incident.incident_id == incident_id)

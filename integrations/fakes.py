@@ -111,6 +111,12 @@ class FakeGitHubWrite(_RecordingWrite):
             pr_number=None,
         )
 
+    def close_pr(self, *, branch: str, pr_number: int | None = None) -> dict[str, Any]:
+        """The open_fix_pr compensation (1.10): records the close intent
+        under the same helix/INC-* branch bound - no repo is touched."""
+        _check_branch(branch)
+        return self._record("close_pr", branch=branch, pr_number=pr_number)
+
 
 class FakeJenkinsWrite(_RecordingWrite):
     """Records the build trigger; no Jenkins call is made."""

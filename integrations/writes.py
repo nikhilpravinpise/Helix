@@ -83,6 +83,12 @@ class GitHubWrite(Protocol):
         PR. Returns the PR coordinates (number, url, branch, files)."""
         ...
 
+    def close_pr(self, *, branch: str, pr_number: int | None = None) -> dict[str, Any]:
+        """Close the open PR on the incident branch - the executor-side
+        compensation for open_fix_pr (1.10). Idempotent: an already-closed
+        or never-opened PR is a successful no-op."""
+        ...
+
 
 class JenkinsWrite(Protocol):
     """Controlled CI mutation: trigger a job build."""

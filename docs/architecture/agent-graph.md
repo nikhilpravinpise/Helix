@@ -1,4 +1,4 @@
-# Agent graph, coordinator, and diagnosis (subphases 1.5-1.8)
+# Agent graph, coordinator, and diagnosis (subphases 1.5-1.10)
 
 The workflow is a LangGraph `StateGraph` over `agent.state.WorkflowState`
 - a flat, JSON-serializable TypedDict that is both the checkpointer
@@ -8,9 +8,11 @@ payload (D13) and the provenance substrate 1.9 assembles.
 START -> intake -> coordinator --> diagnosis --> coordinator --> END
                       ^    |                       ^    |
                       |    v                       |    |
-                      +-- plan -> validate -> execute -> verify
+                      +-- plan -> validate -> execute -> verify -> compensate
                           (1.8: execute is real behind the coordinator's
-                          policy gate; verify is the remaining slot, 1.9)
+                          policy gate; verify checks desired state (1.9);
+                          compensate undoes a verification-failed
+                          compensable change (1.10))
 ```
 
 ## Nodes
@@ -23,7 +25,8 @@ START -> intake -> coordinator --> diagnosis --> coordinator --> END
 | `plan` | `agent/agents/planner.py` | (1.6) LLM proposes a `CandidateList` constrained to the action catalogue; a deterministic ranker orders it (dropping `excluded_candidates` fingerprints); the full list lands in `candidates` rows. See [action-catalogue.md](action-catalogue.md). |
 | `validate` | `agent/agents/validation.py` + `agent/validation/` | (1.7) Re-validates the selected candidate's params, dispatches to a per-family strategy (kubernetes target, manifest dry-run, fix-PR content, pipeline existence), persists a `validations` row, and on FAIL adds the candidate fingerprint to `excluded_candidates`. Never executes the action. See [validation.md](validation.md). |
 | `execute` | `agent/agents/execution.py` + `agent/execution/` | (1.8) Re-checks the policy verdict (executor-side gate), dispatches to the action-family executor, and persists one `executions` audit row per attempt. The transports are `integrations/writes.py` protocols - live clients or recording fakes depending on `HELIX_EVIDENCE_SOURCE`. See [safety-policy.md](safety-policy.md). |
-| `verify` | placeholder | Registered slot - the 1.9 desired-state check. |
+| `verify` | `agent/agents/verification.py` + `agent/verification/` | (1.9) Per-action desired-state checks sampled across a stability window; persists a `verifications` row; never writes. See [verification.md](verification.md). |
+| `compensate` | `agent/agents/compensation.py` | (1.10) A failed verification on a compensable action routes here first: derives the catalogue's `compensating_action` (or the executor-side `close_pr` op), dispatches it through the executor layer, persists the attempt as an `executions` row with `compensates_id` set. See [unhappy-paths.md](unhappy-paths.md). |
 
 ## Coordinator owns every transition
 
@@ -52,19 +55,29 @@ coordinator, which alone decides the next status. The decision table
 | `awaiting_approval` | approvals row rejected | `awaiting_approval -> remediation_pending` (fingerprint excluded) | `plan` (replan) |
 | `awaiting_approval` | approvals row still pending | none | END (suspended) |
 | `executing` | no executions row in state yet | none | `execute` |
-| `executing` | executions row `success` | `executing -> verifying` | `verify` slot (END today - 1.9) |
+| `executing` | executions row `success` | `executing -> verifying` | `verify` |
 | `executing` | executions row `error` / `refused` | `executing -> failed` (fingerprint excluded) | END |
-| `failed` | - | `failed -> diagnosing` (rediagnosis; `attempt_count` bumped, stale hypothesis cleared) | `diagnosis` |
-| `verifying`, terminal | - | none | END (1.9 fills the verify node) |
+| `verifying` | no verification in state yet | none | `verify` |
+| `verifying` | verification `pass` | `verifying -> recovered` | END |
+| `verifying` | verification `fail`, irreversible action | `verifying -> escalated` | END |
+| `verifying` | verification `fail`, compensable action, debt unpaid | none | `compensate` |
+| `verifying` | compensation `error` / `refused` | `verifying -> escalated` (un-undone change needs a human) | END |
+| `verifying` | verification `fail`, stateless or compensated, budget left | `verifying -> remediation_pending` (attempt consumed; fingerprint excluded) | `plan` (replan) |
+| `verifying` | any fail with `attempt_count` spent | `verifying -> escalated` ("retry budget exhausted") | END |
+| `failed` | attempts remain | `failed -> diagnosing` (rediagnosis; `attempt_count` bumped, stale hypothesis cleared) | `diagnosis` |
+| `failed` | `attempt_count` spent | `failed -> escalated` ("retry budget exhausted") | END |
+| any | `node_failed` set (step timeout / node crash) | `* -> failed` | END |
 
 A FAIL verdict replans in the same run - once; a second consecutive
-failure escalates (the single-retry hook; full retry-budget machinery is
-1.10). NOT_VALIDATABLE is never treated as PASS: it means "proceed to
-the policy/execution decision unchecked" and is recorded distinctly so
-provenance can tell a validated candidate from an uncheckable one. The
-policy gate rows are the 1.8 access table - see
+failure escalates (the single-retry hook). Failed verify cycles and
+`failed` re-entries consume `incidents.attempt_count` against
+`HELIX_MAX_ATTEMPTS` (1.10). NOT_VALIDATABLE is never treated as PASS:
+it means "proceed to the policy/execution decision unchecked" and is
+recorded distinctly so provenance can tell a validated candidate from
+an uncheckable one. The policy gate rows are the 1.8 access table - see
 [safety-policy.md](safety-policy.md) for the verdict rules and the
-executor-side second enforcement layer.
+executor-side second enforcement layer; [unhappy-paths.md](unhappy-paths.md)
+for the 1.10 bounds (compensation, budgets, timeouts, idempotency).
 
 ## Diagnosis evidence flow
 

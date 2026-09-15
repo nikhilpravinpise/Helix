@@ -28,6 +28,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from state import models
+from state.machine import IncidentStatus
 
 
 def _ts(value: datetime | None) -> str | None:
@@ -35,6 +36,11 @@ def _ts(value: datetime | None) -> str | None:
 
 
 def _incident_block(incident: models.Incident) -> dict[str, Any]:
+    # 1.10: escalation is a first-class outcome - the cause of the newest
+    # transition INTO escalated is surfaced on the incident block so a
+    # reader (or the API consumer) never has to scan the timeline to learn
+    # WHY the incident gave up.
+    escalated = [t for t in incident.transitions if t.to_status == IncidentStatus.ESCALATED]
     return {
         "incident_id": incident.incident_id,
         "service": incident.service,
@@ -42,6 +48,7 @@ def _incident_block(incident: models.Incident) -> dict[str, Any]:
         "severity": incident.severity,
         "status": incident.status.value,
         "attempt_count": incident.attempt_count,
+        "escalation_cause": escalated[-1].cause if escalated else None,
         "fingerprint": incident.fingerprint,
         "linked_pr": incident.linked_pr,
         "linked_deployment": incident.linked_deployment,
@@ -206,6 +213,10 @@ def _executions(rows: list[models.Execution]) -> list[dict[str, Any]]:
             "verification_required": row.verification_required,
             "decided_by": row.decided_by,
             "approval_id": row.approval_id,
+            # 1.10: the undo link - non-NULL marks this row as the
+            # compensation for the referenced verification-failed row.
+            "compensates_id": row.compensates_id,
+            "idempotency_key": row.idempotency_key,
             "origin": row.origin,
             "result": row.result.value,
             "detail": row.detail,
@@ -296,6 +307,9 @@ def render_markdown(record: dict[str, Any]) -> str:
         f"- status: {incident['status']} | attempts: {incident['attempt_count']}",
         f"- opened: {incident['created_at']} | updated: {incident['updated_at']}",
     ]
+    if incident.get("escalation_cause"):
+        # 1.10: a first-class outcome gets a first-class line.
+        lines.append(f"- escalation cause: {incident['escalation_cause']}")
     if incident.get("linked_pr"):
         lines.append(f"- linked PR: {incident['linked_pr']}")
     if incident.get("linked_deployment"):
@@ -392,6 +406,11 @@ def render_markdown(record: dict[str, Any]) -> str:
                 f"- #{e['id']} (attempt {e['attempt']}) {e['action']}: {e['result']} "
                 f"[policy={e['policy_decision']}, origin={e['origin']}] "
                 f"{e['started_at']} -> {e['finished_at']}: {e['detail']}"
+                + (
+                    f" [compensation for execution #{e['compensates_id']}]"
+                    if e.get("compensates_id")
+                    else ""
+                )
             )
     else:
         lines.append("- none recorded")

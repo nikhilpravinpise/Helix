@@ -39,7 +39,7 @@ from anywhere).
 | `awaiting_approval` | `executing`, `remediation_pending` (rejected -> replan) |
 | `executing` | `verifying`, `diagnosing` (execution evidence contradicts the hypothesis -> rediagnose), `failed` |
 | `verifying` | `recovered`, `remediation_pending` (failed verification -> replan), `escalated` |
-| `failed` | `diagnosing` (rediagnosis after a failed run) |
+| `failed` | `diagnosing` (rediagnosis after a failed run), `escalated` (retry budget exhausted, 1.10) |
 | any non-terminal | `escalated`, `failed` |
 | `recovered`, `escalated` | (none - terminal) |
 
@@ -57,7 +57,9 @@ executing` fires only once that row is `approved`, and `awaiting_approval
 `executing -> verifying`/`failed` come from the persisted `executions`
 row's result. The full gate semantics - verdict table, durable
 suspension, the executor's second check - live in
-[safety-policy.md](safety-policy.md).
+[safety-policy.md](safety-policy.md); the 1.10 bounds (compensation
+debt, retry budget, approval/step timeouts) live in
+[unhappy-paths.md](unhappy-paths.md).
 
 ## Scope: what CONTEXT.md section 14 does NOT mean here
 
