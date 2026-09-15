@@ -51,6 +51,18 @@ def _transition_pairs(session, incident_id: str) -> list[tuple]:
     return [(r.from_status.value if r.from_status else None, r.to_status.value) for r in rows]
 
 
+def _rows(sessions, model, incident_id: str):
+    with sessions() as session:
+        return list(
+            session.scalars(
+                select(model)
+                .join(models.Incident)
+                .where(models.Incident.incident_id == incident_id)
+                .order_by(model.id)
+            )
+        )
+
+
 class TestArmComposition:
     """D8: HELIX_ARM picks the node set - a composition switch, not code
     forks. Arm A/B bodies are placeholders until 1.11."""
@@ -97,10 +109,12 @@ class TestCoordinatorFlow:
     VALIDATING (1.6), each hop persisted as a transitions row, and ALL of
     them written by the coordinator (worker nodes never touch status)."""
 
-    def test_run_reaches_verifying_with_transition_rows(self, sqlite_sessions, store):
-        # 1.8 requirements change: the run continues past validating
-        # through the policy gate into execution, ending at verifying
-        # (the 1.9 verify node is still a slot). The reapply_manifest
+    def test_run_reaches_verify_and_escalates_when_still_broken(self, sqlite_sessions, store):
+        # 1.9: the run continues past validating
+        # through the policy gate, execution, AND the real verify node -
+        # the crashloop fixture still shows the fault, so verification
+        # fails, the retryable/compensable action replans, and the
+        # exhausted FakeLLM's empty plan escalates. The reapply_manifest
         # candidate is medium-tier in sandbox -> ALLOW_WITH_CHECKS ->
         # executed through the recording fake write transport.
         llm = FakeLLM(
@@ -115,7 +129,7 @@ class TestCoordinatorFlow:
 
         result = run_incident(incident_id, deps=deps)
 
-        assert result.status == IncidentStatus.VERIFYING
+        assert result.status == IncidentStatus.ESCALATED
         assert result.run_status == models.RunStatus.TERMINAL
         assert result.error is None
         with sqlite_sessions() as session:
@@ -129,6 +143,8 @@ class TestCoordinatorFlow:
             ("remediation_pending", "validating"),
             ("validating", "executing"),
             ("executing", "verifying"),
+            ("verifying", "remediation_pending"),
+            ("remediation_pending", "escalated"),
         ]
         assert result.hypothesis is not None
         assert result.selected_action is not None
@@ -138,7 +154,14 @@ class TestCoordinatorFlow:
             incident = session.scalar(
                 select(models.Incident).where(models.Incident.incident_id == incident_id)
             )
-            assert incident.status == IncidentStatus.VERIFYING
+            assert incident.status == IncidentStatus.ESCALATED
+        # The verify pass was persisted: failed against the crashloop
+        # fixture, and reapply_manifest is compensable so the debt is
+        # recorded for the 1.10 compensation hook.
+        verifications = _rows(sqlite_sessions, models.Verification, incident_id)
+        assert len(verifications) == 1
+        assert verifications[0].outcome == models.VerificationOutcome.FAIL
+        assert verifications[0].needs_compensation is True
 
     def test_empty_plan_escalates_through_coordinator(self, sqlite_sessions, store):
         llm = FakeLLM(
@@ -205,9 +228,11 @@ class TestCoordinatorFlow:
 
         result = run_incident(incident_id, deps=deps)
 
-        # 1.8: the run now continues through validation + execution into
-        # verifying (reapply_manifest is medium-tier in sandbox).
-        assert result.status == IncidentStatus.VERIFYING
+        # 1.9: the run now continues through validation + execution into
+        # verification, which fails against the still-broken fixture -
+        # replan -> empty -> escalate (reapply_manifest is medium-tier in
+        # sandbox).
+        assert result.status == IncidentStatus.ESCALATED
         with sqlite_sessions() as session:
             incident = session.scalar(
                 select(models.Incident).where(models.Incident.incident_id == incident_id)

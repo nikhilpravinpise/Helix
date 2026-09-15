@@ -56,6 +56,7 @@ class RunResult:
     hypothesis: dict[str, Any] | None = None
     selected_action: dict[str, Any] | None = None  # 1.6: rank-1 candidate, if any
     execution: dict[str, Any] | None = None  # 1.8: latest executions-row summary
+    verification: dict[str, Any] | None = None  # 1.9: latest verifications-row summary
     errors: list[str] = field(default_factory=list)
     error: str | None = None
 
@@ -158,6 +159,30 @@ def _latest_execution(session: Session, incident_pk: int) -> dict[str, Any] | No
     }
 
 
+def _latest_verification(session: Session, incident_pk: int) -> dict[str, Any] | None:
+    """The newest verifications row - the desired-state verdict a caller
+    wants to see (and the provenance record's verification stage)."""
+    row = session.scalar(
+        select(models.Verification)
+        .where(models.Verification.incident_id == incident_pk)
+        .order_by(models.Verification.id.desc())
+        .limit(1)
+    )
+    if row is None:
+        return None
+    return {
+        "verification_id": row.id,
+        "action": row.action,
+        "outcome": row.outcome.value,
+        "detail": row.detail,
+        "checks": row.checks,
+        "window_seconds": row.window_seconds,
+        "needs_compensation": row.needs_compensation,
+        "started_at": row.started_at.isoformat() if row.started_at else None,
+        "finished_at": row.finished_at.isoformat() if row.finished_at else None,
+    }
+
+
 def run_incident(
     incident_id: str,
     *,
@@ -237,6 +262,7 @@ def run_incident(
         hypothesis = _latest_hypothesis(session, incident.id)
         selected = _selected_candidate(session, incident.id)
         execution = _latest_execution(session, incident.id)
+        verification = _latest_verification(session, incident.id)
         status = IncidentStatus(incident.status).value
 
     return RunResult(
@@ -246,6 +272,7 @@ def run_incident(
         hypothesis=hypothesis,
         selected_action=selected,
         execution=execution,
+        verification=verification,
         errors=list(final_state.get("errors", [])),
         error=error,
     )

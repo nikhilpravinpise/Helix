@@ -13,6 +13,10 @@ record the human decision (actor in the body) and resume the suspended
 workflow run in-process - the decision is durable in Postgres first, the
 resume is best-effort (`helix run` can always drive it later).
 
+Subphase 1.9 adds `GET /incidents/{id}/provenance` - the assembled
+decision-provenance record (state/provenance.py), the JSON surface the
+Phase 1.12 operator timeline will render.
+
 `helix serve` runs this app under uvicorn at HELIX_API_BIND:HELIX_API_PORT.
 """
 
@@ -205,6 +209,21 @@ def get_incident(incident_id: str, session: DbSession) -> IncidentDetail:
     detail = IncidentDetail.model_validate(incident)
     detail.signal_count = len(detail.signals)
     return detail
+
+
+@app.get("/incidents/{incident_id}/provenance")
+def get_incident_provenance(incident_id: str, session: DbSession) -> dict:
+    """The incident's decision-provenance record (subphase 1.9): the
+    ordered trigger -> evidence -> hypothesis -> candidates -> decision ->
+    validation -> approval -> execution -> verification timeline,
+    assembled from stored rows by state/provenance.py. 404 on an unknown
+    incident id."""
+    from state.provenance import assemble_provenance
+
+    record = assemble_provenance(session, incident_id)
+    if record is None:
+        raise HTTPException(status_code=404, detail=f"no such incident: {incident_id}")
+    return record
 
 
 class ApprovalOut(BaseModel):

@@ -45,10 +45,17 @@ At `awaiting_approval` the coordinator reads the approvals row for the
 selected fingerprint: approved -> `executing`, rejected ->
 `remediation_pending` replan with the fingerprint excluded, still pending
 -> the run ends suspended again. At `executing` a success transitions to
-`verifying` (the verify node is a 1.9 placeholder - the run ends there);
-an error or refusal transitions to `failed` - rediagnosis is the
-`failed -> diagnosing` re-entry edge, and the failed fingerprint is
+`verifying`; an error or refusal transitions to `failed` - rediagnosis is
+the `failed -> diagnosing` re-entry edge, and the failed fingerprint is
 excluded so the replan cannot blindly repeat it.
+
+The 1.9 extension: at `verifying` the router sends the run to the real
+`verify` node while no verification is in state; when it reports back,
+`pass` closes the incident as `recovered`, and `fail` routes by the
+action's reversibility class - irreversible escalates directly (nothing
+can be compensated), everything else goes back to `remediation_pending`
+with the failed fingerprint excluded and the `needs_compensation` debt
+recorded for the 1.10 compensation hook.
 """
 
 from dataclasses import dataclass
@@ -57,13 +64,14 @@ from typing import TYPE_CHECKING, Any
 
 from sqlalchemy import select
 
+from agent.actions.catalogue import Reversibility, get_action
 from agent.policy import PolicyDecision, PolicyVerdict, decide
 from agent.state import WorkflowState
 from agent.validation import candidate_fingerprint
 from helix.observability import trace_workflow_step
 from state import models
 from state.machine import IncidentStatus, transition
-from state.models import ApprovalStatus, ValidationOutcome
+from state.models import ApprovalStatus, ValidationOutcome, VerificationOutcome
 
 if TYPE_CHECKING:
     from agent.graph import GraphDeps
@@ -264,7 +272,33 @@ def _decide(state: WorkflowState, approval: models.Approval | None) -> _Decision
             f"execution {result} for {execution.get('action')}: {execution.get('detail')}",
             exclude_fingerprint=execution.get("fingerprint"),
         )
-    # Later statuses (verifying) route with verification (1.9).
+    if status == IncidentStatus.VERIFYING:
+        verification = state.get("verification")
+        if not verification:
+            # The verify node has not run in this status yet - route.
+            return _Decision(None, "")
+        action = str(verification.get("action") or "?")
+        if verification.get("outcome") == VerificationOutcome.PASS.value:
+            return _Decision(
+                IncidentStatus.RECOVERED,
+                f"verification passed for {action}: {verification.get('detail', '')}",
+            )
+        # Reversibility comes from the catalogue, not the state payload -
+        # a reloaded verifications row (crash mid-verify) may not carry
+        # it, and the routing must not trust a field it could re-derive.
+        spec = get_action(action)
+        if spec is not None and spec.reversibility == Reversibility.IRREVERSIBLE:
+            return _Decision(
+                IncidentStatus.ESCALATED,
+                f"verification failed for irreversible action {action}: "
+                f"{verification.get('detail', '')}",
+            )
+        return _Decision(
+            IncidentStatus.REMEDIATION_PENDING,
+            f"verification failed for {action}: {verification.get('detail', '')}",
+            replan=True,
+            exclude_fingerprint=verification.get("fingerprint") or None,
+        )
     return _Decision(None, "")
 
 
@@ -362,12 +396,15 @@ def coordinator_node(deps: "GraphDeps"):
                     # Back to planning: the next remediation_pending pass
                     # must route to the planner, not reuse the failed or
                     # rejected selection, its verdict, or any stale
-                    # execution/policy snapshot.
+                    # execution/policy/verification snapshot. NOT
+                    # `needs_compensation`: the recorded compensation
+                    # debt survives the replan for the 1.10 hook.
                     update["plan_complete"] = False
                     update["selected_action"] = None
                     update["validation"] = None
                     update["execution"] = None
                     update["policy"] = None
+                    update["verification"] = None
                 if decision.exclude_fingerprint:
                     update["excluded_candidates"] = [
                         *state.get("excluded_candidates", []),
@@ -450,6 +487,11 @@ _VALIDATE_NODE = {"E": "validate", "A": "validate", "B": None}
 #: coordinator's routing plus the executor's own re-check).
 _EXECUTE_NODE = {"E": "execute", "A": "execute", "B": "execute"}
 
+#: Per-arm node key behind `verifying` (1.9): E and A share the real
+#: verify node; B drops it (its benchmark harness inspects actual system
+#: state itself, so the run ends at `verifying` for scoring).
+_VERIFY_NODE = {"E": "verify", "A": "verify", "B": None}
+
 
 def make_router(arm: str):
     """Conditional edge out of the coordinator: status -> next node key.
@@ -457,16 +499,17 @@ def make_router(arm: str):
     The hops that carry work: `diagnosing` -> the arm's diagnosis node,
     `remediation_pending` -> the arm's plan node (while the planner has
     not yet reported), `validating` -> the arm's validate node (while no
-    verdict is in state), and `executing` -> the execute node (while no
-    execution result is in state). Everything else ends the run:
+    verdict is in state), `executing` -> the execute node (while no
+    execution result is in state), and `verifying` -> the verify node
+    (while no verification is in state). Everything else ends the run:
     `awaiting_approval` is the suspended-on-approval status (a decided
-    row resumes the run through `helix approve`/`reject` or the API),
-    `verifying` waits for the 1.9 node, and `escalated`/`failed` are
-    terminal outcomes."""
+    row resumes the run through `helix approve`/`reject` or the API), and
+    `recovered`/`escalated`/`failed` are terminal outcomes."""
     diagnosis_key = _DIAGNOSIS_NODE[arm]
     plan_key = _PLAN_NODE[arm]
     validate_key = _VALIDATE_NODE[arm]
     execute_key = _EXECUTE_NODE[arm]
+    verify_key = _VERIFY_NODE[arm]
 
     def _route(state: WorkflowState) -> str:
         from langgraph.graph import END
@@ -479,6 +522,8 @@ def make_router(arm: str):
             return validate_key or END
         if state.get("status") == IncidentStatus.EXECUTING and not state.get("execution"):
             return execute_key or END
+        if state.get("status") == IncidentStatus.VERIFYING and not state.get("verification"):
+            return verify_key or END
         return END
 
     return _route

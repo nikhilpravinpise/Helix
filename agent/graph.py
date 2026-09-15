@@ -13,24 +13,25 @@ The coordinator is the hub: every worker node returns to it, and it owns
 all incident transitions plus the next-hop decision
 (agent/agents/coordinator.py). The `plan` slot became the real planner in
 1.6, `validate` the real Validation Agent in 1.7 (dispatching to the
-per-family strategies in agent/validation/), and `execute` the real
+per-family strategies in agent/validation/), `execute` the real
 executor in 1.8 (the safety-policy gate lives in the coordinator's
-routing plus the executor's own re-check); `verify` remains a registered
-slot whose body lands in 1.9, so a run ends at `verifying` after a
-successful write. Runs also end at `awaiting_approval` (policy requires
-a human decision - the run suspends there until an approval row is
-decided), `remediation_pending` -> replanned -> back through `validating`
-on a failed check, `escalated` (planner escalated, or the single
-validation retry was exhausted) or `failed`.
+routing plus the executor's own re-check), and `verify` the real
+Verification Agent in 1.9 (per-action desired-state checks over a
+stability window - agent/verification/). Runs also end at
+`awaiting_approval` (policy requires a human decision - the run suspends
+there until an approval row is decided), `remediation_pending` ->
+replanned -> back through `validating` on a failed check or a failed
+verification, `recovered` (verification held), `escalated` (planner
+escalated, the single validation retry was exhausted, or an irreversible
+action failed verification) or `failed`.
 
 Arms (D8): HELIX_ARM selects node composition, not code forks.
-- E: full graph - real diagnosis + plan + validate nodes plus
-  placeholder slots for the rest.
+- E: full graph - real diagnosis + plan + validate + execute + verify.
 - B: `diagnose_and_plan` (one fused LLM call) + `execute`; no
   validate/verify/replan nodes.
 - A: `rules_diagnosis` + `rules_plan` deterministic variants; the
   deterministic validate node is shared with E (it is pure code - no
-  LLM), execute is shared too; verify stays a placeholder.
+  LLM); execute and verify are shared too.
 Arm A/B rule-node variants are placeholders until 1.11; the composition
 switch is what lands now.
 
@@ -40,6 +41,7 @@ suspended run resumable by any process. Non-Postgres URLs yield None -
 the documented fallback: state then lives only for the invoke.
 """
 
+import time
 from collections.abc import Callable, Iterator
 from contextlib import contextmanager
 from dataclasses import dataclass
@@ -52,6 +54,7 @@ from agent.agents.diagnosis import diagnosis_node
 from agent.agents.execution import execution_node
 from agent.agents.planner import planner_node
 from agent.agents.validation import validation_node
+from agent.agents.verification import verification_node
 from agent.state import WorkflowState
 from agent.validation import candidate_fingerprint
 from helix.config import get_settings
@@ -108,6 +111,14 @@ class GraphDeps:
     database_url: str
     write_origin: str = "live"  # "live" | "fixture" - lands on executions.origin
     max_evidence_rounds: int = 3
+    # 1.9 - verification window/poll/threshold and the functional toggle;
+    # `sleep` is the test seam: unit tests inject a counting fake so the
+    # stability window does not cost real seconds.
+    verify_window: float = 60.0
+    verify_poll: float = 20.0
+    elk_error_threshold: int = 0
+    verify_functional: bool = True
+    sleep: Callable[[float], None] = time.sleep
 
 
 def default_deps() -> GraphDeps:
@@ -130,6 +141,10 @@ def default_deps() -> GraphDeps:
         database_url=settings.database_url,
         write_origin=("fixture" if settings.evidence_source == "fixtures" else "live"),
         max_evidence_rounds=settings.max_evidence_rounds,
+        verify_window=settings.verify_window,
+        verify_poll=settings.verify_poll,
+        elk_error_threshold=settings.elk_error_threshold,
+        verify_functional=settings.verify_functional,
     )
 
 
@@ -153,10 +168,11 @@ def _evidence_from_row(row: models.EvidenceItem) -> dict[str, Any]:
 def _excluded_fingerprints(session, incident_pk: int) -> list[str]:
     """Fingerprints of candidates that must never be re-proposed for this
     incident - the persisted exclusion list a fresh run rebuilds its
-    in-state list from. Union of three row sources: `fail` validations,
+    in-state list from. Union of four row sources: `fail` validations,
     `rejected` approvals (an operator declined this exact action+params),
-    and refused/error executions (a denied or already-failed write is not
-    blindly retried)."""
+    refused/error executions (a denied or already-failed write is not
+    blindly retried), and `fail` verifications (an action that ran and
+    demonstrably did not recover the system is never blindly repeated)."""
     failed = session.scalars(
         select(models.Validation.fingerprint)
         .where(models.Validation.incident_id == incident_pk)
@@ -176,19 +192,26 @@ def _excluded_fingerprints(session, incident_pk: int) -> list[str]:
             )
         )
     )
-    return sorted({*failed, *rejected, *dead})
+    unverified = session.scalars(
+        select(models.Verification.fingerprint)
+        .where(models.Verification.incident_id == incident_pk)
+        .where(models.Verification.outcome == models.VerificationOutcome.FAIL)
+    )
+    return sorted({*failed, *rejected, *dead, *unverified})
 
 
 def _selected_candidate_state(session, incident: models.Incident) -> dict | None:
-    """On entry at `validating`/`awaiting_approval`/`executing` -
-    resumable non-terminal statuses where a selection must already exist -
-    reload the persisted selected candidate so the validate/execute nodes
-    have something to act on: in-memory selections do not survive between
-    `helix run` invocations. Any other status starts with no selection."""
+    """On entry at `validating`/`awaiting_approval`/`executing`/`verifying`
+    - resumable non-terminal statuses where a selection must already exist -
+    reload the persisted selected candidate so the validate/execute/verify
+    nodes have something to act on: in-memory selections do not survive
+    between `helix run` invocations. Any other status starts with no
+    selection."""
     if IncidentStatus(incident.status) not in (
         IncidentStatus.VALIDATING,
         IncidentStatus.AWAITING_APPROVAL,
         IncidentStatus.EXECUTING,
+        IncidentStatus.VERIFYING,
     ):
         return None
     row = session.scalar(
@@ -244,12 +267,20 @@ def _latest_hypothesis_state(session, incident: models.Incident) -> dict | None:
 def _latest_execution_state(
     session, incident: models.Incident, selected: dict | None
 ) -> dict | None:
-    """On entry at `executing`, reload the newest executions row matching
-    the selected candidate's fingerprint: a run that resumes after a crash
-    must not re-fire an action that already completed (its row exists).
-    No matching row means the earlier attempt never finished - the
-    executor re-runs."""
-    if IncidentStatus(incident.status) != IncidentStatus.EXECUTING or not selected:
+    """On entry at `executing`/`verifying`, reload the newest executions
+    row matching the selected candidate's fingerprint: a run that resumes
+    after a crash must not re-fire an action that already completed (its
+    row exists), and a resumed `verifying` run verifies the recorded
+    action. No matching row means the earlier attempt never finished -
+    the executor re-runs."""
+    if (
+        IncidentStatus(incident.status)
+        not in (
+            IncidentStatus.EXECUTING,
+            IncidentStatus.VERIFYING,
+        )
+        or not selected
+    ):
         return None
     fp = candidate_fingerprint(selected["action"], selected.get("params") or {})
     row = session.scalar(
@@ -274,6 +305,56 @@ def _latest_execution_state(
     }
 
 
+def _latest_verification_state(
+    session, incident: models.Incident, execution: dict | None
+) -> dict | None:
+    """On entry at `verifying` with a finished executions row already
+    reloaded, the newest verifications row FOR THAT execution is the
+    completed verdict a crash interrupted before the coordinator could
+    route it - reload it so the run routes on the recorded verdict
+    instead of re-sampling a whole window. A verifications row for a
+    different (older) execution is stale history, not a verdict."""
+    if IncidentStatus(incident.status) != IncidentStatus.VERIFYING or not execution:
+        return None
+    row = session.scalar(
+        select(models.Verification)
+        .where(models.Verification.incident_id == incident.id)
+        .where(models.Verification.execution_id == execution["execution_id"])
+        .order_by(models.Verification.id.desc())
+        .limit(1)
+    )
+    if row is None:
+        return None
+    return {
+        "action": row.action,
+        "params": row.params,
+        "fingerprint": row.fingerprint,
+        "outcome": row.outcome.value,
+        "detail": row.detail,
+        "checks": row.checks,
+        "window_seconds": row.window_seconds,
+        "needs_compensation": row.needs_compensation,
+        "started_at": row.started_at.isoformat() if row.started_at else None,
+        "finished_at": row.finished_at.isoformat() if row.finished_at else None,
+    }
+
+
+def _outstanding_compensation(session, incident_pk: int) -> bool:
+    """Rebuild the in-state debt flag on every entry: a `needs_compensation`
+    verifications row is the durable record that a compensable action
+    failed verification and its change was never undone (the hook that
+    consumes it is 1.10)."""
+    return (
+        session.scalar(
+            select(models.Verification.id)
+            .where(models.Verification.incident_id == incident_pk)
+            .where(models.Verification.needs_compensation.is_(True))
+            .limit(1)
+        )
+        is not None
+    )
+
+
 def _intake_node(deps: GraphDeps):
     """Load the incident (and its latest signal + prior evidence rows)
     into WorkflowState. Resets run-scoped fields so a re-run cannot
@@ -296,6 +377,7 @@ def _intake_node(deps: GraphDeps):
                     }
                 latest = incident.signals[-1] if incident.signals else None
                 selected = _selected_candidate_state(session, incident)
+                execution = _latest_execution_state(session, incident, selected)
                 return {
                     "incident_pk": incident.id,
                     "service": incident.service,
@@ -334,9 +416,18 @@ def _intake_node(deps: GraphDeps):
                     "excluded_candidates": _excluded_fingerprints(session, incident.id),
                     "policy": None,
                     "approval": None,
-                    # At `executing` a finished executions row reloads so
-                    # a crash-resumed run does not double-execute.
-                    "execution": _latest_execution_state(session, incident, selected),
+                    # At `executing`/`verifying` a finished executions row
+                    # reloads so a crash-resumed run does not double-execute
+                    # and verifies the recorded action.
+                    "execution": execution,
+                    # At `verifying` a completed verifications row for THIS
+                    # execution reloads so a crash-interrupted run routes on
+                    # the recorded verdict; otherwise the node re-verifies
+                    # (a stale in-state report must never close an incident).
+                    "verification": _latest_verification_state(session, incident, execution),
+                    # The recorded compensation debt survives across runs
+                    # until the 1.10 hook consumes it.
+                    "needs_compensation": _outstanding_compensation(session, incident.id),
                 }
 
     return _intake
@@ -353,8 +444,8 @@ def _placeholder(name: str, subphase: str):
 
 
 #: Node slots per ablation arm (D8). The subphase each slot landed in is
-#: the comment on the right; 1.9 (verify) and 1.11 (arm A/B variants)
-#: remain placeholders.
+#: the comment on the right; the arm A/B variants (1.11) remain
+#: placeholders.
 _ARM_NODES: dict[str, dict[str, str]] = {
     "E": {
         "diagnosis": "1.5",
@@ -413,6 +504,9 @@ def build_graph(
         elif name == "execute":
             # The execute node is pure code - no LLM - shared by all arms.
             node = execution_node(deps)
+        elif name == "verify" and arm in ("E", "A"):
+            # The verify node is pure code too - arm A shares it.
+            node = verification_node(deps)
         builder.add_node(name, node)
 
     builder.add_edge(START, "intake")

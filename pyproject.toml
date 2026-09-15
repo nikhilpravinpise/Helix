@@ -25,6 +25,7 @@ dependencies = [
 dev = [
     "ruff>=0.7",
     "pytest>=8.3",
+    "selenium>=4.49.0",
 ]
 
 [build-system]
@@ -40,6 +41,9 @@ packages = ["helix", "agent", "state", "integrations"]
 [tool.pytest.ini_options]
 pythonpath = ["."]
 testpaths = ["tests"]
+# *_check.py picks up tests/e2e/selenium_check.py (integration tier);
+# test_*.py stays the default unit/integration test shape.
+python_files = ["test_*.py", "*_check.py"]
 addopts = "-m 'not integration'"
 markers = [
     "integration: tests that need live infrastructure (kind/ES/Jenkins/Postgres/LLM)",
