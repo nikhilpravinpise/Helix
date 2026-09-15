@@ -19,6 +19,7 @@ from integrations.fixtures import (
     FixtureGitHubEvidence,
     FixtureJenkinsEvidence,
     FixtureKubernetesEvidence,
+    FixtureKubernetesPrechecks,
 )
 
 K8S_SIGNAL = {
@@ -109,9 +110,13 @@ def make_deps(
     *,
     database_url: str = "sqlite://",
     max_evidence_rounds: int = 3,
+    prechecks=None,
 ) -> tuple[GraphDeps, dict[str, Recording]]:
     """GraphDeps over one fixture's Fixture*Evidence impls, each wrapped in
-    a Recording proxy. Returns (deps, recorders-by-domain)."""
+    a Recording proxy. Returns (deps, recorders-by-domain).
+
+    `prechecks` defaults to the fixture impl (canned pass); pass a stub to
+    script can_i/dry_run_apply verdicts in validation tests."""
     doc = store.load(fixture)
     caps = {
         "kubernetes": Recording(FixtureKubernetesEvidence(doc)),
@@ -119,6 +124,7 @@ def make_deps(
         "elk": Recording(FixtureElkEvidence(doc)),
         "github": Recording(FixtureGitHubEvidence(doc)),
         "docker": Recording(FixtureDockerEvidence(doc)),
+        "prechecks": Recording(prechecks or FixtureKubernetesPrechecks()),
     }
     deps = GraphDeps(
         session_scope=session_factory,
@@ -128,6 +134,7 @@ def make_deps(
         elk=caps["elk"],
         github=caps["github"],
         docker=caps["docker"],
+        kube_prechecks=caps["prechecks"],
         database_url=database_url,
         max_evidence_rounds=max_evidence_rounds,
     )

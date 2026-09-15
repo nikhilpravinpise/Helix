@@ -11,10 +11,13 @@ fixture-backed implementation from `HELIX_EVIDENCE_SOURCE` (`live` /
 `HELIX_FIXTURE_PATH` - the benchmark harness sets it per scenario.
 """
 
-from typing import Protocol
+from typing import TYPE_CHECKING, Protocol
 
 from helix.config import get_settings
 from integrations.evidence import Evidence
+
+if TYPE_CHECKING:
+    from integrations.kubernetes.prechecks import PrecheckOutcome
 
 
 class KubernetesEvidence(Protocol):
@@ -51,6 +54,35 @@ class KubernetesEvidence(Protocol):
         ...
 
 
+class KubernetesPrechecks(Protocol):
+    """Read-side admission and authorization checks for the Validation
+    Agent (1.7). Nothing here mutates the cluster: `can_i` is a
+    SelfSubjectAccessReview query and `dry_run_apply` is a server-side
+    apply with dryRun=All, which persists nothing.
+
+    Contract: a PrecheckOutcome is returned when the cluster answered
+    (allowed/denied, accepted/rejected); a check that could not run
+    raises an EvidenceError - callers must never map "could not check"
+    onto pass.
+    """
+
+    def can_i(
+        self,
+        verb: str,
+        resource: str,
+        namespace: str,
+        group: str = "",
+    ) -> "PrecheckOutcome":
+        """Whether the configured credentials may perform `verb` on
+        `resource` (optionally "resource/subresource") in `namespace`."""
+        ...
+
+    def dry_run_apply(self, manifest_text: str) -> "PrecheckOutcome":
+        """`kubectl apply --dry-run=server` semantics: schema validation
+        plus admission on the parsed manifest, persisting nothing."""
+        ...
+
+
 class JenkinsEvidence(Protocol):
     """CI state: build metadata and stages, console log, test results."""
 
@@ -65,6 +97,11 @@ class JenkinsEvidence(Protocol):
 
     def get_test_results(self, job: str, build_number: int) -> Evidence:
         """`test_results` evidence: counts plus failing test details."""
+        ...
+
+    def get_job(self, job: str) -> Evidence:
+        """`job_info` evidence: the job's existence plus its last build
+        number - what `rerun_pipeline` validation checks (1.7)."""
         ...
 
 
@@ -193,3 +230,16 @@ def get_docker_evidence() -> DockerEvidence:
     from integrations.docker.client import DockerEvidenceClient
 
     return DockerEvidenceClient()
+
+
+def get_kubernetes_prechecks() -> KubernetesPrechecks:
+    """Return the live or fixture Kubernetes prechecks capability (1.7).
+    The fixture impl returns canned `ok=True` outcomes so fixture-mode
+    runs still exercise the validation dispatch."""
+    if get_settings().evidence_source == "fixtures":
+        from integrations.fixtures import FixtureKubernetesPrechecks
+
+        return FixtureKubernetesPrechecks()
+    from integrations.kubernetes.prechecks import KubernetesPrechecksClient
+
+    return KubernetesPrechecksClient()

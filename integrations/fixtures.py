@@ -40,6 +40,7 @@ from integrations.kubernetes.client import (
     normalize_secret,
     summarize_pods,
 )
+from integrations.kubernetes.prechecks import PrecheckOutcome
 
 FIXTURES_ROOT = Path(__file__).resolve().parents[1] / "fixtures" / "faults"
 
@@ -231,6 +232,32 @@ class FixtureKubernetesEvidence:
         raise EvidenceNotFoundError(f"fixture has no secret {name}")
 
 
+class FixtureKubernetesPrechecks:
+    """Fixture-mode prechecks (1.7): canned `ok=True` outcomes.
+
+    There is no cluster to ask in fixture mode, so these exist so
+    fixture-mode runs still exercise the validation dispatch - the real
+    checks (existence via evidence, manifest parse, file bounds) still
+    run; only the admission/authz answer is canned. The recorded detail
+    says so, so provenance can tell a canned pass from a checked one."""
+
+    def can_i(
+        self,
+        verb: str,
+        resource: str,
+        namespace: str,
+        group: str = "",
+    ) -> PrecheckOutcome:
+        return PrecheckOutcome(
+            ok=True,
+            detail="fixture: canned pass (no cluster)",
+            checks={"verb": verb, "resource": resource, "namespace": namespace},
+        )
+
+    def dry_run_apply(self, manifest_text: str) -> PrecheckOutcome:
+        return PrecheckOutcome(ok=True, detail="fixture: canned pass (no cluster)")
+
+
 class FixtureElkEvidence:
     """ELK capability over a fixture's `logs_<service>` line lists."""
 
@@ -343,6 +370,32 @@ class FixtureJenkinsEvidence:
             },
             origin=EvidenceOrigin.FIXTURE,
             total=total,
+        )
+
+    def get_job(self, job: str) -> Evidence:
+        """`job_info` evidence from the fixture's top-level jenkins_*
+        fields. A fixture with no jenkins fields raises NotFound - the
+        replay is honest about not carrying the job. `jenkins_job` without
+        `jenkins_build_number` means the job exists but has never built."""
+        job_name = self._fixture.get("jenkins_job")
+        if not job_name:
+            raise EvidenceNotFoundError(
+                f"fixture {self._fixture.get('fault')} has no jenkins job fields"
+            )
+        last = self._fixture.get("jenkins_build_number")
+        return build_evidence(
+            source=EvidenceSource.JENKINS,
+            kind=EvidenceKind.JOB_INFO,
+            service=job,
+            summary=f"job {job_name}: last build {last or 'none'} (fixture)",
+            payload={
+                "job": job_name,
+                "url": self._fixture.get("jenkins_build_url"),
+                "buildable": True,
+                "last_build": last,
+                "last_completed_build": last,
+            },
+            origin=EvidenceOrigin.FIXTURE,
         )
 
 

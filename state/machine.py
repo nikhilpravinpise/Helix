@@ -67,6 +67,9 @@ ALLOWED_TRANSITIONS: dict[IncidentStatus, frozenset[IncidentStatus]] = {
         {
             IncidentStatus.AWAITING_APPROVAL,
             IncidentStatus.EXECUTING,
+            # Failed validation replans (CONTEXT.md section 14: "failed
+            # validation should cause replanning"); wired in 1.7.
+            IncidentStatus.REMEDIATION_PENDING,
             IncidentStatus.ESCALATED,
             IncidentStatus.FAILED,
         }

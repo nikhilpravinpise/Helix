@@ -10,6 +10,8 @@ Read surface:
   pipeline stages (absent plugin -> stages stay empty)
 - console log: `/job/<job>/<n>/consoleText` split into lines
 - test results: `/job/<job>/<n>/testReport/api/json`
+- job info: `/job/<job>/api/json` - existence plus last-build metadata
+  (what the 1.7 `rerun_pipeline` validator checks)
 
 Error mapping is the uniform one: 401/403 -> auth, 404 -> not found,
 429 -> rate limit, other >=400 -> EvidenceError, timeout -> timeout,
@@ -169,6 +171,27 @@ class JenkinsEvidenceClient:
             },
             origin=EvidenceOrigin.LIVE,
             total=total,
+        )
+
+    def get_job(self, job: str) -> Evidence:
+        info = self._get_json(f"/job/{job}/api/json")
+        if "name" not in info:
+            raise EvidencePartialError(f"jenkins job {job} response lacked name")
+        last = info.get("lastBuild") or {}
+        last_completed = info.get("lastCompletedBuild") or {}
+        return build_evidence(
+            source=EvidenceSource.JENKINS,
+            kind=EvidenceKind.JOB_INFO,
+            service=job,
+            summary=f"job {job}: last build {last.get('number') or 'none'}",
+            payload={
+                "job": info.get("name") or job,
+                "url": info.get("url"),
+                "buildable": info.get("buildable"),
+                "last_build": last.get("number"),
+                "last_completed_build": last_completed.get("number"),
+            },
+            origin=EvidenceOrigin.LIVE,
         )
 
 

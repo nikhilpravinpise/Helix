@@ -46,6 +46,7 @@ from agent.actions.catalogue import (
 )
 from agent.prompts.planning import planning_prompt
 from agent.state import Hypothesis, WorkflowState
+from agent.validation import candidate_fingerprint
 from helix.llm import LLMError
 from helix.observability import trace_workflow_step
 from integrations.evidence import Evidence
@@ -356,13 +357,17 @@ def rank_candidates(
     hypothesis: Hypothesis,
     evidence: list[Evidence],
     signal: dict[str, Any],
+    excluded: frozenset[str] = frozenset(),
 ) -> tuple[list[ScoredCandidate], list[str]]:
     """Score and order the proposed candidates. Pure Python - no LLM call,
     no I/O - so ranking is fully deterministic and unit-testable.
 
     Returns (ranked candidates, drop reasons). Proposals are dropped when
-    they name a non-catalogue action or fail their params_model - the
-    catalogue bounds are enforced here, before any score exists.
+    they name a non-catalogue action, fail their params_model, or carry a
+    fingerprint in `excluded` - the validation-failure exclusion list
+    (1.7): a candidate that already failed validation is never
+    re-selected. The catalogue bounds are enforced here, before any
+    score exists.
     """
     known_ids = {e.id for e in evidence}
     corpus = _corpus(hypothesis, evidence, signal)
@@ -381,6 +386,12 @@ def rank_candidates(
             drops.append(
                 f"candidate {cand.action!r} dropped: params failed validation - "
                 f"{exc.errors()[0]['msg']}"
+            )
+            continue
+        if candidate_fingerprint(spec.name, params.model_dump(mode="json")) in excluded:
+            drops.append(
+                f"candidate {cand.action!r} dropped: identical params already "
+                f"failed validation for this incident"
             )
             continue
         tier = spec.risk_tier(params)
@@ -512,6 +523,9 @@ def planner_node(deps: "GraphDeps"):
                 hypothesis=hypothesis,
                 evidence=evidence,
                 signal=state.get("signal") or {},
+                # 1.7: candidates that already failed validation can never
+                # be re-proposed - the planner consults the exclusion list.
+                excluded=frozenset(state.get("excluded_candidates") or []),
             )
             errors.extend(drops)
             outcome["candidates"] = [c.to_state() for c in ranked]
