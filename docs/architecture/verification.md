@@ -11,14 +11,29 @@ against the service, which is an observation, not a mutation.
 ## What "verified" means
 
 Verification is **desired state held across a stability window**, not a
-single green snapshot. Each sampled check is polled every
-`HELIX_VERIFY_POLL` seconds for `HELIX_VERIFY_WINDOW` seconds:
+single green snapshot. For deployment-mutating actions
+(`restart_deployment`, `rollback_deployment`, `scale_deployment`, and
+`reapply_manifest` when the manifest object is a Deployment), the window
+does not open immediately: `run_verification` first runs a **settle
+phase** that polls `rollout_complete` until the rollout converges or
+`HELIX_VERIFY_SETTLE` seconds (default 120) elapse. Without it, the
+window would sample the intended transition itself - old pods
+terminating while replacements start - and read it as flapping. The
+settle result is recorded in the report detail but is not itself a
+verdict: a rollout that never converges inside the budget still gets the
+full window, where `rollout_complete` fails on its own.
+
+Each sampled check is then polled every `HELIX_VERIFY_POLL` seconds for
+`HELIX_VERIFY_WINDOW` seconds:
 
 - A check that has never been healthy by window end fails - the action
   gets a grace period to land, then time runs out.
 - A check that was healthy and then fails is **flapping** - the restart
   that crash-loops again two minutes later is not a recovery, and the
-  check records it distinctly.
+  check records it distinctly. One deliberate narrowing inside
+  `pods_ready`: a previously-Ready pod that disappears counts as a
+  failed sample only when **no** pod is Ready in that sample - a new pod
+  already Ready under a different name is rollout replacement, not loss.
 - A sample that cannot be taken (capability error) is ERROR. Any ERROR
   during the window means stability is unconfirmed - the window fails
   rather than trusting the samples that did land.
@@ -30,7 +45,7 @@ The legs are assembled per action family in `agent/verification/`:
 
 | Action family | Legs |
 |---|---|
-| `restart_deployment`, `rollback_deployment`, `scale_deployment`, `reapply_manifest` (k8s targets) | `pods_ready` (all `app=<service>` pods Running, containers ready, no bad waiting state; restart-count rise or a Ready pod disappearing across samples is a failed sample), `rollout_complete` (deployment replicas ready/updated/available, no ProgressDeadlineExceeded), `elk_errors` (post-action `level:error` count <= `HELIX_ELK_ERROR_THRESHOLD`), `functional` (live mode: port-forward + HTTP GET /health + Selenium `/docs` render + `/payments` round trip; fixture mode: recorded `skipped`), plus `secret_present` when the manifest's object is a Secret |
+| `restart_deployment`, `rollback_deployment`, `scale_deployment`, `reapply_manifest` (k8s targets) | `pods_ready` (all non-terminating `app=<service>` pods Running, containers ready, no bad waiting state; restart-count rise or a Ready pod vanishing with no Ready replacement is a failed sample; pods being deleted - e.g. a scaled-down old ReplicaSet post-rollout - are excluded), `rollout_complete` (deployment replicas ready/updated/available, no ProgressDeadlineExceeded), `elk_errors` (post-action `level:error` count <= `HELIX_ELK_ERROR_THRESHOLD`), `functional` (live mode: port-forward + HTTP GET /health + Selenium `/docs` render + `/payments` round trip; fixture mode: recorded `skipped`), plus `secret_present` when the manifest's object is a Secret |
 | `rerun_pipeline` | `build_green` (the job's latest build result is SUCCESS) |
 | `open_fix_pr` | `fix_pr_exists` (live: the PR exists, is open, on the right branch; fixture: the recorded intended write covers the intended files and branch - the PR IS the remediation) |
 

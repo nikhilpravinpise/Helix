@@ -14,8 +14,8 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 source "${SCRIPT_DIR}/../common.sh"
 
-POLL_TIMEOUT=60
-ROLLOUT_TIMEOUT=45s
+POLL_TIMEOUT=150
+ROLLOUT_TIMEOUT=120s
 
 echo "[failed-rollout] setting payment-api image to a nonexistent tag"
 kctl -n "${NAMESPACE}" set image deployment/payment-api payment-api=payment-api:doesnotexist

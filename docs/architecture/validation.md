@@ -48,18 +48,19 @@ FAIL.
 ## Prechecks (`integrations/kubernetes/prechecks.py`)
 
 Two read-side operations behind the `KubernetesPrechecks` capability
-protocol, implemented over the **python kubernetes client** (not a
-kubectl runner - the same dependency the evidence layer already uses):
+protocol:
 
 - `can_i(verb, resource, namespace, group)` - a `SelfSubjectAccessReview`
   via `AuthorizationV1Api` (`kubectl auth can-i` semantics). `resource`
   accepts a subresource as `"deployments/scale"`.
-- `dry_run_apply(manifest_text)` - `utils.create_from_yaml(...,
-  apply=True, dry_run="All")`: a server-side apply with `dryRun=All`, so
-  schema validation and admission webhooks run but nothing is persisted
-  (`kubectl apply --dry-run=server` semantics). Rejections come back as
-  `FailToCreateError`/`DynamicApiError` and surface as `ok=False` with
-  the server's message.
+- `dry_run_apply(manifest_text)` - literally `kubectl apply -f -
+  --dry-run=server`: client-side apply with the full admission chain and
+  nothing persisted. Client-side (not SSA) semantics matter - a pure
+  server-side apply dry-run reports field-ownership conflicts against
+  objects managed by `kubectl-client-side-apply` that the real
+  `kubectl apply` executor never hits; the dry-run must predict
+  execution, not a stricter code path. A non-zero exit surfaces as
+  `ok=False` with the server's message.
 
 Both return `PrecheckOutcome(ok, detail, checks)` when the cluster
 answered; a check that could not run raises the usual EvidenceError

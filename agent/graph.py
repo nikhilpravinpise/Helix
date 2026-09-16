@@ -129,6 +129,10 @@ class GraphDeps:
     # stability window does not cost real seconds.
     verify_window: float = 60.0
     verify_poll: float = 20.0
+    # Seconds the verify node waits for a deployment rollout to converge
+    # before the stability window opens - without it, intentional pod
+    # turnover mid-rollout reads as flapping.
+    verify_settle: float = 120.0
     elk_error_threshold: int = 0
     verify_functional: bool = True
     # 1.13 - functional-leg transport: None = kubectl port-forward; set =
@@ -166,6 +170,7 @@ def default_deps() -> GraphDeps:
         max_evidence_rounds=settings.max_evidence_rounds,
         verify_window=settings.verify_window,
         verify_poll=settings.verify_poll,
+        verify_settle=settings.verify_settle,
         elk_error_threshold=settings.elk_error_threshold,
         verify_functional=settings.verify_functional,
         verify_base_url=settings.verify_base_url,

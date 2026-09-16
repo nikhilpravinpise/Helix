@@ -4,11 +4,14 @@ a restart/rollback/scale/reapply must leave behind.
 Three sampled legs plus a Secret-presence variant for `reapply_manifest`
 on a Secret object:
 
-- `PodHealthCheck` - every pod for the target workload is Running with
-  all containers ready and no bad waiting reason; a pod's restart_count
-  rising across samples - or a pod that reported Ready then vanished -
-  is a failed sample, so crash-looping is caught even when a sample
-  happens to catch the pod mid-"Running".
+- `PodHealthCheck` - every non-terminating pod for the target workload is
+  Running with all containers ready and no bad waiting reason; a pod's
+  restart_count rising across samples - or a pod that reported Ready then
+  vanished with no Ready replacement - is a failed sample, so
+  crash-looping is caught even when a sample happens to catch the pod
+  mid-"Running". Pods Kubernetes is deleting (deletionTimestamp set, e.g.
+  a scaled-down old ReplicaSet post-rollout) are excluded: they are
+  leaving the serving set, not part of desired state.
 - `RolloutCheck` - the target Deployment reports desired == updated ==
   ready == available replicas and no ProgressDeadlineExceeded.
 - `ElkErrorCheck` - error-level log lines for the incident service in the
@@ -56,9 +59,11 @@ BAD_WAITING_REASONS: frozenset[str] = frozenset(
 
 @dataclass
 class PodHealthCheck:
-    """`pods_ready`: every pod for `app=<deployment>` Ready, no bad
-    waiting reasons, and no mid-window instability (restart-count rise,
-    a previously-Ready pod disappearing)."""
+    """`pods_ready`: every non-terminating pod for `app=<deployment>`
+    Ready, no bad waiting reasons, and no mid-window instability
+    (restart-count rise, a previously-Ready pod disappearing with no
+    Ready replacement). Terminating pods are excluded - they are leaving
+    the serving set, not joining it."""
 
     kubernetes: KubernetesEvidence
     namespace: str
@@ -81,7 +86,14 @@ class PodHealthCheck:
             if self.fixture:
                 return Sample(CheckStatus.SKIPPED, f"no pods evidence recorded: {exc}")
             raise
-        pods = evidence.payload.get("items") or []
+        pods = [
+            p
+            for p in (evidence.payload.get("items") or [])
+            # Pods being deleted (a scaled-down old ReplicaSet mid-rollout)
+            # are leaving the serving set - counting their teardown state as
+            # workload health flaps on the rollout itself.
+            if not p.get("terminating")
+        ]
         if not pods:
             return Sample(
                 CheckStatus.FAIL,
@@ -111,7 +123,11 @@ class PodHealthCheck:
                     f"{self._last_restarts[name]}->{restarts[name]} (still crashing)"
                 )
         gone = sorted(self._ready_seen - names)
-        if gone:
+        # A previously-Ready pod vanishing while no pod is Ready is a real
+        # loss of serving capacity. If a different pod is already Ready in
+        # the same sample it was a replacement (rolling-update churn), not
+        # a flap - the deployment still serves.
+        if gone and not any(c.get("ready") for p in pods for c in (p.get("containers") or [])):
             problems.append(f"pod(s) previously Ready now absent: {', '.join(gone)}")
         self._last_restarts = restarts
         if problems:
@@ -243,6 +259,27 @@ def _manifest_target(repo_root: Path, path: str) -> tuple[str | None, str, str |
         return None, "", None
     meta = docs[0].get("metadata") or {}
     return docs[0].get("kind"), meta.get("namespace") or "", meta.get("name")
+
+
+def deployment_target(
+    ctx: VerificationContext, action: str, params: dict[str, Any]
+) -> tuple[str, str] | None:
+    """The (namespace, deployment) a runtime action rolls, or None when the
+    action does not roll a Deployment (reapply on a Secret/ConfigMap). The
+    settle phase in `run_verification` uses this to absorb intentional pod
+    turnover before the stability window opens."""
+    namespace = str(params.get("namespace") or ctx.namespace)
+    deployment = str(params.get("deployment") or "")
+    if action == ActionName.REAPPLY_MANIFEST.value:
+        from agent.agents.validation import REPO_ROOT
+
+        kind, manifest_ns, name = _manifest_target(REPO_ROOT, str(params.get("path") or ""))
+        if kind == "Deployment" and name:
+            return (manifest_ns or namespace), name
+        return None
+    if deployment:
+        return namespace, deployment
+    return None
 
 
 def workload_checks(

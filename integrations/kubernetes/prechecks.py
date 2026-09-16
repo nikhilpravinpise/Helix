@@ -6,10 +6,13 @@ Two admission-level checks, both strictly non-mutating:
   asking the API server whether the configured credentials may perform
   the verb the action's executor will need (rollout restart/undo and
   scale are PATCH/UPDATE on the deployment or its scale subresource).
-- `dry_run_apply(manifest_text)` - `kubectl apply --dry-run=server`
-  semantics via `utils.create_from_yaml(..., apply=True, dry_run="All")`:
-  a server-side apply with `dryRun=All`, so schema validation and
-  admission webhooks run but NOTHING is persisted.
+- `dry_run_apply(manifest_text)` - literally `kubectl apply -f -
+  --dry-run=server`: client-side apply with the full admission chain and
+  nothing persisted. Client-side semantics matter - a pure server-side
+  apply dry-run reports field-ownership conflicts against objects managed
+  by `kubectl-client-side-apply` that the real `kubectl apply` executor
+  would never hit; the dry-run must predict execution, not a stricter
+  code path.
 
 Contract: a `PrecheckOutcome` is returned when the cluster answered
 (allowed/denied, accepted/rejected); a check that could not run at all -
@@ -23,15 +26,15 @@ exercise them without a cluster.
 """
 
 import json
+import subprocess
 from dataclasses import dataclass, field
 from typing import Any
 
 import urllib3.exceptions
 import yaml
-from kubernetes import client, config, utils
+from kubernetes import client, config
 from kubernetes.client.exceptions import ApiException
 from kubernetes.config.config_exception import ConfigException
-from kubernetes.dynamic.exceptions import DynamicApiError, ResourceNotFoundError
 from kubernetes.utils.create_from_yaml import FailToCreateError
 
 from helix.config import get_settings
@@ -49,6 +52,11 @@ class PrecheckOutcome:
     ok: bool
     detail: str = ""
     checks: dict[str, Any] = field(default_factory=dict)
+
+
+class _DryRunRejected(Exception):
+    """`kubectl apply --dry-run=server` exited non-zero - the message is
+    the API server's admission rejection text."""
 
 
 def _failure_detail(exc: FailToCreateError) -> str:
@@ -83,10 +91,12 @@ class KubernetesPrechecksClient:
         *,
         authz_v1: Any = None,
         apply_fn: Any = None,
+        kubectl_bin: str = "kubectl",
     ) -> None:
         self._context = context or get_settings().kube_context
         self._authz = authz_v1
         self._apply_fn = apply_fn
+        self._kubectl = kubectl_bin
 
     def _authz_api(self) -> Any:
         if self._authz is None:
@@ -94,31 +104,33 @@ class KubernetesPrechecksClient:
             self._authz = client.AuthorizationV1Api()
         return self._authz
 
-    def _server_apply(self, docs: list[dict]) -> None:
-        """Server-side apply with dryRun=All over already-parsed docs.
-
-        `create_from_yaml` namespaces each request from its `namespace`
-        parameter (default "default") - an object declaring a different
-        metadata.namespace is rejected by the API server with "namespace
-        of the provided object does not match". Group the docs by their
-        declared namespace and apply each group under its own.
-        """
+    def _server_apply(self, docs: list[dict], manifest_text: str) -> None:
+        """Client-side apply with --dry-run=server via the kubectl CLI -
+        the same code path the executor's `kubectl apply -f` takes, so
+        the dry-run predicts what execution will actually do (including
+        per-document metadata.namespace handling, which `kubectl apply`
+        resolves natively)."""
         if self._apply_fn is not None:
             self._apply_fn(docs)
             return
-        config.load_kube_config(context=self._context)
-        api_client = client.ApiClient()
-        by_namespace: dict[str, list[dict]] = {}
-        for doc in docs:
-            ns = (doc.get("metadata") or {}).get("namespace") or "default"
-            by_namespace.setdefault(ns, []).append(doc)
-        for namespace, group_docs in by_namespace.items():
-            utils.create_from_yaml(
-                api_client,
-                yaml_objects=group_docs,
-                namespace=namespace,
-                apply=True,
-                dry_run="All",
+        proc = subprocess.run(
+            [
+                self._kubectl,
+                "--context",
+                self._context,
+                "apply",
+                "-f",
+                "-",
+                "--dry-run=server",
+            ],
+            input=manifest_text,
+            capture_output=True,
+            text=True,
+            timeout=30,
+        )
+        if proc.returncode != 0:
+            raise _DryRunRejected(
+                (proc.stderr or proc.stdout or "kubectl apply dry-run failed").strip()
             )
 
     def can_i(
@@ -190,17 +202,20 @@ class KubernetesPrechecksClient:
                 detail="manifest contains objects without apiVersion/kind",
             )
         try:
-            self._server_apply(docs)
+            self._server_apply(docs, manifest_text)
+        except _DryRunRejected as exc:
+            return PrecheckOutcome(ok=False, detail=str(exc))
         except FailToCreateError as exc:
             return PrecheckOutcome(ok=False, detail=_failure_detail(exc))
-        except (ResourceNotFoundError, DynamicApiError) as exc:
-            # Unknown kind / discovery failure: the apply cannot succeed.
-            return PrecheckOutcome(ok=False, detail=f"manifest rejected: {exc}")
         except ApiException as exc:
             raise _map_api_error(exc) from exc
-        except (urllib3.exceptions.TimeoutError, TimeoutError) as exc:
+        except (
+            subprocess.TimeoutExpired,
+            urllib3.exceptions.TimeoutError,
+            TimeoutError,
+        ) as exc:
             raise EvidenceTimeoutError(f"dry-run apply timed out: {exc}") from exc
-        except (urllib3.exceptions.HTTPError, ConfigException) as exc:
+        except (OSError, urllib3.exceptions.HTTPError, ConfigException) as exc:
             raise EvidenceError(f"dry-run apply failed: {exc}") from exc
         return PrecheckOutcome(
             ok=True,

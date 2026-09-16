@@ -127,6 +127,7 @@ def verification_node(deps: "GraphDeps"):
                         window_s=deps.verify_window,
                         poll_s=deps.verify_poll,
                         sleep=deps.sleep,
+                        settle_s=deps.verify_settle,
                     )
                 session.add(
                     models.Verification(

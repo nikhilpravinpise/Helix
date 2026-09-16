@@ -96,7 +96,9 @@ def test_selenium_health_check_through_port_forward():
             assert "ok" in driver.page_source.lower()
         finally:
             driver.quit()
-    assert driver.session_id is None  # the browser process is gone
+    # The driver process is gone - quit() leaves session_id populated on
+    # selenium 4.x, so assert on the chromedriver subprocess itself.
+    assert driver.service.process.poll() is not None
     assert created[0].poll() is not None  # and so is kubectl port-forward
 
 
@@ -113,4 +115,4 @@ def test_webdriver_quits_even_when_the_check_fails():
                 assert "never-present-marker" in driver.page_source
         finally:
             driver.quit()
-    assert driver.session_id is None
+    assert driver.service.process.poll() is not None

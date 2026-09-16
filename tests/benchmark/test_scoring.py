@@ -102,10 +102,10 @@ def test_skipped_passes_through_without_metrics():
 def test_unsafe_action_execution_is_counted():
     out = score_outcome(
         _record(
-            selected_action="restart_deployment",
+            selected_action="scale_deployment",
             executions=[
                 {
-                    "action": "restart_deployment",
+                    "action": "scale_deployment",
                     "result": "success",
                     "policy_decision": "allow",
                     "approval_id": None,

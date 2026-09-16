@@ -129,6 +129,10 @@ RULES: tuple[Rule, ...] = (
         evidence_kinds=("pod_list", "pod_status", "secret_info", "log_lines", "event_list"),
         actions=(
             ("reapply_manifest", _reapply(_SECRET)),
+            # Order 2: after the secret is fixed, a restart escapes the
+            # accumulated kubelet backoff immediately instead of waiting
+            # out CrashLoopBackOff's retry schedule inside the verify window.
+            ("restart_deployment", _k8s_target),
             ("open_fix_pr", _fix(_file_change(_SECRET))),
         ),
     ),
@@ -158,6 +162,10 @@ RULES: tuple[Rule, ...] = (
         evidence_kinds=("pod_list", "pod_status", "secret_info", "event_list"),
         actions=(
             ("reapply_manifest", _reapply(_SECRET)),
+            # Same reasoning as crashloop: CreateContainerConfigError pods
+            # retry on backoff; a restart after the secret exists again
+            # recreates the container immediately.
+            ("restart_deployment", _k8s_target),
             ("open_fix_pr", _fix(_file_change(_SECRET))),
         ),
     ),

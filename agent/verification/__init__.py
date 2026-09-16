@@ -297,6 +297,42 @@ def build_checks(
     ]
 
 
+def _settle_rollout(
+    ctx: VerificationContext,
+    namespace: str,
+    deployment: str,
+    budget_s: float,
+    poll_s: float,
+    sleep: Callable[[float], None],
+) -> str:
+    """Bounded wait for a deployment's rollout to converge post-action.
+
+    Restart/rollback/scale/reapply-on-Deployment all trigger a rollout;
+    without this wait the stability window opens mid-transition and pod
+    turnover reads as flapping. The settle result is informational only -
+    a non-converging rollout still fails inside the window via
+    `rollout_complete`. Fixture mode skips (RolloutCheck reports
+    SKIPPED), so no wall-clock budget is spent."""
+    from agent.verification.runtime import RolloutCheck
+
+    check = RolloutCheck(ctx.kubernetes, namespace, deployment, ctx.is_fixture)
+    t = 0.0
+    last = "no sample"
+    while True:
+        sample = check.check()
+        if sample.status == CheckStatus.PASS:
+            return f"converged after ~{t:.0f}s"
+        if sample.status == CheckStatus.SKIPPED:
+            return f"skipped: {sample.detail}"
+        last = sample.detail
+        if t >= budget_s:
+            break
+        step = budget_s - t if poll_s <= 0 else min(poll_s, budget_s - t)
+        sleep(step)
+        t += step
+    return f"never converged within {budget_s:.0f}s: {last}"
+
+
 def run_verification(
     ctx: VerificationContext,
     action: str,
@@ -306,15 +342,26 @@ def run_verification(
     window_s: float,
     poll_s: float,
     sleep: Callable[[float], None],
+    settle_s: float = 0.0,
 ) -> VerificationReport:
     """Run every leg for `action` and fold the check list to a verdict.
 
-    Sampled legs run through the stability window first; one-shot legs
-    then record their single result. The verdict is `pass` only when at
-    least one check ran and every check that ran passed - `error`, `fail`
-    and all-skipped all mean NOT recovered.
+    Deployment-mutating runtime actions settle first (rollout convergence
+    within `settle_s`) so the stability window measures steady state, not
+    the intended transition. Sampled legs run through the stability
+    window next; one-shot legs then record their single result. The
+    verdict is `pass` only when at least one check ran and every check
+    that ran passed - `error`, `fail` and all-skipped all mean NOT
+    recovered.
     """
+    from agent.verification.runtime import deployment_target
+
     started = datetime.now(UTC)
+    settle_detail: str | None = None
+    if settle_s > 0 and action in K8S_RUNTIME_ACTIONS:
+        target = deployment_target(ctx, action, params)
+        if target is not None:
+            settle_detail = _settle_rollout(ctx, target[0], target[1], settle_s, poll_s, sleep)
     sampled, oneshots = build_checks(ctx, action, params, execution_output, poll_s)
     checks = [sample_check(c, window_s, poll_s, sleep) for c in sampled]
     checks.extend(run() for run in oneshots)
@@ -323,6 +370,8 @@ def run_verification(
     spec = get_action(action)
     finished = datetime.now(UTC)
     detail = "; ".join(f"{c.name}={c.status.value}" for c in checks)
+    if settle_detail is not None:
+        detail = f"rollout settle: {settle_detail}; " + detail
     return VerificationReport(
         action=action,
         params=params,
