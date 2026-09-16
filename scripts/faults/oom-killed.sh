@@ -15,7 +15,7 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 source "${SCRIPT_DIR}/../common.sh"
 
-POLL_TIMEOUT=90
+POLL_TIMEOUT=180
 
 echo "[oom-killed] setting PAYMENT_API_BALLAST_MB=200 (limit is 128Mi)"
 kctl -n "${NAMESPACE}" set env deployment/payment-api PAYMENT_API_BALLAST_MB=200

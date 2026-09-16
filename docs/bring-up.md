@@ -23,6 +23,7 @@ called out where they differ.
 | kind | `kind --version` (v0.33+) | `winget install Kubernetes.kind` |
 | kubectl | `kubectl version --client` | `winget install Kubernetes.kubectl` |
 | uv | `uv --version` | `winget install astral-sh.uv` |
+| python3 | `python3 --version` (3.12+) | `winget install Python.Python.3.12` - the fault scripts parse kubectl JSON with `python3`; on Windows also copy `python.exe` to `python3.exe` in the install dir (the installer ships no `python3` alias) |
 | Terraform | `terraform version` (v1.5+) | `winget install Hashicorp.Terraform` |
 | Ansible | optional - see `infra/ansible/` | runs inside WSL2, not natively on Windows |
 

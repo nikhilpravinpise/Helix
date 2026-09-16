@@ -18,7 +18,7 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 source "${SCRIPT_DIR}/../common.sh"
 
-ROLLOUT_TIMEOUT=45s
+ROLLOUT_TIMEOUT=120s
 
 echo "[config-mismatch] pointing PAYMENT_API_DOWNSTREAM_URL at a nonexistent host"
 kctl -n "${NAMESPACE}" set env deployment/payment-api \

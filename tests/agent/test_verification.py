@@ -101,6 +101,7 @@ def _pod(
     waiting=None,
     restarts=0,
     phase="Running",
+    terminating=False,
 ):
     """A kubectl-pod-shaped dict as FixtureKubernetesEvidence consumes."""
     state = (
@@ -114,6 +115,7 @@ def _pod(
             "namespace": "payment-api",
             "labels": {"app": app},
             "ownerReferences": [{"controller": True, "kind": "ReplicaSet", "name": f"{app}-rs"}],
+            **({"deletionTimestamp": "2026-09-18T00:01:00Z"} if terminating else {}),
         },
         "spec": {"containers": [{"name": "payment-api", "image": "payment-api:kind"}]},
         "status": {
@@ -235,6 +237,34 @@ class _ScriptedPods(FixtureKubernetesEvidence):
                 origin=EvidenceOrigin.FIXTURE,
             )
         return super().get_deployment_status(namespace, name)
+
+
+class _ScriptedRollout(FixtureKubernetesEvidence):
+    """Fixture k8s evidence whose get_deployment_status walks a queue of
+    deployment payloads - the last one repeats. Lets the settle phase
+    observe a rollout mid-convergence; pod/log reads still come from the
+    fixture doc."""
+
+    def __init__(self, doc, deployments):
+        super().__init__(doc)
+        self._deployments = list(deployments)
+        self.calls = 0
+
+    def get_deployment_status(self, namespace, name):
+        from integrations.kubernetes.client import normalize_deployment
+
+        payload = normalize_deployment(
+            self._deployments[min(self.calls, len(self._deployments) - 1)]
+        )
+        self.calls += 1
+        return build_evidence(
+            source=EvidenceSource.KUBERNETES,
+            kind=EvidenceKind.POD_STATUS,
+            service=name,
+            summary=f"deployment {name}",
+            payload=payload,
+            origin=EvidenceOrigin.FIXTURE,
+        )
 
 
 class _NoJenkins:
@@ -380,7 +410,11 @@ class TestPodHealthCheck:
         second = check.check()
         assert not second.ok and "restart_count rose" in second.detail
 
-    def test_ready_pod_disappearing_is_a_failed_sample(self):
+    def test_ready_pod_replaced_by_ready_pod_is_not_a_flap(self):
+        """A rollout swaps pod names: the old Ready pod disappears in the
+        same sample a new pod is already Ready. That is intended
+        replacement, not flapping - the deployment never stopped
+        serving."""
         kube = _ScriptedPods(
             _healthy_doc(),
             [
@@ -390,8 +424,55 @@ class TestPodHealthCheck:
         )
         check = runtime.PodHealthCheck(kube, "payment-api", "payment-api")
         assert check.check().ok
+        assert check.check().ok
+
+    def test_ready_pod_disappearing_without_replacement_fails(self):
+        """Ready pod gone and nothing Ready this sample: real loss of
+        serving capacity - a failed observation, so a held-then-lost
+        sequence still reads as flapping."""
+        kube = _ScriptedPods(
+            _healthy_doc(),
+            [
+                [_pod("payment-api-aa-1")],
+                [_pod("payment-api-bb-2", ready=False)],  # replacement not Ready
+            ],
+        )
+        check = runtime.PodHealthCheck(kube, "payment-api", "payment-api")
+        assert check.check().ok
         second = check.check()
         assert not second.ok and "now absent" in second.detail
+
+    def test_terminating_wedged_pod_does_not_count(self):
+        """Post-rollback, the replaced RS's pod lingers in teardown with a
+        bad waiting state while the converged RS's pod is Ready. A pod
+        Kubernetes is deleting is not the desired state - it must not fail
+        the sample."""
+        kube = _ScriptedPods(
+            _healthy_doc(),
+            [
+                [
+                    _pod("payment-api-bb-2"),  # new RS pod, Ready
+                    _pod(
+                        "payment-api-aa-1",
+                        ready=False,
+                        waiting="CrashLoopBackOff",
+                        terminating=True,
+                    ),  # old RS pod mid-teardown
+                ],
+            ],
+        )
+        check = runtime.PodHealthCheck(kube, "payment-api", "payment-api")
+        assert check.check().ok
+
+    def test_terminating_is_only_discount_when_some_pod_serves(self):
+        """If the ONLY pod is terminating-and-wedged, nothing is serving -
+        still a failed sample (the empty-after-filter list path)."""
+        kube = _ScriptedPods(
+            _healthy_doc(),
+            [[_pod(ready=False, waiting="CrashLoopBackOff", terminating=True)]],
+        )
+        check = runtime.PodHealthCheck(kube, "payment-api", "payment-api")
+        assert not check.check().ok
 
     def test_empty_pod_list_fails(self):
         kube = _ScriptedPods(_healthy_doc(), [[]])
@@ -768,6 +849,98 @@ class TestDispatch:
         names = [c.name for c in sampled]
         assert "secret_present" in names
         assert "pods_ready" in names
+
+
+class TestDeploymentSettle:
+    """The rollout-settle phase run_verification performs before the
+    stability window for deployment-mutating actions (1.9 fix): intended
+    pod turnover is absorbed during settle, so the window measures steady
+    state instead of reading the transition as flapping."""
+
+    def _run(self, ctx, action="restart_deployment", params=None, settle_s=10):
+        from agent.verification import run_verification
+
+        return run_verification(
+            ctx,
+            action,
+            params if params is not None else dict(K8S),
+            {"op": action},
+            window_s=4,
+            poll_s=2,
+            sleep=lambda _s: None,
+            settle_s=settle_s,
+        )
+
+    def test_settle_waits_for_convergence_then_window_passes(self):
+        """Rollout incomplete for the first two settle samples, converged
+        by the third: settle absorbs the transition, then the stability
+        window opens on steady state and the verification passes."""
+        deployments = [
+            _deployment(ready=0, updated=1, available=0),
+            _deployment(ready=0, updated=1, available=0),
+            _deployment(),
+        ]
+        ctx = _ctx(_healthy_doc(), kubernetes=_ScriptedRollout(_healthy_doc(), deployments))
+        report = self._run(ctx)
+        assert report.outcome == "pass"
+        assert report.detail.startswith("rollout settle: converged after ~4s;")
+
+    def test_settle_never_converged_still_runs_the_window(self):
+        """Settle is a wait, not a verdict: a rollout that never converges
+        inside the budget still gets the full window, where
+        rollout_complete fails the verification on its own."""
+        deployments = [_deployment(ready=0, updated=1, available=0)]
+        ctx = _ctx(_healthy_doc(), kubernetes=_ScriptedRollout(_healthy_doc(), deployments))
+        report = self._run(ctx)
+        assert report.outcome == "fail"
+        assert "rollout settle: never converged" in report.detail
+        checks = {c.name: c.status for c in report.checks}
+        assert checks["rollout_complete"] == CheckStatus.FAIL
+
+    def test_settle_converged_immediately_reports_zero_wait(self):
+        ctx = _ctx(_healthy_doc())
+        report = self._run(ctx)
+        assert report.outcome == "pass"
+        assert report.detail.startswith("rollout settle: converged after ~0s;")
+
+    def test_no_settle_for_secret_reapply(self):
+        """reapply_manifest on a Secret does not roll a Deployment -
+        deployment_target returns None and no settle phase runs."""
+        report = self._run(
+            _ctx(_healthy_doc()),
+            action="reapply_manifest",
+            params={"path": "sandbox/payment-api/k8s/03-secret.yaml"},
+        )
+        assert "rollout settle" not in report.detail
+
+    def test_no_settle_for_pr_action(self):
+        params = {
+            "branch": "helix/INC-1",
+            "title": "fix",
+            "files": [{"path": "sandbox/payment-api/k8s/03-secret.yaml", "content": "x"}],
+        }
+        report = self._run(_ctx(_healthy_doc()), action="open_fix_pr", params=params)
+        assert "rollout settle" not in report.detail
+
+    def test_deployment_target_resolution(self):
+        ctx = _ctx(_healthy_doc())
+        assert runtime.deployment_target(ctx, "restart_deployment", dict(K8S)) == (
+            "payment-api",
+            "payment-api",
+        )
+        assert runtime.deployment_target(
+            ctx,
+            "reapply_manifest",
+            {"path": "sandbox/payment-api/k8s/04-deployment.yaml"},
+        ) == ("payment-api", "payment-api")
+        # Secret reapply rolls nothing.
+        assert (
+            runtime.deployment_target(
+                ctx, "reapply_manifest", {"path": "sandbox/payment-api/k8s/03-secret.yaml"}
+            )
+            is None
+        )
+        assert runtime.deployment_target(ctx, "rerun_pipeline", {"job": "x"}) is None
 
 
 # --- run_verification + the verify node ---------------------------------

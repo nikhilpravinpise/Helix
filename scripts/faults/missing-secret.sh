@@ -21,7 +21,7 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 source "${SCRIPT_DIR}/../common.sh"
 
-POLL_TIMEOUT=60
+POLL_TIMEOUT=150
 
 echo "[missing-secret] deleting Secret payment-api-secret"
 kctl -n "${NAMESPACE}" delete secret payment-api-secret

@@ -130,6 +130,9 @@ def normalize_pod(pod: dict) -> dict:
         "pod_ip": status.get("podIP"),
         "node": spec.get("nodeName"),
         "start_time": status.get("startTime"),
+        # deletionTimestamp set means Kubernetes is removing this pod - it
+        # is leaving the serving set, not part of the desired state.
+        "terminating": metadata.get("deletionTimestamp") is not None,
         "owner": owner,
         "ready": bool(containers) and all(c["ready"] for c in containers),
         "restart_count": sum(c["restart_count"] for c in containers),

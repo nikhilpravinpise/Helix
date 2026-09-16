@@ -25,7 +25,7 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 source "${SCRIPT_DIR}/../common.sh"
 
-POLL_TIMEOUT=90
+POLL_TIMEOUT=180
 
 echo "[crashloop] setting PAYMENT_API_API_KEY to whitespace"
 kctl -n "${NAMESPACE}" patch secret payment-api-secret \

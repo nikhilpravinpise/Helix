@@ -150,7 +150,10 @@ def _helix(
         input=stdin_text,
         capture_output=True,
         text=True,
-        timeout=300,
+        # A single `helix run` may span several verify cycles: settle (up to
+        # HELIX_VERIFY_SETTLE) + stability window + the functional leg, times
+        # a replan hop or two. 900s covers that with headroom.
+        timeout=900,
     )
 
 
@@ -160,7 +163,7 @@ def _inject_live(scenario: dict[str, Any]) -> str | None:
     script = REPO_ROOT / "scripts" / scenario["fault_script"]
     try:
         proc = subprocess.run(
-            ["bash", str(script)], cwd=REPO_ROOT, capture_output=True, text=True, timeout=300
+            ["bash", str(script)], cwd=REPO_ROOT, capture_output=True, text=True, timeout=420
         )
     except (OSError, subprocess.TimeoutExpired) as exc:
         return f"fault script could not run: {exc}"

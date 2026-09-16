@@ -90,6 +90,10 @@ class Settings(BaseSettings):
     # this machine and re-enters through the controller's NodePort.
     verify_window: int = 60
     verify_poll: int = 20
+    # Settle budget (seconds): deployment-mutating runtime actions wait for
+    # rollout convergence before the stability window opens, so intended pod
+    # turnover does not read as flapping.
+    verify_settle: int = 120
     elk_error_threshold: int = 0
     verify_functional: bool = True
     verify_base_url: str | None = None
