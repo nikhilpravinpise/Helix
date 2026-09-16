@@ -31,7 +31,7 @@ back, and verified - see Verification).
 | 1.11 | Benchmark: 12 scenarios, harness, scripted approver, scoring | #13 | Done |
 | 1.12 | Operator UI: incident list/detail, provenance timeline, approvals | #14 | Done |
 | 1.13 | Infrastructure: kind config, Terraform, Ansible, Jenkins+Sonar gate, ingress | #15 | Done |
-| - | Post-1.13 live hardening: rollout-settle verification, dry-run parity | #16 (branch `fix/verification-rollout-settle`) | Done |
+| - | Post-1.13 live hardening: rollout-settle verification, dry-run parity | #19 | Done |
 
 ---
 
@@ -101,9 +101,9 @@ Re-run independently, not accepted on report:
 - Benchmark arm A, `mode=auto`, all 12 scenarios - see
   `benchmark/reports/latest.md` / `latest.json` for the authoritative
   numbers (final grid run regenerated after the verification fixes).
-- `open_fix_pr` live proof: real PR opened on `nikhilpravinpise/Helix`
-  (branch `helix/INC-*`), verified by the `fix_pr_exists` leg, incident
-  recovered. Left open for review.
+- `open_fix_pr` live proof: real PRs opened on `nikhilpravinpise/Helix`
+  by the system itself (PRs #16-18, branches `helix/INC-*`), verified by
+  the `fix_pr_exists` leg, incidents recovered. Left open for review.
 
 ## Live-defect ledger (all fixed, all regression-tested)
 
