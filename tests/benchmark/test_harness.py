@@ -41,6 +41,28 @@ def test_arm_b_and_e_skip_without_llm_key(monkeypatch):
     assert record.skipped == "arm B requires HELIX_LLM_API_KEY"
 
 
+def test_forcing_fixture_mode_on_a_live_scenario_skips_rather_than_crashes():
+    """`--mode fixture` used to read `evidence_fixture` unconditionally,
+    and the live scenarios do not declare one - so the flag raised
+    KeyError and killed the whole run, but only when the cluster happened
+    to be up (with kind down these skip on requirements first). Checked
+    before requirements, so this holds either way."""
+    live = SCENARIOS["crashloop"]
+    assert "evidence_fixture" not in live, "fixture-less live scenario expected"
+    cfg = HarnessConfig(arms=["A"], mode="fixture", database_url=BAD_URL)
+    record = run_scenario("crashloop", live, "A", cfg)
+    assert record.skipped == "no evidence_fixture declared, cannot run in fixture mode"
+
+
+def test_fixture_mode_still_runs_scenarios_that_declare_a_fixture():
+    """The guard must not swallow the scenarios the flag exists for - they
+    proceed to the normal requirements check."""
+    cfg = HarnessConfig(arms=["A"], mode="fixture", database_url=BAD_URL)
+    record = run_scenario("ci-test-regression", SCENARIOS["ci-test-regression"], "A", cfg)
+    assert record.skipped is not None
+    assert "postgres" in record.skipped
+
+
 def test_malformed_scenario_is_a_catalog_defect_not_a_run():
     cfg = HarnessConfig(arms=["A"], database_url=BAD_URL)
     record = run_scenario("bogus", {"name": "bogus"}, "A", cfg)

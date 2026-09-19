@@ -410,6 +410,19 @@ def run_scenario(
         return record
 
     mode = scenario["inject"] if cfg.mode == "auto" else cfg.mode
+
+    # `--mode fixture` forces every scenario onto recorded evidence, but
+    # `evidence_fixture` is not a required catalogue field and the five
+    # live Kubernetes scenarios do not declare one - they inject a real
+    # fault instead. Reading it unconditionally crashed the whole run with
+    # a KeyError, and only when the cluster happened to be up: with kind
+    # down these scenarios skip on unmet requirements first and never
+    # reach it. Checked before requirements so the outcome does not depend
+    # on what infrastructure is running.
+    if mode == "fixture" and not scenario.get("evidence_fixture"):
+        record.skipped = "no evidence_fixture declared, cannot run in fixture mode"
+        return record
+
     database_url = cfg.database_url or get_settings().database_url
     unmet = check_requirements(scenario.get("requires") or [], database_url)
     if unmet:
@@ -421,7 +434,7 @@ def run_scenario(
     env["HELIX_DATABASE_URL"] = database_url
     if mode == "fixture":
         env.update(FIXTURE_RUN_ENV)
-        env["HELIX_FIXTURE_PATH"] = scenario["evidence_fixture"]
+        env["HELIX_FIXTURE_PATH"] = scenario["evidence_fixture"]  # guarded above
     else:
         env["HELIX_EVIDENCE_SOURCE"] = "live"
         fail = _inject_live(scenario)
