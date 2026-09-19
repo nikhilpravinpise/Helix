@@ -28,6 +28,8 @@ from pydantic import BaseModel, Field
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from events.classify import UnclassifiedSignal, classify
+from events.schemas import EngineeringEvent, EventSource, EventType
 from state import machine, models
 from state.machine import IncidentStatus
 
@@ -61,11 +63,20 @@ class Signal(BaseModel):
 
 class IntakeResult(BaseModel):
     """What intake did with a signal: the incident it created or attached
-    to, plus the persisted signal row id."""
+    to, the persisted signal row id, and the canonical event the signal
+    was normalized into.
+
+    The event is carried here rather than stored: E1 keeps it in process
+    (this is what "pass them in process" means), E2 gives it a producer to
+    publish to, and E5 gives it a durable history store. Returning it now
+    is what lets those land without reworking intake again.
+    """
 
     incident_id: str
     created: bool
     signal_id: int
+    #: None when no rule names the signal - see intake_signal.
+    event: EngineeringEvent | None = None
 
 
 #: The signature keys that identify a fault, per source. Only these fields
@@ -123,6 +134,31 @@ def fingerprint(signal: Signal) -> str:
     return hashlib.sha256(material.encode()).hexdigest()
 
 
+def build_event(
+    signal: Signal, event_type: EventType, correlation_id: str | None = None
+) -> EngineeringEvent:
+    """Normalize a Phase 1 signal into the canonical envelope.
+
+    Everything source-specific goes to `metadata` - the signature, the raw
+    vendor payload, and `severity`, which the CONTEXT.md section 7
+    envelope has no field for. This is the boundary the E3 adapters will
+    take over: they will build events from vendor payloads directly, and
+    `Signal` stops being the intermediate shape.
+    """
+    return EngineeringEvent(
+        event_type=event_type,
+        source=EventSource(signal.source.value),
+        correlation_id=correlation_id,
+        service=signal.service,
+        environment=signal.environment,
+        metadata={
+            "severity": signal.severity,
+            "signature": signal.signature,
+            "raw": signal.raw,
+        },
+    )
+
+
 def _new_incident_id() -> str:
     """`INC-<8 hex>` - random rather than sequential so ids never depend on
     DB sequences (keeps SQLite test engines equal to Postgres). The unique
@@ -151,6 +187,17 @@ def intake_signal(session: Session, payload: Signal | dict[str, Any]) -> IntakeR
     atomically.
     """
     signal = payload if isinstance(payload, Signal) else Signal.model_validate(payload)
+    # An unclassifiable signal still opens an incident. Refusing it at the
+    # front door would drop a real failure on the floor, which is the one
+    # thing an incident recovery system must not do, and it matches how
+    # the rest of Helix treats a signature it does not recognise: the
+    # rules arm escalates on an unmatched signature rather than rejecting
+    # it. The miss is recorded in the creation transition instead, so it
+    # shows up in provenance rather than vanishing.
+    try:
+        event_type: EventType | None = classify(signal.source.value, signal.signature)
+    except UnclassifiedSignal:
+        event_type = None
     fp = fingerprint(signal)
     incident = find_open_incident(session, fp)
     created = incident is None
@@ -166,7 +213,12 @@ def intake_signal(session: Session, payload: Signal | dict[str, Any]) -> IntakeR
         session.add(incident)
         session.flush()  # assigns incident.id for the FK rows below
         machine.record_creation(
-            incident, cause=f"intake signal from {signal.source.value}", session=session
+            incident,
+            cause=(
+                f"intake signal from {signal.source.value} "
+                f"({event_type.value if event_type else 'unclassified'})"
+            ),
+            session=session,
         )
     row = models.Signal(
         incident_id=incident.id,
@@ -178,4 +230,13 @@ def intake_signal(session: Session, payload: Signal | dict[str, Any]) -> IntakeR
     )
     session.add(row)
     session.flush()
-    return IntakeResult(incident_id=incident.incident_id, created=created, signal_id=row.id)
+    return IntakeResult(
+        incident_id=incident.incident_id,
+        created=created,
+        signal_id=row.id,
+        event=(
+            build_event(signal, event_type, correlation_id=incident.incident_id)
+            if event_type
+            else None
+        ),
+    )

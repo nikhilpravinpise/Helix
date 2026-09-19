@@ -37,7 +37,7 @@ build-backend = "hatchling.build"
 helix = "helix.cli:main"
 
 [tool.hatch.build.targets.wheel]
-packages = ["helix", "agent", "state", "integrations", "benchmark"]
+packages = ["helix", "agent", "state", "integrations", "benchmark", "events"]
 
 [tool.pytest.ini_options]
 pythonpath = ["."]
