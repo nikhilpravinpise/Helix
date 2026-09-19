@@ -511,6 +511,15 @@ _ARM_NODES: dict[str, dict[str, str]] = {
         "diagnose_and_plan": "1.11",
         "execute": "1.8",
     },
+    # C is B plus retrieval (E6). Identical composition on purpose: the
+    # only difference is that the fused node is given prior resolved
+    # incidents as context, so a C-vs-B comparison isolates what RAG buys
+    # over a bare LLM instead of confounding it with validation or
+    # verification.
+    "C": {
+        "diagnose_and_plan": "1.11",
+        "execute": "1.8",
+    },
     "A": {
         "rules_diagnosis": "1.11",
         "rules_plan": "1.11",
@@ -598,10 +607,11 @@ def build_graph(
             node = diagnosis_node(deps)
         elif arm == "E" and name == "plan":
             node = planner_node(deps)
-        elif arm == "B" and name == "diagnose_and_plan":
+        elif arm in ("B", "C") and name == "diagnose_and_plan":
             # 1.11: the fused single-call node - one complete_structured
             # produces hypothesis + selection; no validate/verify/replan.
-            node = diagnose_and_plan_node(deps)
+            # Arm C is the same node with retrieval context (E6).
+            node = diagnose_and_plan_node(deps, retrieval=arm == "C")
         elif arm == "A" and name == "rules_diagnosis":
             # 1.11: deterministic rule tables - zero LLM calls.
             node = rules_diagnosis_node(deps)

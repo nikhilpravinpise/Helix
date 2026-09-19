@@ -64,8 +64,18 @@ class Settings(BaseSettings):
     # graph, B collapses diagnosis+planning into one LLM call and drops
     # validate/verify/replan, A replaces LLM nodes with deterministic rule
     # tables (agent/rules.py - arm A runs with no HELIX_LLM_API_KEY).
+    # C is B plus retrieval (E6): the same single LLM call, given prior
+    # resolved incidents as context, so the ablation isolates what RAG
+    # buys over a bare LLM rather than confounding it with verification.
     max_evidence_rounds: int = 3
-    arm: Literal["A", "B", "E"] = "E"
+    arm: Literal["A", "B", "C", "E"] = "E"
+
+    # Retrieval over incident history (subphase E6). OFF by default: the
+    # point of the flag is that retrieval's effect on diagnosis is
+    # measured rather than assumed, so every arm except C runs without it
+    # unless it is turned on deliberately. Arm C enables it regardless.
+    retrieval_enabled: bool = False
+    retrieval_limit: int = 3
 
     # Safety policy + execution (subphase 1.8). allowed_kube_contexts is the
     # comma-separated allowlist of kube contexts the write client may mutate

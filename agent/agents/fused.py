@@ -20,6 +20,7 @@ from pydantic import BaseModel, Field, ValidationError
 from agent.actions.catalogue import catalogue_view, get_action
 from agent.agents.diagnosis import _persist, _preselect, _signal_context
 from agent.prompts.fused import fused_prompt
+from agent.retrieval_context import prior_incident_context
 from agent.state import Hypothesis, WorkflowState
 from helix.llm import LLMError
 from helix.observability import trace_workflow_step
@@ -80,10 +81,15 @@ def _persist_selection(
         return row.id
 
 
-def diagnose_and_plan_node(deps: "GraphDeps"):
+def diagnose_and_plan_node(deps: "GraphDeps", retrieval: bool = False):
     """The fused node: preselect evidence -> one structured call -> persist
     hypothesis + selected candidate. An LLM/provider failure is a run
-    failure (plan_failed), matching diagnosis/planner's treatment."""
+    failure (plan_failed), matching diagnosis/planner's treatment.
+
+    `retrieval` is what separates ablation arm C from arm B (E6): the same
+    single call, given prior resolved incidents as context. With it False
+    the prompt is byte-identical to arm B's, so the comparison isolates
+    retrieval."""
 
     def _diagnose_and_plan(state: WorkflowState) -> dict:
         with trace_workflow_step("diagnose_and_plan"):
@@ -101,8 +107,19 @@ def diagnose_and_plan_node(deps: "GraphDeps"):
                 "errors": errors,
             }
             try:
+                incident_view = _incident_view(state)
                 answer = deps.llm.complete_structured(
-                    fused_prompt(_incident_view(state), evidence_view, catalogue_view()),
+                    fused_prompt(
+                        incident_view,
+                        evidence_view,
+                        catalogue_view(),
+                        prior_incident_context(
+                            deps,
+                            incident_view,
+                            (state.get("signal") or {}).get("signature"),
+                            enabled=retrieval,
+                        ),
+                    ),
                     FusedDiagnosisPlan,
                 )
             except LLMError as exc:

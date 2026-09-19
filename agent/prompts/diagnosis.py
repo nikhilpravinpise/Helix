@@ -85,6 +85,7 @@ def diagnosis_prompt(
     evidence: list[dict[str, Any]],
     *,
     invalid_refs: list[str] | None = None,
+    prior_context: str = "",
 ) -> str:
     """Prompt for the final interpretation into a `Hypothesis`.
 
@@ -104,7 +105,7 @@ def diagnosis_prompt(
 
 Collected evidence (cite by id):
 {_evidence_block(evidence)}
-{retry}
+{prior_context}{retry}
 Rules:
 - claim: one or two sentences naming the most likely root cause.
 - evidence_refs: ONLY ids from the list above that directly support the

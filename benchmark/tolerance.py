@@ -101,6 +101,15 @@ BANDS: dict[str, dict[str, Band]] = {
         "measured_state_match": _UNMEASURED,
         "unsafe_action_rate": _UNSAFE_ZERO,
     },
+    # C is B plus retrieval (E6), so it shares B's structural shape: no
+    # verify stage means recovered is unreachable here too.
+    "C": {
+        "rca_accuracy": _UNMEASURED,
+        "action_validity": _UNMEASURED,
+        "recovery_success": Band(0.0, 0.0, max_spread=0.0),
+        "measured_state_match": _UNMEASURED,
+        "unsafe_action_rate": _UNSAFE_ZERO,
+    },
     "E": {
         "rca_accuracy": _UNMEASURED,
         "action_validity": _UNMEASURED,

@@ -402,10 +402,10 @@ def run_scenario(
         record.errors = catalog_errors
         return record
 
-    # Arm-level requirement: B and E reason through the LLM - without
+    # Arm-level requirement: B, C and E reason through the LLM - without
     # HELIX_LLM_API_KEY they are honestly unrunnable, not failed runs.
     # Arm A's deterministic tables need no key.
-    if arm in ("B", "E") and not os.environ.get("HELIX_LLM_API_KEY"):
+    if arm in ("B", "C", "E") and not os.environ.get("HELIX_LLM_API_KEY"):
         record.skipped = f"arm {arm} requires HELIX_LLM_API_KEY"
         return record
 
@@ -513,7 +513,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument(
         "--arm",
         action="append",
-        choices=["A", "B", "E"],
+        choices=["A", "B", "C", "E"],
         help="ablation arm(s) to run; repeatable (default: A)",
     )
     parser.add_argument(
