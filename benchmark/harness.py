@@ -268,6 +268,27 @@ def _collect(database_url: str, incident_id: str) -> dict[str, Any]:
         }
 
 
+def _execution_detail(hit: dict[str, Any] | None) -> str:
+    """Evidence line for the executed-action check.
+
+    `hit` is an executions row as `_collect` builds it, and that row has
+    no `detail` key - the Execution model has no such column. Reading one
+    off it meant the not-found string was printed for every outcome,
+    passing or failing, so each `ok: true` in the committed report read
+    as though the check had passed on no evidence at all. Describe the
+    row from the columns it does carry instead.
+    """
+    if hit is None:
+        return "no successful executions row"
+    detail = (
+        f"{hit['action']} result={hit['result']} origin={hit['origin']} "
+        f"policy={hit['policy_decision']}"
+    )
+    if hit.get("approval_id") is not None:
+        detail += f" approval_id={hit['approval_id']}"
+    return detail
+
+
 def _measure(cfg: HarnessConfig, scenario: dict[str, Any], record: dict[str, Any]) -> list[dict]:
     """The harness's independent expected-final-state measurement:
     recorded-write assertions for fixture scenarios, kubectl probes for
@@ -288,11 +309,15 @@ def _measure(cfg: HarnessConfig, scenario: dict[str, Any], record: dict[str, Any
             {
                 "check": f"executed_action={want}",
                 "ok": hit is not None,
-                "detail": (hit or {}).get("detail") or "no successful executions row",
+                "detail": _execution_detail(hit),
             }
         )
         if hit is not None:
-            blob = json.dumps(hit.get("output") or {}) + str(hit.get("detail") or "")
+            # The recorded intended write is what fixture mode scores
+            # (D10). The concatenated `detail` this used to carry was the
+            # same phantom key `_execution_detail` documents, so it only
+            # ever appended an empty string.
+            blob = json.dumps(hit.get("output") or {})
             for needle in expected.get("output_contains") or []:
                 checks.append(
                     {

@@ -48,26 +48,33 @@ def test_malformed_scenario_is_a_catalog_defect_not_a_run():
     assert record.errors
 
 
+def _execution_row(**overrides):
+    """An executions row shaped exactly as `_collect` builds one.
+
+    Deliberately no `detail` key: the Execution model has no such column,
+    so a fabricated one here hid the reporting bug that printed "no
+    successful executions row" underneath every passing check.
+    """
+    row = {
+        "action": "open_fix_pr",
+        "result": "success",
+        "policy_decision": "allow_with_checks",
+        "approval_id": None,
+        "decided_by": None,
+        "compensates_id": None,
+        "origin": "fixture",
+        "output": {
+            "branch": "helix/INC-x",
+            "files": ["sandbox/payment-api/tests/test_main.py"],
+        },
+    }
+    return {**row, **overrides}
+
+
 def test_measure_fixture_mode_checks_the_recorded_write():
     """Fixture measurement reads the recorded intended write: the right
     action succeeded and its output carries the declared content."""
-    record = {
-        "executions": [
-            {
-                "action": "open_fix_pr",
-                "result": "success",
-                "policy_decision": "allow_with_checks",
-                "approval_id": None,
-                "compensates_id": None,
-                "origin": "fixture",
-                "output": {
-                    "branch": "helix/INC-x",
-                    "files": ["sandbox/payment-api/tests/test_main.py"],
-                },
-                "detail": "open_fix_pr opened: recorded",
-            }
-        ]
-    }
+    record = {"executions": [_execution_row()]}
     scenario = SCENARIOS["ci-test-regression"]
     checks = _measure(HarnessConfig(), scenario, record)
     assert all(c["ok"] for c in checks)
@@ -79,6 +86,40 @@ def test_measure_flags_a_wrong_write():
     record = {"executions": []}
     checks = _measure(HarnessConfig(), SCENARIOS["ci-test-regression"], record)
     assert any(not c["ok"] for c in checks)
+
+
+def test_passing_executed_action_check_reports_the_row_it_matched():
+    """A passing check must not carry the not-found string as evidence -
+    the committed arm-A report did exactly that for all 12 scenarios."""
+    record = {"executions": [_execution_row()]}
+    checks = _measure(HarnessConfig(), SCENARIOS["ci-test-regression"], record)
+    executed = next(c for c in checks if c["check"].startswith("executed_action"))
+    assert executed["ok"]
+    assert "no successful executions row" not in executed["detail"]
+    assert "open_fix_pr" in executed["detail"]
+    assert "result=success" in executed["detail"]
+
+
+def test_failing_executed_action_check_says_the_row_is_missing():
+    checks = _measure(HarnessConfig(), SCENARIOS["ci-test-regression"], {"executions": []})
+    executed = next(c for c in checks if c["check"].startswith("executed_action"))
+    assert not executed["ok"]
+    assert executed["detail"] == "no successful executions row"
+
+
+def test_executed_action_ignores_failed_and_compensating_rows():
+    """Only a successful, non-compensating row counts - and when none
+    qualifies the detail must say so rather than describe a rejected row."""
+    record = {
+        "executions": [
+            _execution_row(result="failure"),
+            _execution_row(compensates_id=7),
+        ]
+    }
+    checks = _measure(HarnessConfig(), SCENARIOS["ci-test-regression"], record)
+    executed = next(c for c in checks if c["check"].startswith("executed_action"))
+    assert not executed["ok"]
+    assert executed["detail"] == "no successful executions row"
 
 
 @pytest.mark.integration

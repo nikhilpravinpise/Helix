@@ -1,4 +1,4 @@
-.PHONY: lint test test-integration test-all serve db-up db-down db-migrate benchmark
+.PHONY: lint test test-integration test-all serve db-up db-down db-migrate benchmark benchmark-tolerance
 
 lint:
 	uv run ruff check .
@@ -30,3 +30,11 @@ db-migrate:
 # benchmark/reports/.
 benchmark:
 	bash scripts/benchmark.sh $(BENCH_ARGS)
+
+# The 1.11 exit criterion's second half: three consecutive runs inside the
+# documented bands (docs/benchmark/tolerance.md). Pass the reports
+# oldest-first; non-zero exit on a gated breach.
+#   make benchmark-tolerance REPORTS="r1.json r2.json r3.json"
+REPORTS ?= benchmark/reports/latest.json
+benchmark-tolerance:
+	uv run python -m benchmark.tolerance $(REPORTS)
