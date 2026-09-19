@@ -128,11 +128,11 @@ def _policy_gate(
     verdict = decide(action, selected.get("params") or {}, state.get("environment") or "")
     policy = verdict.to_state()
     if verdict.decision == PolicyDecision.DENY:
-        if arm == "B":
-            # Arm B has no replan node - a denied action is terminal for it.
+        if arm in ("B", "C"):
+            # Arm B/C have no replan node - a denied action is terminal.
             return _Decision(
                 IncidentStatus.ESCALATED,
-                f"policy denied {verdict.action}: {verdict.reason} (arm B has no replan stage)",
+                f"policy denied {verdict.action}: {verdict.reason} (arm {arm} has no replan stage)",
                 exclude_fingerprint=verdict.fingerprint or None,
                 deny=verdict,
                 policy=policy,
@@ -154,11 +154,11 @@ def _policy_gate(
                 approval=_approval_state(approval),
             )
         if approval is not None and approval.status == ApprovalStatus.REJECTED:
-            if arm == "B":
+            if arm in ("B", "C"):
                 return _Decision(
                     IncidentStatus.ESCALATED,
                     f"approval rejected by {approval.decided_by} for {verdict.action} "
-                    "(arm B has no replan stage)",
+                    f"(arm {arm} has no replan stage)",
                     exclude_fingerprint=verdict.fingerprint,
                     policy=policy,
                     approval=_approval_state(approval),
@@ -275,10 +275,11 @@ def _decide(
     if status == IncidentStatus.VALIDATING:
         validation = state.get("validation")
         if not validation:
-            if arm == "B":
-                # Arm B has no validate node (1.11): its fused selection
-                # goes straight to the shared policy gate - the access
-                # table still applies, the pre-execution check does not.
+            if arm in ("B", "C"):
+                # Arm B/C have no validate node (1.11): their fused
+                # selection goes straight to the shared policy gate - the
+                # access table still applies, the pre-execution check does
+                # not.
                 if not state.get("selected_action"):
                     return _Decision(IncidentStatus.FAILED, "validating without a selected action")
                 return _policy_gate(state, approval, arm)
@@ -317,12 +318,12 @@ def _decide(
                 approval=_approval_state(approval),
             )
         if approval is not None and approval.status == ApprovalStatus.REJECTED:
-            if arm == "B":
-                # Rejection needs a replan; arm B has none - terminal.
+            if arm in ("B", "C"):
+                # Rejection needs a replan; arm B/C have none - terminal.
                 return _Decision(
                     IncidentStatus.ESCALATED,
                     f"approval rejected by {approval.decided_by} for {approval.action} "
-                    "(arm B has no replan stage)",
+                    f"(arm {arm} has no replan stage)",
                     exclude_fingerprint=approval.fingerprint,
                     approval=_approval_state(approval),
                 )
@@ -597,31 +598,37 @@ def coordinator_node(deps: "GraphDeps", arm: str = "E"):
 
 #: Per-arm node key sitting behind the `diagnosing` status (D8). Arm E is
 #: the full graph; B collapses diagnosis+planning into one LLM call; A
-#: replaces the LLM nodes with deterministic rule tables (1.11).
-_DIAGNOSIS_NODE = {"E": "diagnosis", "B": "diagnose_and_plan", "A": "rules_diagnosis"}
+#: replaces the LLM nodes with deterministic rule tables (1.11). C is B
+#: plus retrieval (E6) - identical routing, so it shares B's entry.
+_DIAGNOSIS_NODE = {
+    "E": "diagnosis",
+    "B": "diagnose_and_plan",
+    "C": "diagnose_and_plan",
+    "A": "rules_diagnosis",
+}
 
 #: Per-arm node key behind `remediation_pending` (1.6): E routes to the
-#: real planner, A to its rules variant (1.11 slot), B has no separate
-#: planning step - its fused call lands in 1.11.
-_PLAN_NODE = {"E": "plan", "A": "rules_plan", "B": None}
+#: real planner, A to its rules variant (1.11 slot), B/C have no separate
+#: planning step - their fused call lands in 1.11.
+_PLAN_NODE = {"E": "plan", "A": "rules_plan", "B": None, "C": None}
 
 #: Per-arm node key behind `validating` (1.7): E and A share the real
-#: validate node; B has no validate step at all.
-_VALIDATE_NODE = {"E": "validate", "A": "validate", "B": None}
+#: validate node; B/C have no validate step at all.
+_VALIDATE_NODE = {"E": "validate", "A": "validate", "B": None, "C": None}
 
 #: Per-arm node key behind `executing` (1.8): the real execute node is
 #: shared by every arm (it is pure code - the policy gate lives in the
 #: coordinator's routing plus the executor's own re-check).
-_EXECUTE_NODE = {"E": "execute", "A": "execute", "B": "execute"}
+_EXECUTE_NODE = {"E": "execute", "A": "execute", "B": "execute", "C": "execute"}
 
 #: Per-arm node key behind `verifying` (1.9): E and A share the real
-#: verify node; B drops it (its benchmark harness inspects actual system
+#: verify node; B/C drop it (its benchmark harness inspects actual system
 #: state itself, so the run ends at `verifying` for scoring).
-_VERIFY_NODE = {"E": "verify", "A": "verify", "B": None}
+_VERIFY_NODE = {"E": "verify", "A": "verify", "B": None, "C": None}
 
 #: Per-arm node key for the 1.10 compensation hop: parked at `verifying`
 #: while a failed compensable action still owes an un-undone change.
-_COMPENSATE_NODE = {"E": "compensate", "A": "compensate", "B": None}
+_COMPENSATE_NODE = {"E": "compensate", "A": "compensate", "B": None, "C": None}
 
 
 def make_router(arm: str):

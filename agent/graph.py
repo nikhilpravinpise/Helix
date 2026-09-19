@@ -241,17 +241,18 @@ def _selected_candidate_state(session, incident: models.Incident, arm: str = "E"
     between `helix run` invocations. Any other status starts with no
     selection.
 
-    Arm B additionally reloads at `remediation_pending` (1.11): its fused
-    `diagnose_and_plan` node produced and persisted the selection inside
-    the `diagnosing` hop, and B has no plan node to re-derive it - the
-    reload is what carries a B run from remediation_pending onward."""
+    Arm B and C additionally reload at `remediation_pending` (1.11): their
+    fused `diagnose_and_plan` node produced and persisted the selection
+    inside the `diagnosing` hop, and neither has a plan node to re-derive
+    it - the reload is what carries a B/C run from remediation_pending
+    onward."""
     statuses = {
         IncidentStatus.VALIDATING,
         IncidentStatus.AWAITING_APPROVAL,
         IncidentStatus.EXECUTING,
         IncidentStatus.VERIFYING,
     }
-    if arm == "B":
+    if arm in ("B", "C"):
         statuses.add(IncidentStatus.REMEDIATION_PENDING)
     if IncidentStatus(incident.status) not in statuses:
         return None
@@ -483,13 +484,13 @@ def _intake_node(deps: GraphDeps, arm: str = "E"):
                     # persisted selection reloads so a re-run re-validates
                     # or re-executes it; elsewhere no selection yet.
                     "selected_action": selected,
-                    # Arm B at remediation_pending: the fused node's work
+                    # Arm B/C at remediation_pending: the fused node's work
                     # is already done - with a persisted selection the run
                     # proceeds to validating; without one (the fused call
                     # escalated) plan_complete=True lets the coordinator
                     # land the escalation instead of parking forever.
                     "plan_complete": bool(
-                        arm == "B"
+                        arm in ("B", "C")
                         and IncidentStatus(incident.status) == IncidentStatus.REMEDIATION_PENDING
                     ),
                     "plan_failed": None,

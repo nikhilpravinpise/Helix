@@ -58,10 +58,13 @@ def _persist_selection(
     answer: FusedDiagnosisPlan,
     params: dict[str, Any],
     risk_tier: str,
+    arm_label: str = "B",
 ) -> int:
     """The fused arm's one candidate row: selected=True, rank=1, score 0.0
-    - there is no ranker behind arm B, so the score column records that
-    honestly rather than borrowing arm E's machinery."""
+    - there is no ranker behind arm B/C, so the score column records that
+    honestly rather than borrowing arm E's machinery. `arm_label` records
+    which ablation arm actually produced this row (B or C share this
+    node - hardcoding "B" here would mislabel arm C's provenance)."""
     with deps.session_scope() as session:
         row = models.Candidate(
             incident_id=state["incident_pk"],
@@ -74,7 +77,10 @@ def _persist_selection(
             score=0.0,
             risk_tier=risk_tier,
             selected=True,
-            components={"arm": "B", "selection": "fused single-call selection - no ranker"},
+            components={
+                "arm": arm_label,
+                "selection": "fused single-call selection - no ranker",
+            },
         )
         session.add(row)
         session.flush()
@@ -158,7 +164,8 @@ def diagnose_and_plan_node(deps: "GraphDeps", retrieval: bool = False):
             normalized = validated.model_dump(mode="json")
             tier = spec.risk_tier(validated).value
 
-            candidate_id = _persist_selection(deps, state, answer, normalized, tier)
+            arm_label = "C" if retrieval else "B"
+            candidate_id = _persist_selection(deps, state, answer, normalized, tier, arm_label)
             selected = {
                 "rank": 1,
                 "action": spec.name,
@@ -167,7 +174,7 @@ def diagnose_and_plan_node(deps: "GraphDeps", retrieval: bool = False):
                 "evidence_refs": list(answer.action_evidence_refs),
                 "risk_tier": tier,
                 "score": 0.0,
-                "components": {"arm": "B", "selection": "fused single-call"},
+                "components": {"arm": arm_label, "selection": "fused single-call"},
             }
             outcome["candidates"] = [selected]
             outcome["selected_action"] = {**selected, "candidate_id": candidate_id}

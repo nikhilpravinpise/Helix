@@ -194,6 +194,18 @@ class TestArmComposition:
         assert "diagnosis" not in nodes
         assert "diagnose_and_plan" not in nodes
 
+    def test_arm_c_builds_and_matches_arm_b_composition(self, sqlite_sessions, store):
+        """E6: arm C is B plus retrieval - identical node/edge composition,
+        so it must build without error and share B's node set. Regression
+        test for a coordinator routing bug where make_router's per-arm
+        dicts defined "E"/"B"/"A" but never "C", so build_graph(arm="C")
+        raised KeyError on every call and no arm-C incident could ever
+        advance past intake."""
+        deps, _ = make_deps(sqlite_sessions, FakeLLM(), "cluster/crashloop", store)
+        nodes_b = set(build_graph(deps, arm="B").get_graph().nodes)
+        nodes_c = set(build_graph(deps, arm="C").get_graph().nodes)
+        assert nodes_c == nodes_b
+
     def test_unknown_arm_rejected(self, sqlite_sessions, store):
         deps, _ = make_deps(sqlite_sessions, FakeLLM(), "cluster/crashloop", store)
         with pytest.raises(ValueError):
