@@ -375,7 +375,14 @@ class WorkflowRun(Base):
     while a `running` row exists for the incident, and the partial unique
     index `ux_workflow_runs_one_running` (migration 0002) makes that
     enforceable under concurrency - two transactions cannot both insert a
-    running row. Full lifecycle hardening (stale-run reclamation) is 1.10.
+    running row.
+
+    A `running` row whose process was killed outright never reaches
+    `finish_run`, so it would otherwise block the guard forever.
+    `stale_reason` records why (and by what rule) `helix reclaim`
+    (agent/runner.py::reclaim_stale_run, migration 0010) declared such a
+    row stale and marked it `failed`; NULL means the row ended normally
+    or was never reclaimed.
     """
 
     __tablename__ = "workflow_runs"
@@ -400,6 +407,7 @@ class WorkflowRun(Base):
     status: Mapped[RunStatus] = mapped_column(_run_status_type(), default=RunStatus.RUNNING)
     started_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     ended_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    stale_reason: Mapped[str | None] = mapped_column(Text, nullable=True)
 
     incident: Mapped[Incident] = relationship(back_populates="workflow_runs")
 

@@ -4,12 +4,19 @@ the test's SQLite store and the runner is monkeypatched where the hooks
 call it."""
 
 import json
+from datetime import UTC, datetime, timedelta
 
 import pytest
 from fakes import K8S_SIGNAL, FakeLLM, make_deps
 from sqlalchemy import select
 
-from agent.runner import IncidentNotFoundError, RunResult, run_incident
+from agent.runner import (
+    IncidentNotFoundError,
+    RunResult,
+    reclaim_stale_run,
+    run_incident,
+    start_run,
+)
 from helix.cli import main as helix_main
 from state import models
 from state.intake import intake_signal
@@ -75,6 +82,162 @@ class TestCliRun:
         rc = helix_main(["run", "INC-nope"])
         assert rc == 2
         assert "no such incident" in capsys.readouterr().err
+
+
+class TestReclaimStaleRun:
+    """Orphaned-run recovery (agent/runner.py::reclaim_stale_run): the
+    explicit path that unsticks a workflow_runs row left `running` by a
+    hard-killed process, without ever touching a run genuinely still
+    executing."""
+
+    def _running(self, sessions, incident_id: str) -> int:
+        with sessions() as session:
+            incident = session.scalar(
+                select(models.Incident).where(models.Incident.incident_id == incident_id)
+            )
+            run = start_run(session, incident)
+            return run.id
+
+    def test_no_running_row_is_noop(self, sqlite_sessions, store):
+        """An incident with no running row: reclaim is a no-op, not an
+        error."""
+        incident_id = _make_incident(sqlite_sessions, K8S_SIGNAL)
+        with sqlite_sessions() as session:
+            incident = session.scalar(
+                select(models.Incident).where(models.Incident.incident_id == incident_id)
+            )
+            assert reclaim_stale_run(session, incident, 3600.0) is None
+
+    def test_fresh_run_not_reclaimed(self, sqlite_sessions, store):
+        """A run started moments ago must never be reclaimed, even under
+        a call - the guard exists precisely to prevent two concurrent
+        runs on one incident."""
+        incident_id = _make_incident(sqlite_sessions, K8S_SIGNAL)
+        run_id = self._running(sqlite_sessions, incident_id)
+
+        with sqlite_sessions() as session:
+            incident = session.scalar(
+                select(models.Incident).where(models.Incident.incident_id == incident_id)
+            )
+            assert reclaim_stale_run(session, incident, 3600.0) is None
+
+        with sqlite_sessions() as session:
+            run = session.get(models.WorkflowRun, run_id)
+            assert run.status == models.RunStatus.RUNNING
+            assert run.stale_reason is None
+
+    def test_stale_run_reclaimed(self, sqlite_sessions, store):
+        """A run whose started_at is well past the timeout is declared
+        stale, marked failed, and the reason is recorded on the row."""
+        incident_id = _make_incident(sqlite_sessions, K8S_SIGNAL)
+        run_id = self._running(sqlite_sessions, incident_id)
+        with sqlite_sessions() as session:
+            run = session.get(models.WorkflowRun, run_id)
+            run.started_at = datetime.now(UTC) - timedelta(seconds=7200)
+
+        with sqlite_sessions() as session:
+            incident = session.scalar(
+                select(models.Incident).where(models.Incident.incident_id == incident_id)
+            )
+            reclaimed = reclaim_stale_run(session, incident, 3600.0)
+            assert reclaimed is not None
+            assert reclaimed.id == run_id
+            assert reclaimed.status == models.RunStatus.FAILED
+            assert reclaimed.ended_at is not None
+            assert "HELIX_STALE_RUN_TIMEOUT=3600" in reclaimed.stale_reason
+
+        # The row is no longer `running` - a second reclaim is a no-op,
+        # and a fresh `helix run` can start (the guard is freed).
+        with sqlite_sessions() as session:
+            incident = session.scalar(
+                select(models.Incident).where(models.Incident.incident_id == incident_id)
+            )
+            assert reclaim_stale_run(session, incident, 3600.0) is None
+            start_run(session, incident)  # would raise RunConflictError if not freed
+
+    def test_disabled_timeout_never_reclaims(self, sqlite_sessions, store):
+        """timeout_s <= 0 disables reclamation outright, however stale
+        the row."""
+        incident_id = _make_incident(sqlite_sessions, K8S_SIGNAL)
+        run_id = self._running(sqlite_sessions, incident_id)
+        with sqlite_sessions() as session:
+            run = session.get(models.WorkflowRun, run_id)
+            run.started_at = datetime.now(UTC) - timedelta(days=1)
+
+        with sqlite_sessions() as session:
+            incident = session.scalar(
+                select(models.Incident).where(models.Incident.incident_id == incident_id)
+            )
+            assert reclaim_stale_run(session, incident, 0) is None
+
+
+class TestCliReclaim:
+    """`helix reclaim` - the CLI surface for orphaned-run recovery."""
+
+    def test_unknown_incident(self, sqlite_sessions, store, capsys, monkeypatch):
+        monkeypatch.setattr("state.db.session_scope", lambda *a, **kw: sqlite_sessions())
+        rc = helix_main(["reclaim", "INC-nope"])
+        assert rc == 2
+        assert "no such incident" in capsys.readouterr().err
+
+    def test_no_running_row_is_noop(self, sqlite_sessions, store, capsys, monkeypatch):
+        monkeypatch.setattr("state.db.session_scope", lambda *a, **kw: sqlite_sessions())
+        incident_id = _make_incident(sqlite_sessions, K8S_SIGNAL)
+
+        rc = helix_main(["reclaim", incident_id])
+
+        assert rc == 0
+        assert "nothing to reclaim" in capsys.readouterr().out
+
+    def test_fresh_run_refused(self, sqlite_sessions, store, capsys, monkeypatch):
+        monkeypatch.setattr("state.db.session_scope", lambda *a, **kw: sqlite_sessions())
+        incident_id = _make_incident(sqlite_sessions, K8S_SIGNAL)
+        with sqlite_sessions() as session:
+            incident = session.scalar(
+                select(models.Incident).where(models.Incident.incident_id == incident_id)
+            )
+            start_run(session, incident)
+
+        rc = helix_main(["reclaim", incident_id, "--timeout", "3600"])
+
+        assert rc == 2
+        err = capsys.readouterr().err
+        assert "not reclaimed" in err
+        with sqlite_sessions() as session:
+            incident = session.scalar(
+                select(models.Incident).where(models.Incident.incident_id == incident_id)
+            )
+            running = session.scalar(
+                select(models.WorkflowRun).where(models.WorkflowRun.incident_id == incident.id)
+            )
+            assert running.status == models.RunStatus.RUNNING
+
+    def test_stale_run_reclaimed(self, sqlite_sessions, store, capsys, monkeypatch):
+        monkeypatch.setattr("state.db.session_scope", lambda *a, **kw: sqlite_sessions())
+        incident_id = _make_incident(sqlite_sessions, K8S_SIGNAL)
+        with sqlite_sessions() as session:
+            incident = session.scalar(
+                select(models.Incident).where(models.Incident.incident_id == incident_id)
+            )
+            run = start_run(session, incident)
+            run.started_at = datetime.now(UTC) - timedelta(seconds=7200)
+
+        rc = helix_main(["reclaim", incident_id, "--timeout", "3600"])
+
+        assert rc == 0
+        out = capsys.readouterr().out
+        assert "reclaimed" in out
+        with sqlite_sessions() as session:
+            incident = session.scalar(
+                select(models.Incident).where(models.Incident.incident_id == incident_id)
+            )
+            run = session.scalar(
+                select(models.WorkflowRun).where(models.WorkflowRun.incident_id == incident.id)
+            )
+            assert run.status == models.RunStatus.FAILED
+            assert run.stale_reason is not None
+            # The guard is freed: a fresh run can start.
+            start_run(session, incident)
 
 
 class TestIntakeRunHook:

@@ -17,9 +17,20 @@ input), while the approval gate ends the graph cleanly at
 `awaiting_approval` - that resume re-enters at `intake` and the
 coordinator decides from the persisted status plus the approvals row, so
 it works even with no checkpointer at all. An incident in `failed`
-re-enters via the failed -> diagnosing edge the coordinator owns. A run
-that dies unexpectedly leaves the incident mid-status; the next
-`helix run` picks it up the same way.
+re-enters via the failed -> diagnosing edge the coordinator owns.
+
+A run that dies unexpectedly (SIGTERM, SIGKILL, an OOM kill, a CI or
+harness subprocess timeout) never reaches `finish_run` - the incident is
+left mid-status AND its `workflow_runs` row is left `running` forever,
+which is not the same thing. The row is what the single-active-run guard
+checks, so every later `helix run` for that incident raises
+RunConflictError, not a fresh attempt. There is no automatic recovery
+from this: `helix reclaim INCIDENT_ID` is the explicit, human-invoked
+path that declares such a row stale once it has been `running` longer
+than HELIX_STALE_RUN_TIMEOUT (see `reclaim_stale_run` below) and marks it
+`failed`, recording the rule on the row's `stale_reason`. Only after that
+does the next `helix run` pick the incident up the way a `failed` run
+already does.
 """
 
 from dataclasses import dataclass, field
@@ -114,6 +125,58 @@ def finish_run(session: Session, run_id: int, status: models.RunStatus) -> None:
     run.status = status
     run.ended_at = None if status == models.RunStatus.SUSPENDED else datetime.now(UTC)
     session.flush()
+
+
+def reclaim_stale_run(
+    session: Session,
+    incident: models.Incident,
+    timeout_s: float,
+    *,
+    now: datetime | None = None,
+) -> models.WorkflowRun | None:
+    """Orphaned-run recovery: declare a `running` workflow_runs row stale
+    and mark it `failed`, freeing the single-active-run guard.
+
+    Only `helix reclaim` calls this - nothing in `run_incident` does, on
+    purpose. A run genuinely still executing must never be reclaimed, so
+    the rule is conservative: the row's age since `started_at` must
+    exceed `timeout_s` (HELIX_STALE_RUN_TIMEOUT). Returns None - and
+    changes nothing - when there is no `running` row for the incident, or
+    when one exists but is not yet old enough; `timeout_s <= 0` disables
+    reclamation outright. `incident.status` is left untouched: the
+    incident stays wherever the killed run left it, and the next
+    `helix run` re-enters through the same coordinator logic a `failed`
+    run status already uses.
+
+    The reclaim is recorded, not silent: the row's `stale_reason` names
+    the age and the threshold it exceeded, so an operator (or provenance)
+    can see a run was declared stale and by what rule.
+    """
+    if timeout_s <= 0:
+        return None
+    running = session.scalar(
+        select(models.WorkflowRun)
+        .where(models.WorkflowRun.incident_id == incident.id)
+        .where(models.WorkflowRun.status == models.RunStatus.RUNNING)
+        .order_by(models.WorkflowRun.id.desc())
+        .limit(1)
+    )
+    if running is None:
+        return None
+    now = now or datetime.now(UTC)
+    started = running.started_at
+    if started.tzinfo is None:  # SQLite round-trips naive datetimes
+        started = started.replace(tzinfo=UTC)
+    age = (now - started).total_seconds()
+    if age <= timeout_s:
+        return None
+    running.status = models.RunStatus.FAILED
+    running.ended_at = now
+    running.stale_reason = (
+        f"reclaimed: running for {int(age)}s exceeds HELIX_STALE_RUN_TIMEOUT={int(timeout_s)}s"
+    )
+    session.flush()
+    return running
 
 
 def _latest_hypothesis(session: Session, incident_pk: int) -> dict[str, Any] | None:

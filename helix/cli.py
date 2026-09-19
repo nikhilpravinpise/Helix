@@ -5,7 +5,10 @@ Implemented so far: `serve` (uvicorn over helix/api.py), `intake` (read a
 signal JSON file or stdin, call the same state.intake.intake_signal the
 API uses - no server needed, D6; `--run` then drives the workflow
 in-process), `incidents` (list incidents), `run` (drive an incident's
-workflow graph to its next stopping point), the 1.8 approval surface
+workflow graph to its next stopping point), `reclaim` (declare a stuck
+`running` workflow run stale after a hard-killed process and mark it
+failed, freeing the single-active-run guard - explicit, never automatic),
+the 1.8 approval surface
 (`approvals` lists the gate's pending/decided rows; `approve`/`reject`
 record the decision on an incident's pending approvals row and resume
 the suspended run), and `provenance` (1.9 - print an incident's decision
@@ -52,6 +55,22 @@ def build_parser() -> argparse.ArgumentParser:
         "when policy requires a decision)",
     )
     run.add_argument("incident_id", metavar="INC_ID", help="the incident id (INC-*)")
+
+    reclaim = subparsers.add_parser(
+        "reclaim",
+        help="declare an incident's stuck `running` workflow run stale and mark it "
+        "failed, freeing the single-active-run guard so `helix run` can start "
+        "fresh; a run still within HELIX_STALE_RUN_TIMEOUT is refused, never "
+        "reclaimed, and an incident with no running row is a no-op",
+    )
+    reclaim.add_argument("incident_id", metavar="INC_ID", help="the incident id (INC-*)")
+    reclaim.add_argument(
+        "--timeout",
+        type=float,
+        default=None,
+        metavar="SECONDS",
+        help="override HELIX_STALE_RUN_TIMEOUT for this call",
+    )
 
     approvals = subparsers.add_parser(
         "approvals",
@@ -248,6 +267,65 @@ def _cmd_run(args: argparse.Namespace) -> int:
     if result.error:
         print(f"helix run: run failed: {result.error}", file=sys.stderr)
         return 1
+    return 0
+
+
+def _cmd_reclaim(args: argparse.Namespace) -> int:
+    """Explicit, human-invoked orphaned-run recovery (never automatic):
+    declare an incident's stuck `running` workflow run stale and mark it
+    `failed`, so a hard-killed process (SIGKILL, an OOM kill, a CI/harness
+    subprocess timeout) can no longer block every later `helix run` for
+    that incident with RunConflictError.
+
+    No running row is a no-op (exit 0) - nothing to reclaim. A running
+    row younger than the timeout is refused, not reclaimed (exit 2) - a
+    run genuinely still executing is never touched."""
+    from sqlalchemy import select
+    from sqlalchemy.exc import SQLAlchemyError
+
+    from agent.runner import reclaim_stale_run
+    from helix.config import get_settings
+    from state import models
+    from state.db import session_scope
+
+    timeout_s = args.timeout if args.timeout is not None else get_settings().stale_run_timeout
+
+    try:
+        with session_scope() as session:
+            incident = session.scalar(
+                select(models.Incident).where(models.Incident.incident_id == args.incident_id)
+            )
+            if incident is None:
+                print(f"helix reclaim: no such incident: {args.incident_id}", file=sys.stderr)
+                return 2
+            running = session.scalar(
+                select(models.WorkflowRun)
+                .where(models.WorkflowRun.incident_id == incident.id)
+                .where(models.WorkflowRun.status == models.RunStatus.RUNNING)
+                .order_by(models.WorkflowRun.id.desc())
+                .limit(1)
+            )
+            if running is None:
+                print(f"{args.incident_id}: no running workflow run - nothing to reclaim")
+                return 0
+            run_id = running.id
+            reclaimed = reclaim_stale_run(session, incident, timeout_s)
+            if reclaimed is None:
+                print(
+                    f"helix reclaim: {args.incident_id}: workflow run {run_id} is still "
+                    f"within HELIX_STALE_RUN_TIMEOUT={int(timeout_s)}s - not reclaimed",
+                    file=sys.stderr,
+                )
+                return 2
+            stale_reason = reclaimed.stale_reason
+    except SQLAlchemyError as exc:
+        print(
+            f"helix reclaim: database error (is Postgres up? see scripts/db-up.sh): {exc}",
+            file=sys.stderr,
+        )
+        return 1
+
+    print(f"{args.incident_id}: workflow run {run_id} reclaimed - {stale_reason}")
     return 0
 
 
@@ -504,6 +582,8 @@ def main(argv: list[str] | None = None) -> int:
         return _cmd_incidents()
     if args.command == "run":
         return _cmd_run(args)
+    if args.command == "reclaim":
+        return _cmd_reclaim(args)
     if args.command == "approvals":
         return _cmd_approvals(args)
     if args.command == "approve":

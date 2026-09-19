@@ -125,6 +125,16 @@ class Settings(BaseSettings):
     approval_timeout: float = 86400.0
     step_timeout: float = 600.0
 
+    # Orphaned-run recovery. A hard-killed run process (SIGKILL, an OOM
+    # kill, a CI/harness subprocess timeout) never reaches finish_run, so
+    # its workflow_runs row stays `running` forever and blocks the
+    # single-active-run guard. stale_run_timeout is how long such a row
+    # may sit `running` before the explicit `helix reclaim` command (never
+    # automatic) will declare it stale and mark it `failed`. Conservative
+    # by default: comfortably above step_timeout, since a genuinely
+    # running incident can occupy several graph nodes in sequence.
+    stale_run_timeout: float = 3600.0
+
     def allowed_kube_context_set(self) -> frozenset[str]:
         """HELIX_ALLOWED_KUBE_CONTEXTS parsed into a set of context names."""
         return frozenset(
