@@ -33,6 +33,42 @@ itself). An arm-B run that reached `verifying` with a successful measured
 execution "did the right write without verifying it" - the ablation's
 point.
 
+### Cross-arm contamination and isolation
+
+A multi-arm invocation (`--arm B --arm C --arm E`, for instance) runs
+every arm against the SAME Postgres with the SAME scenario catalog, so
+each arm emits the identical signal for a given scenario that every other
+arm emits. `state/intake.py`'s dedup is fingerprint-based
+(`source | service | environment | signature`) and correctly attaches a
+repeated signal to any OPEN (non-terminal) incident sharing that
+fingerprint - that is Phase 1 dedup working exactly as designed, not a
+bug to route around.
+
+This was observed for real: running `--arm B --arm C` in one invocation
+left arm B's incidents parked at `verifying` (arm B's designed end state,
+above - not terminal). Arm C then ran the same scenarios, and its
+identical signals attached to arm B's still-open incidents instead of
+opening their own. An incident at `verifying` does no further LLM work,
+so several of arm C's scenarios reported hypothesis, selected-action and
+verification data that arm B had produced - arm C's scores for those
+scenarios were inherited, not measured, and looked completely plausible
+in the report.
+
+The fix lives entirely in the harness, not in dedup: `run_benchmark`
+tracks every incident an arm's scenarios touched and, once that arm's
+full pass is done and another arm is still queued behind it, force-closes
+any of those incidents that are not already terminal
+(`benchmark/harness.py:_close_arm_incidents`, via the same validated
+`state.machine.transition` every other status change in Helix uses - the
+same effect open_incident dedup respects). A single-arm invocation never
+calls this, so single-arm behavior is unchanged. It only protects against
+contamination WITHIN one invocation; it does not clean up incidents left
+open by an earlier, separate benchmark run - a fresh database (or a
+manual truncate) between full benchmark runs is still an operator
+responsibility. Anyone reading a future multi-arm ablation table should
+know this was the failure mode caught and closed before real
+(non-arm-A) numbers were ever produced.
+
 ## Injection modes (D10)
 
 - **`inject: live`** runs `scripts/<fault_script>` against the kind

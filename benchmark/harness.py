@@ -29,6 +29,19 @@ Flow per (scenario, arm):
 
 The harness never short-circuits the graph: everything it scores was
 produced by real node executions against real durable state.
+
+Cross-arm isolation: a multi-arm invocation (`--arm B --arm C`) runs
+every arm against the SAME Postgres with the SAME scenario catalog, so
+arm N+1 emits the identical signal arm N just emitted. `state/intake.py`
+correctly attaches a repeated signal to any OPEN incident sharing its
+fingerprint - that is Phase 1 dedup working as designed, not a bug. But
+if arm N left its incident non-terminal (arm B's designed end state is
+`verifying`, which is not in `state.machine.TERMINAL_STATUSES`; a stuck
+approval or an exhausted hop bound can park any arm the same way), arm
+N+1's identical signal silently attaches to arm N's still-open incident
+instead of opening its own, and inherits arm N's hypothesis, selected
+action and verification data. See `_close_arm_incidents` for the fix and
+docs/benchmark/methodology.md for the contamination this was caught from.
 """
 
 import argparse
@@ -56,7 +69,7 @@ from helix.config import get_settings
 from state import models
 from state.db import session_scope
 from state.intake import Signal, build_event
-from state.machine import IncidentStatus
+from state.machine import TERMINAL_STATUSES, IncidentStatus, transition
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 REPORTS_DIR = REPO_ROOT / "benchmark" / "reports"
@@ -253,6 +266,65 @@ def _session_factory(cfg: HarnessConfig):
     url = cfg.database_url or get_settings().database_url
     engine = create_engine(url)
     return lambda: session_scope(engine)
+
+
+def _close_arm_incidents(database_url: str, incident_ids: set[str], arm: str) -> None:
+    """Force every incident `arm` touched into a terminal status, so the
+    next arm in this invocation cannot attach to it (see module docstring).
+
+    Why this shape, over the alternative: the other option considered was
+    scoping the harness's signal fingerprint per arm (e.g. folding `arm`
+    into `service` before intake), which avoids the collision without
+    mutating any status at all. It was rejected because `agent/graph.py`
+    reads `incident.service` straight into the state the LLM reasons over
+    (the `"service": incident.service` entry built in the intake node) -
+    arm-scoping it would mean arms B/C/E diagnose against a fabricated
+    service name instead of the real one, which is a second, subtler form
+    of exactly the contamination this function exists to remove. Closing
+    the incident instead touches no field the graph ever reads.
+
+    Every status change goes through `state.machine.transition` - the same
+    validated, event-emitting path every other transition in Helix uses.
+    `state/intake.py`'s dedup rule (attach-to-open-incident-by-fingerprint)
+    is never touched or special-cased; this only ever changes which
+    incidents are OPEN when the next arm's intake runs.
+
+    Tradeoff accepted, stated plainly: ESCALATED is not literally true of
+    every incident this closes - an arm-A run that actually recovered
+    would, if closed, be relabelled ESCALATED in the `incidents` table.
+    (In practice arm A's own drive loop already ends at a terminal status
+    for a scenario it completes, so this is a no-op for it; the case that
+    matters is arm B's designed `verifying` end-state and any arm that
+    parks on a stuck approval or an exhausted hop bound.) No row is
+    deleted, the transition's `cause` records exactly why the change
+    happened, and the true observed final status is already captured in
+    the benchmark report (`OutcomeRecord.final_status`) before this runs -
+    the report never reads it back off the mutated incident. This also
+    only ever fires BETWEEN arms of one multi-arm invocation (see the
+    `arm_index` guard in `run_benchmark`): a single-arm run never calls
+    this, so single-arm behaviour is unchanged. It does not, and is not
+    meant to, clean up incidents left open by an earlier SEPARATE
+    benchmark invocation - an operator wanting a clean slate across full
+    benchmark runs still needs a fresh database or a manual truncate.
+    """
+    engine = create_engine(database_url)
+    with session_scope(engine) as session:
+        for incident_id in incident_ids:
+            incident = session.scalar(
+                select(models.Incident).where(models.Incident.incident_id == incident_id)
+            )
+            if incident is None or IncidentStatus(incident.status) in TERMINAL_STATUSES:
+                continue  # already terminal (or gone) - nothing to isolate
+            transition(
+                incident,
+                IncidentStatus.ESCALATED,
+                cause=(
+                    f"benchmark isolation: force-closed after arm {arm} finished so a "
+                    "later arm's identical signal cannot attach to this incident "
+                    "(benchmark/harness.py:_close_arm_incidents)"
+                ),
+                session=session,
+            )
 
 
 def _current_status(database_url: str, incident_id: str) -> str | None:
@@ -550,14 +622,24 @@ def run_benchmark(cfg: HarnessConfig) -> dict[str, Any]:
     scenarios = catalog.load_scenarios()
     if cfg.scenarios:
         scenarios = {k: v for k, v in scenarios.items() if k in set(cfg.scenarios)}
+    database_url = cfg.database_url or get_settings().database_url
     outcomes: list[Any] = []
-    for arm in cfg.arms:
+    for arm_index, arm in enumerate(cfg.arms):
+        touched: set[str] = set()
         for name, scenario in scenarios.items():
             record = run_scenario(name, scenario, arm, cfg)
+            if record.incident_id:
+                touched.add(record.incident_id)
             scored = score_outcome(record, scenario)
             outcomes.append(scored)
             tag = record.skipped or record.final_status or "?"
             print(f"[{arm}] {name}: {tag}", file=sys.stderr)
+        # Cross-arm isolation (see module docstring + _close_arm_incidents):
+        # only runs when another arm is still queued behind this one, so a
+        # single-arm invocation never calls this and behaves exactly as
+        # before.
+        if arm_index < len(cfg.arms) - 1 and touched:
+            _close_arm_incidents(database_url, touched, arm)
     report = {
         "generated_at": datetime.now(UTC).isoformat(),
         "arms": cfg.arms,

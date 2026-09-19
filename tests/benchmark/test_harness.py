@@ -9,7 +9,7 @@ import pytest
 from sqlalchemy import create_engine, select
 from sqlalchemy.orm import Session
 
-from benchmark import catalog
+from benchmark import catalog, harness
 from benchmark.harness import (
     HarnessConfig,
     _collect,
@@ -19,7 +19,11 @@ from benchmark.harness import (
     run_benchmark,
     run_scenario,
 )
+from benchmark.scoring import OutcomeRecord
 from state import models
+from state.db import session_scope
+from state.intake import Signal, intake_signal
+from state.machine import TERMINAL_STATUSES, IncidentStatus, transition
 
 SCENARIOS = catalog.load_scenarios()
 BAD_URL = "postgresql+psycopg://helix:helix@127.0.0.1:59999/helix"
@@ -245,6 +249,107 @@ def test_run_benchmark_default_path_is_direct():
     cfg = HarnessConfig(arms=["A"], scenarios=["does-not-exist"])
     report = run_benchmark(cfg)
     assert report["path"] == "direct"
+
+
+class TestCrossArmIsolation:
+    """Reproduces, and proves the fix for, the contamination mode in
+    docs/benchmark/methodology.md: `--arm B --arm C` run in one invocation
+    let arm C's identical signal attach to arm B's still-open (`verifying`)
+    incident, so arm C's scored result was actually arm B's.
+
+    Arms B/C/E need HELIX_LLM_API_KEY, unavailable here, so `run_scenario`
+    is replaced with a fake that drives the REAL dedup path
+    (`state.intake.intake_signal`) and the REAL state machine
+    (`state.machine.transition`) directly - the same functions `helix
+    intake`/`helix run` would call - and simulates arm B's actual documented
+    end state (parked at `verifying`, which is not terminal) by walking
+    real, validated transition edges. `run_benchmark`'s arm loop and
+    `harness._close_arm_incidents` are exercised for real; nothing in
+    `state/intake.py` is touched, weakened, or special-cased.
+    """
+
+    SIGNAL = {
+        "source": "kubernetes",
+        "service": "payment-api",
+        "environment": "sandbox",
+        "severity": "medium",
+        "signature": {"waiting_reason": "CrashLoopBackOff", "container": "payment-api"},
+        "raw": {},
+    }
+
+    def _fake_run_scenario(self, name, scenario, arm, cfg):
+        """Stand-in for the LLM-requiring arms: intakes the identical
+        signal through the real dedup path and, for arm B, drives the
+        incident to its real designed park state (`verifying`)."""
+        engine = create_engine(cfg.database_url)
+        with session_scope(engine) as session:
+            result = intake_signal(session, Signal.model_validate(self.SIGNAL))
+            incident = session.scalar(
+                select(models.Incident).where(models.Incident.incident_id == result.incident_id)
+            )
+            if arm == "B":
+                for status in (
+                    IncidentStatus.DIAGNOSING,
+                    IncidentStatus.REMEDIATION_PENDING,
+                    IncidentStatus.VALIDATING,
+                    IncidentStatus.EXECUTING,
+                    IncidentStatus.VERIFYING,
+                ):
+                    transition(incident, status, cause="simulated arm B drive", session=session)
+            final_status = IncidentStatus(incident.status).value
+        record = OutcomeRecord(scenario=name, arm=arm)
+        record.incident_id = result.incident_id
+        record.final_status = final_status
+        return record
+
+    def test_arm_c_does_not_inherit_arm_bs_open_incident(self, tmp_path, monkeypatch):
+        db_url = f"sqlite:///{tmp_path / 'isolation.db'}"
+        engine = create_engine(db_url)
+        models.Base.metadata.create_all(engine)
+
+        monkeypatch.setattr(harness, "run_scenario", self._fake_run_scenario)
+        cfg = HarnessConfig(arms=["B", "C"], scenarios=["ci-test-regression"], database_url=db_url)
+        report = run_benchmark(cfg)
+
+        b_outcome, c_outcome = report["outcomes"]
+        assert b_outcome["final_status"] == "verifying"
+        assert b_outcome["incident_id"] != c_outcome["incident_id"], (
+            "arm C attached to arm B's still-open incident - cross-arm contamination"
+        )
+        # Structural proof, not just "different id": arm B's incident must
+        # now be terminal, so a THIRD arm's identical signal cannot attach
+        # to it either.
+        with Session(engine) as session:
+            b_incident = session.scalar(
+                select(models.Incident).where(
+                    models.Incident.incident_id == b_outcome["incident_id"]
+                )
+            )
+            assert IncidentStatus(b_incident.status) in TERMINAL_STATUSES
+
+    def test_single_arm_never_closes_its_own_incidents(self, tmp_path, monkeypatch):
+        """Rule 4: a single-arm invocation must behave exactly as today -
+        `_close_arm_incidents` must never run when there is no later arm to
+        protect against, so a lone arm's incident is left exactly as its
+        own drive loop left it."""
+        db_url = f"sqlite:///{tmp_path / 'single-arm.db'}"
+        engine = create_engine(db_url)
+        models.Base.metadata.create_all(engine)
+
+        monkeypatch.setattr(harness, "run_scenario", self._fake_run_scenario)
+        cfg = HarnessConfig(arms=["B"], scenarios=["ci-test-regression"], database_url=db_url)
+        report = run_benchmark(cfg)
+
+        (b_outcome,) = report["outcomes"]
+        assert b_outcome["final_status"] == "verifying"
+        with Session(engine) as session:
+            incident = session.scalar(
+                select(models.Incident).where(
+                    models.Incident.incident_id == b_outcome["incident_id"]
+                )
+            )
+            # Untouched: still parked at verifying, not force-closed.
+            assert IncidentStatus(incident.status) == IncidentStatus.VERIFYING
 
 
 @pytest.mark.integration
