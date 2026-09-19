@@ -25,13 +25,20 @@ actually handles have no honest label without it?
   section 7 says to expand only when a real workflow needs another event,
   and neither does.
 
-- **`service.unhealthy` - accepted.** The recorded `dependency-failure`
-  fault leaves the pod `Running` with no restarts, failing readiness
-  because its downstream was scaled to zero. Nothing died and nothing was
-  rolling out, so both `pod.failed` and `deployment.failed` would be
-  false. No Phase 1 signal produces it yet - it has no classifier rule in
-  `events.classify` - but the fault is real and recorded, and the E3
-  Kubernetes adapter is where it starts arriving.
+- **`service.unhealthy` - accepted.** The captured `config-mismatch`
+  fault holds a pod that is `phase: Running` with its container running
+  and its `Ready` condition `False`: up, and not serving. Nothing died and
+  nothing about that pod is a deployment, so `pod.failed` and
+  `deployment.failed` would both be false. No Phase 1 *signal* produces it
+  - it has no rule in `events.classify` - but the E3 Kubernetes adapter
+  emits it from exactly this pod shape.
+
+  E1 originally justified this with `dependency-failure` instead, on the
+  reasoning that scaling its downstream to zero would fail readiness.
+  Checking the fixture in E3 showed that pod is `Ready: True` - the
+  sandbox deployment declares no readiness probe, so `/ready` returning
+  503 to a caller never reaches the pod's conditions. The decision stands
+  and its evidence is now a pod that actually exhibits the state.
 
 - **`branch.diverged` - added.** Not part of the original discrepancy,
   and forced by evidence: the `stale-branch` scenario signals
@@ -65,6 +72,7 @@ top-level field is a producer bug, and silently accepting it would let a
 misspelled `servcie` through as free-form data.
 """
 
+import hashlib
 import secrets
 from datetime import UTC, datetime
 from enum import StrEnum
@@ -127,11 +135,32 @@ class EventType(StrEnum):
 def new_event_id() -> str:
     """`evt_<12 hex>`, matching CONTEXT.md section 7's `evt_123` shape.
 
-    Random for now. E3 makes ids derived rather than random, so that a
-    redelivered vendor webhook yields the same id; that needs the vendor
-    payload's own identity, which does not exist yet at E1.
+    Random, for events with no vendor payload behind them to derive an
+    identity from - Helix's own lifecycle events, and the Phase 1 signal
+    path. Anything built from a vendor payload uses `derive_event_id`
+    instead.
     """
     return f"evt_{secrets.token_hex(6)}"
+
+
+def derive_event_id(source: str, *parts: object) -> str:
+    """A stable id for an event built from a vendor payload (E3).
+
+    The E3 idempotency requirement is that a redelivered vendor webhook
+    yields the same event id, so the id has to be a function of the
+    payload's own identity rather than of when it arrived. `parts` is that
+    natural key - a Kubernetes object uid, a Jenkins job and build number,
+    a GitHub review id - and it must contain only fields the vendor
+    repeats verbatim on redelivery. Anything that varies between
+    deliveries (a receive timestamp, a queue offset) would defeat the
+    whole mechanism.
+
+    Truncated to 12 hex characters to match `new_event_id`'s shape. That
+    is 48 bits, which is ample for a deduplication window and is not
+    offered as a cryptographic guarantee.
+    """
+    material = "|".join([str(source), *(str(p) for p in parts)])
+    return f"evt_{hashlib.sha256(material.encode()).hexdigest()[:12]}"
 
 
 class EngineeringEvent(BaseModel):
