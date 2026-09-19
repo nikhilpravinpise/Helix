@@ -89,6 +89,46 @@ class TestFaultSignature:
         signal = Signal.model_validate(JENKINS_SIGNAL)
         assert fault_signature(signal) == {"job": "payment-api", "stage": "Test"}
 
+    def test_kubernetes_projects_termination_reason(self):
+        """`terminated_reason` separates crashloop from oom-killed; without
+        it both are CrashLoopBackOff on the same container."""
+        signal = Signal.model_validate(
+            {
+                "source": "kubernetes",
+                "service": "payment-api",
+                "signature": {
+                    "waiting_reason": "CrashLoopBackOff",
+                    "container": "payment-api",
+                    "terminated_reason": "OOMKilled",
+                    "exit_code": 137,
+                },
+            }
+        )
+        assert fault_signature(signal) == {
+            "waiting_reason": "CrashLoopBackOff",
+            "container": "payment-api",
+            "terminated_reason": "OOMKilled",
+        }
+
+    def test_signal_without_termination_reason_is_unaffected(self):
+        """ImagePullBackOff carries no termination reason - the projection
+        takes only keys that are present, so its fingerprint is unchanged."""
+        signal = Signal.model_validate(
+            {
+                "source": "kubernetes",
+                "service": "payment-api",
+                "signature": {
+                    "waiting_reason": "ImagePullBackOff",
+                    "container": "payment-api",
+                    "image": "payment-api:doesnotexist",
+                },
+            }
+        )
+        assert fault_signature(signal) == {
+            "waiting_reason": "ImagePullBackOff",
+            "container": "payment-api",
+        }
+
     def test_unknown_keys_fall_back_to_whole_signature(self):
         # A k8s signal carrying none of the documented keys: whole
         # signature is used - deterministic, biased to separate incidents.
@@ -184,6 +224,45 @@ class TestIntakeDedup:
             assert len(incident.transitions) == 1
             assert incident.transitions[0].from_status is None
             assert incident.transitions[0].to_status == IncidentStatus.RECEIVED
+
+    def test_crashloop_and_oom_do_not_share_an_incident(self, pg):
+        """Two distinct faults with distinct optimal actions must not
+        collide in dedup. They previously fingerprinted identically, so an
+        OOM signal arriving while a crashloop incident was open attached to
+        it and inherited the crashloop diagnosis - reapply_manifest instead
+        of rollback_deployment. Stale open incidents from killed runs are
+        the documented trigger, so the open-incident path is what matters
+        here, not the terminal one."""
+        crashloop = {
+            "source": "kubernetes",
+            "service": "payment-api",
+            "signature": {
+                "waiting_reason": "CrashLoopBackOff",
+                "container": "payment-api",
+                "terminated_reason": "Error",
+                "exit_code": 1,
+            },
+        }
+        oom = {
+            "source": "kubernetes",
+            "service": "payment-api",
+            "signature": {
+                "waiting_reason": "CrashLoopBackOff",
+                "container": "payment-api",
+                "terminated_reason": "OOMKilled",
+                "exit_code": 137,
+            },
+        }
+        with session_scope(pg) as session:
+            first = intake_signal(session, crashloop)
+        with session_scope(pg) as session:
+            second = intake_signal(session, oom)
+
+        assert first.created is True
+        assert second.created is True, "OOM attached to the still-open crashloop incident"
+        assert first.incident_id != second.incident_id
+        with session_scope(pg) as session:
+            assert _count(session, models.Incident) == 2
 
     def test_terminal_incident_same_fingerprint_new_incident(self, pg):
         with session_scope(pg) as session:

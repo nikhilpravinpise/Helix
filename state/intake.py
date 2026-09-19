@@ -71,10 +71,24 @@ class IntakeResult(BaseModel):
 #: The signature keys that identify a fault, per source. Only these fields
 #: feed the fingerprint, so volatile fields elsewhere in `signature` (pod
 #: name suffixes, build numbers) cannot split one failure into multiple
-#: incidents. kubernetes: pod waiting reason + container name; jenkins:
-#: job + failing stage.
+#: incidents. kubernetes: pod waiting reason + container name + how the
+#: container last terminated; jenkins: job + failing stage.
+#:
+#: `terminated_reason` is load-bearing, not decoration. Without it
+#: `crashloop` and `oom-killed` are indistinguishable - both are
+#: CrashLoopBackOff on container payment-api, and only the termination
+#: reason (Error vs OOMKilled) separates them. They fingerprinted
+#: identically, so an OOM signal arriving while a crashloop incident was
+#: still open attached to it instead of opening its own, and was then
+#: diagnosed as a crashloop: reapply_manifest rather than the
+#: rollback_deployment an OOM needs. Stale open incidents from killed runs
+#: are a documented occurrence, which is exactly when this fires.
+#:
+#: Signals that carry no `terminated_reason` (ImagePullBackOff,
+#: CreateContainerConfigError) are unaffected: the projection only takes
+#: keys that are present.
 _FAULT_KEYS: dict[SignalSource, tuple[str, ...]] = {
-    SignalSource.KUBERNETES: ("waiting_reason", "container"),
+    SignalSource.KUBERNETES: ("waiting_reason", "container", "terminated_reason"),
     SignalSource.JENKINS: ("job", "stage"),
 }
 
