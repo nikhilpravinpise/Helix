@@ -94,6 +94,32 @@ def build_parser() -> argparse.ArgumentParser:
     )
     provenance.add_argument("incident_id", metavar="INC_ID", help="the incident id (INC-*)")
 
+    consume = subparsers.add_parser(
+        "consume",
+        help="consume canonical events from Kafka and drive incident state "
+        "(subphase E4); correlates across sources and is safe to re-run, "
+        "because a replayed event is recorded once and executes nothing",
+    )
+    consume.add_argument(
+        "--group",
+        default="helix-ingest",
+        help="consumer group id (default: helix-ingest). A new group reads "
+        "from the beginning with --from-beginning; an existing one always "
+        "resumes from its committed offsets",
+    )
+    consume.add_argument(
+        "--from-beginning",
+        action="store_true",
+        help="for a new group, start at the oldest retained event instead of "
+        "only what arrives from now on",
+    )
+    consume.add_argument(
+        "--max-events",
+        type=int,
+        default=None,
+        help="stop after handling this many events (default: run until the topic goes quiet)",
+    )
+
     return parser
 
 
@@ -380,6 +406,32 @@ def _cmd_decide(args: argparse.Namespace, approved: bool) -> int:
     return 0
 
 
+def _cmd_consume(args: argparse.Namespace) -> int:
+    """Drive incident state from the event stream (subphase E4).
+
+    Each event is handled in its own transaction, so one failure cannot
+    roll back the incidents its predecessors opened, and the redelivery
+    that follows is harmless because ingest is idempotent.
+    """
+    import functools
+
+    from sqlalchemy import create_engine
+
+    from events.ingest import run_consumer
+    from helix.config import get_settings
+    from state.db import session_scope
+
+    engine = create_engine(get_settings().database_url)
+    handled = run_consumer(
+        functools.partial(session_scope, engine),
+        group_id=args.group,
+        max_events=args.max_events,
+        from_beginning=args.from_beginning,
+    )
+    print(f"handled {handled} event(s)")
+    return 0
+
+
 def _cmd_provenance(args: argparse.Namespace) -> int:
     """Print the incident's decision-provenance record as Markdown -
     state.provenance.render_markdown over the assembled record."""
@@ -424,6 +476,8 @@ def main(argv: list[str] | None = None) -> int:
         return _cmd_decide(args, approved=True)
     if args.command == "reject":
         return _cmd_decide(args, approved=False)
+    if args.command == "consume":
+        return _cmd_consume(args)
     if args.command == "provenance":
         return _cmd_provenance(args)
     return 2

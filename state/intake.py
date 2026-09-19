@@ -11,11 +11,14 @@ matching an OPEN (non-terminal) incident's fingerprint attaches as another
 a terminal incident's fingerprint starts a NEW incident - a recovered or
 failed failure surfacing again is a new occurrence, not a continuation.
 
-KNOWN LIMITATION: dedup is same-source only. One underlying failure
-surfacing as both a Jenkins and a Kubernetes signal produces two incidents;
-cross-source correlation is Phase 1.5 (E4) territory. Also, two signals
-arriving concurrently on different sessions can race past the open-incident
-lookup and create two incidents - bounded-concurrency handling is 1.10.
+KNOWN LIMITATION: dedup on THIS path is same-source only. One underlying
+failure surfacing as both a Jenkins and a Kubernetes signal produces two
+incidents. Subphase E4 lifts that, but for the event stream rather than
+here: `events.ingest` correlates across sources by shared token, and the
+signal path is left alone deliberately so Phase 1 behaviour stays
+unchanged. Also, two signals arriving concurrently on different sessions
+can race past the open-incident lookup and create two incidents -
+bounded-concurrency handling is 1.10.
 """
 
 import hashlib

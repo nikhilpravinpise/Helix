@@ -136,6 +136,12 @@ class Incident(Base):
     verifications: Mapped[list["Verification"]] = relationship(
         back_populates="incident", order_by="Verification.id"
     )
+    event_records: Mapped[list["EventRecord"]] = relationship(
+        back_populates="incident", order_by="EventRecord.id"
+    )
+    correlation_tokens: Mapped[list["CorrelationToken"]] = relationship(
+        back_populates="incident", order_by="CorrelationToken.id"
+    )
 
 
 class Signal(Base):
@@ -677,3 +683,62 @@ class Verification(Base):
     incident: Mapped[Incident] = relationship(back_populates="verifications")
     execution: Mapped[Execution | None] = relationship()
     candidate: Mapped[Candidate | None] = relationship()
+
+
+class EventRecord(Base):
+    """One canonical event consumed from the stream (subphase E4).
+
+    The unique index on `event_id` is what makes replay a no-op rather
+    than a convention: E3 derives event ids from the vendor payload's
+    natural key, so a redelivered webhook produces the same id, and the
+    index turns "already handled" into a database fact. The consumer looks
+    the id up and returns the incident it landed on the first time instead
+    of driving state again.
+
+    `envelope` keeps the whole event as received. E5 builds its durable
+    history and replay on this column; storing only the fields E4 happens
+    to need would mean re-ingesting to get the rest.
+    """
+
+    __tablename__ = "event_records"
+    __table_args__ = (Index("ux_event_records_event_id", "event_id", unique=True),)
+
+    id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
+    incident_id: Mapped[int] = mapped_column(
+        ForeignKey("incidents.id", ondelete="CASCADE"), index=True
+    )
+    event_id: Mapped[str] = mapped_column(String(64))
+    event_type: Mapped[str] = mapped_column(String(64))
+    source: Mapped[str] = mapped_column(String(32))
+    service: Mapped[str] = mapped_column(String(128))
+    environment: Mapped[str] = mapped_column(String(32))
+    #: When the event happened, per its own envelope - distinct from
+    #: created_at, which is when Helix consumed it. Out-of-order delivery
+    #: makes the two disagree, and both are worth keeping.
+    occurred_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    envelope: Mapped[dict[str, Any]] = mapped_column(_json_doc())
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+    incident: Mapped[Incident] = relationship(back_populates="event_records")
+
+
+class CorrelationToken(Base):
+    """One token linking an incident to the identifiers its events carry
+    (subphase E4).
+
+    A row per (token, incident) pair. Lookup is by token, which is how an
+    arriving event finds the incident an earlier event from a different
+    system already opened.
+    """
+
+    __tablename__ = "correlation_tokens"
+    __table_args__ = (Index("ux_correlation_tokens_pair", "token", "incident_id", unique=True),)
+
+    id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
+    incident_id: Mapped[int] = mapped_column(
+        ForeignKey("incidents.id", ondelete="CASCADE"), index=True
+    )
+    token: Mapped[str] = mapped_column(String(256), index=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+    incident: Mapped[Incident] = relationship(back_populates="correlation_tokens")
