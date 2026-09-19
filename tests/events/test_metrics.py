@@ -7,7 +7,10 @@ and for rolling the same numbers up rather than recomputing them
 differently.
 """
 
+import json
 from datetime import UTC, datetime, timedelta
+
+from sqlalchemy import create_engine
 
 from events.ingest import ingest_event
 from events.metrics import (
@@ -15,6 +18,8 @@ from events.metrics import (
     duplicate_handling_rate,
     event_latency,
     event_layer_report,
+    main,
+    render_report_text,
     replay_correctness,
 )
 from events.schemas import EngineeringEvent, EventSource, EventType
@@ -378,3 +383,82 @@ class TestEventLayerReport:
         assert report["duplicate_handling_rate"]["rate"] is None
         assert report["event_latency"]["count"] == 0
         assert report["replay_correctness"]["rate"] is None
+
+
+class TestRenderReportText:
+    def test_a_not_measured_correlation_note_is_included_verbatim(self):
+        report = {
+            "correlation_accuracy": {
+                "rate": None,
+                "correct": 0,
+                "denominator": 0,
+                "note": "not measured: no expected_groups (ground truth) provided",
+            },
+            "duplicate_handling_rate": {
+                "rate": 1.0,
+                "correctly_deduplicated": 1,
+                "duplicated": 0,
+                "missing": 0,
+                "denominator": 1,
+                "deliveries": 1,
+                "redeliveries": 0,
+            },
+            "event_latency": {
+                "count": 0,
+                "median_seconds": None,
+                "mean_seconds": None,
+                "p95_seconds": None,
+                "min_seconds": None,
+                "max_seconds": None,
+                "excluded_helix_count": 0,
+            },
+            "replay_correctness": {
+                "rate": None,
+                "correct": 0,
+                "incorrect": 0,
+                "not_replayable": 0,
+                "denominator": 0,
+                "total_incidents": 0,
+            },
+        }
+        text = render_report_text(report)
+        assert "not measured: no expected_groups (ground truth) provided" in text
+        assert "denominator=1" in text
+        assert "excluded_helix_count=0" in text
+
+
+class TestMainCLI:
+    """`scripts/event-metrics.sh` -> `python -m events.metrics`. Exercised
+    against a real (file-backed, not in-memory) SQLite database rather than
+    a mock, since the point of this CLI is that it talks to a real engine
+    built from `--database-url`."""
+
+    def _empty_db_url(self, tmp_path, name: str) -> str:
+        url = f"sqlite:///{tmp_path / name}"
+        engine = create_engine(url)
+        models.Base.metadata.create_all(engine)
+        engine.dispose()
+        return url
+
+    def test_main_prints_a_human_readable_report_by_default(self, tmp_path, capsys):
+        url = self._empty_db_url(tmp_path, "cli-text.db")
+        exit_code = main(["--database-url", url])
+        out = capsys.readouterr().out
+        assert exit_code == 0
+        assert "Event layer report (subphase E7)" in out
+        assert "correlation_accuracy: rate=None" in out
+        assert "not measured: no expected_groups" in out
+
+    def test_main_json_flag_emits_the_same_shape_as_event_layer_report(self, tmp_path, capsys):
+        url = self._empty_db_url(tmp_path, "cli-json.db")
+        exit_code = main(["--database-url", url, "--json"])
+        out = capsys.readouterr().out
+        assert exit_code == 0
+        payload = json.loads(out)
+        assert set(payload) == {
+            "correlation_accuracy",
+            "duplicate_handling_rate",
+            "event_latency",
+            "replay_correctness",
+        }
+        assert payload["correlation_accuracy"]["rate"] is None

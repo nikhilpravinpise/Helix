@@ -51,6 +51,7 @@ from benchmark.approver import service_suspended_run
 from benchmark.scoring import OutcomeRecord, dumps_report, render_markdown, score_outcome, summarize
 from events.classify import UnclassifiedSignal, classify
 from events.ingest import ingest_event
+from events.schemas import EventSource
 from helix.config import get_settings
 from state import models
 from state.db import session_scope
@@ -268,6 +269,31 @@ def _current_status(database_url: str, incident_id: str) -> str | None:
 # --- Collection + measurement -------------------------------------------------
 
 
+def _first_observed_at(incident: models.Incident) -> str | None:
+    """When the failure was first observed, for the MTTR clock.
+
+    The direct path records a `signals` row and this is its timestamp. The
+    event path (E7) deliberately writes no signal row - the graph reads
+    the canonical event instead (D22) - so reading only `signals` made
+    `signal_at` None on every event-path run, and MTTR came back null
+    while the comparison still reported NO REGRESSION, because MTTR is not
+    one of its gated metrics. A metric silently becoming unmeasurable is
+    exactly the kind of hole that verdict is supposed to catch.
+
+    Helix's own lifecycle events are excluded: they are stamped when Helix
+    reacted, so starting the clock at one would measure from Helix's
+    response rather than from the failure, flattering MTTR.
+    """
+    if incident.signals:
+        return incident.signals[-1].created_at.isoformat()
+    observed = [
+        record.occurred_at
+        for record in incident.event_records
+        if record.source != EventSource.HELIX.value
+    ]
+    return min(observed).isoformat() if observed else None
+
+
 def _collect(database_url: str, incident_id: str) -> dict[str, Any]:
     """Read back the durable record the run produced."""
     engine = create_engine(database_url)
@@ -282,7 +308,7 @@ def _collect(database_url: str, incident_id: str) -> dict[str, Any]:
         return {
             "incident_id": incident.incident_id,
             "final_status": IncidentStatus(incident.status).value,
-            "signal_at": incident.signals[-1].created_at.isoformat() if incident.signals else None,
+            "signal_at": _first_observed_at(incident),
             "recovered_at": recovered.created_at.isoformat() if recovered else None,
             "last_event_at": transitions[-1].created_at.isoformat() if transitions else None,
             "hypothesis_claim": (incident.hypotheses[-1].claim if incident.hypotheses else None),

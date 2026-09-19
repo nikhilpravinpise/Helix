@@ -64,6 +64,9 @@ the full benchmark through the event path and see if anything drifted"
 measurement calls the two functions directly.
 """
 
+import argparse
+import json
+import sys
 from collections.abc import Sequence
 from dataclasses import asdict, dataclass, field
 from datetime import UTC, datetime
@@ -75,6 +78,7 @@ from sqlalchemy.orm import Session
 from events.history import IncidentProjection, project_from_state, replay_incident
 from events.schemas import EventSource
 from state import models
+from state.db import get_engine, session_scope
 
 
 def _aware(value: datetime) -> datetime:
@@ -439,3 +443,73 @@ def event_layer_report(
         "event_latency": asdict(event_latency(session)),
         "replay_correctness": asdict(replay_correctness(session)),
     }
+
+
+# --- CLI (scripts/event-metrics.sh) -----------------------------------------------
+
+
+def render_report_text(report: dict[str, Any]) -> str:
+    """Human-readable form of `event_layer_report`'s output. Every rate is
+    printed next to the denominator and counts that make it meaningful,
+    per the module docstring's rule against a bare number."""
+    corr = report["correlation_accuracy"]
+    dup = report["duplicate_handling_rate"]
+    lat = report["event_latency"]
+    rep = report["replay_correctness"]
+
+    lines = [
+        "Event layer report (subphase E7)",
+        "",
+        f"correlation_accuracy: rate={corr['rate']} correct={corr['correct']} "
+        f"denominator={corr['denominator']}" + (f" - {corr['note']}" if "note" in corr else ""),
+        f"duplicate_handling_rate: rate={dup['rate']} "
+        f"correctly_deduplicated={dup['correctly_deduplicated']} duplicated={dup['duplicated']} "
+        f"missing={dup['missing']} denominator={dup['denominator']} "
+        f"deliveries={dup['deliveries']} redeliveries={dup['redeliveries']}",
+        f"event_latency: count={lat['count']} median_seconds={lat['median_seconds']} "
+        f"mean_seconds={lat['mean_seconds']} p95_seconds={lat['p95_seconds']} "
+        f"min_seconds={lat['min_seconds']} max_seconds={lat['max_seconds']} "
+        f"excluded_helix_count={lat['excluded_helix_count']}",
+        f"replay_correctness: rate={rep['rate']} correct={rep['correct']} "
+        f"incorrect={rep['incorrect']} not_replayable={rep['not_replayable']} "
+        f"denominator={rep['denominator']} total_incidents={rep['total_incidents']}",
+    ]
+    return "\n".join(lines)
+
+
+def main(argv: list[str] | None = None) -> int:
+    """`scripts/event-metrics.sh`: `event_layer_report` against a live
+    database in one command.
+
+    No `expected_groups` argument - an ad hoc CLI invocation has no
+    scenario-specific ground truth to hand `correlation_accuracy`, so it
+    reports itself not measured rather than guessing one, exactly as
+    `event_layer_report` already does when called without it.
+    """
+    parser = argparse.ArgumentParser(
+        prog="python -m events.metrics",
+        description="Event layer report (subphase E7): correlation accuracy, "
+        "duplicate handling rate, event latency, and replay correctness, "
+        "read from the live event store.",
+    )
+    parser.add_argument(
+        "--database-url",
+        default=None,
+        help="state DB URL (default HELIX_DATABASE_URL/settings)",
+    )
+    parser.add_argument("--json", action="store_true", help="emit JSON instead of text")
+    args = parser.parse_args(argv)
+
+    engine = get_engine(args.database_url)
+    with session_scope(engine) as session:
+        report = event_layer_report(session)
+
+    if args.json:
+        print(json.dumps(report, indent=2))
+    else:
+        print(render_report_text(report))
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())
