@@ -1,4 +1,4 @@
-.PHONY: lint test test-integration test-all serve db-up db-down db-migrate benchmark benchmark-tolerance
+.PHONY: lint test test-integration test-all serve db-up db-down db-migrate kafka-up kafka-down benchmark benchmark-tolerance
 
 lint:
 	uv run ruff check .
@@ -24,6 +24,14 @@ db-down:
 
 db-migrate:
 	uv run alembic -c state/migrations/alembic.ini upgrade head
+
+# Subphase E2 Kafka backbone. Brings up the broker and declares its
+# topics; not needed for any Phase 1 workflow.
+kafka-up:
+	bash scripts/kafka-up.sh
+
+kafka-down:
+	bash scripts/kafka-down.sh
 
 # Subphase 1.11 controlled benchmark. Fixture scenarios run on arm A by
 # default; BENCH_ARMS/BENCH_SCENARIOS override. Reports land in

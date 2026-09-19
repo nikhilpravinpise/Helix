@@ -39,6 +39,10 @@ class Settings(BaseSettings):
     evidence_source: Literal["live", "fixtures"] = "live"
     fixture_path: str | None = None
 
+    # Kafka backbone (subphase E2), infra/kafka-compose.yml. Literal
+    # 127.0.0.1 for the same reason as database_url below.
+    kafka_bootstrap_servers: str = "127.0.0.1:9092"
+
     # Incident state + intake (subphase 1.4). database_url points at the
     # host Postgres from infra/postgres-compose.yml (D3); it is a full
     # SQLAlchemy URL so tests can substitute e.g. an in-memory SQLite. The

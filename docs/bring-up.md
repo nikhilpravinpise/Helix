@@ -75,7 +75,12 @@ import support), and the enable_* memory flags: `infra/terraform/README.md`.
 ```bash
 bash scripts/db-up.sh        # Postgres (or leave it to Path A / compose)
 bash scripts/up.sh           # cluster + images + ingress-nginx + manifests
+bash scripts/kafka-up.sh     # Kafka + its topics (subphase E2 onward only)
 ```
+
+`kafka-up.sh` is not needed for any Phase 1 workflow: nothing in the
+recovery loop reads or writes the event stream yet. It is required for the
+E2 integration tests, which skip cleanly without it rather than failing.
 
 ## 4. Verify
 
