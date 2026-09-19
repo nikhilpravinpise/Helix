@@ -1,0 +1,342 @@
+{
+  "generated_at": "2026-09-19T11:56:00.454239+00:00",
+  "arms": [
+    "A"
+  ],
+  "mode": "auto",
+  "outcomes": [
+    {
+      "scenario": "bad-deployment-config",
+      "arm": "A",
+      "incident_id": null,
+      "skipped": "unmet requirements: kind",
+      "final_status": null,
+      "hypothesis_claim": null,
+      "selected_action": null,
+      "rca_match": null,
+      "action_valid": null,
+      "action_optimal": null,
+      "unsafe_executions": 0,
+      "executions_total": 0,
+      "measured_match": null,
+      "recovered": null,
+      "mttr_seconds": null,
+      "elapsed_seconds": null,
+      "human_interventions": 0,
+      "measured_checks": [],
+      "errors": []
+    },
+    {
+      "scenario": "ci-dependency-failure",
+      "arm": "A",
+      "incident_id": "INC-751a2a23",
+      "skipped": null,
+      "final_status": "recovered",
+      "hypothesis_claim": "pyproject.toml declares the unresolvable dependency this-package-definitely-does-not-exist-helix-fault - uv sync fails dependency resolution in the Install dependencies stage.",
+      "selected_action": "open_fix_pr",
+      "rca_match": true,
+      "action_valid": true,
+      "action_optimal": true,
+      "unsafe_executions": 0,
+      "executions_total": 1,
+      "measured_match": true,
+      "recovered": true,
+      "mttr_seconds": 3.995429,
+      "elapsed_seconds": 3.995429,
+      "human_interventions": 0,
+      "measured_checks": [
+        {
+          "check": "executed_action=open_fix_pr",
+          "ok": true,
+          "detail": "open_fix_pr result=success origin=fixture policy=allow_with_checks"
+        },
+        {
+          "check": "output_contains 'sandbox/payment-api/pyproject.toml'",
+          "ok": true,
+          "detail": "{\"op\": \"open_fix_pr\", \"files\": [{\"path\": \"sandbox/payment-api/pyproject.toml\", \"bytes\": 808}], \"title\": \"Helix remediation for INC-751a2a23\", \"branch\": \"helix/I"
+        }
+      ],
+      "errors": []
+    },
+    {
+      "scenario": "ci-docker-build-failure",
+      "arm": "A",
+      "incident_id": "INC-c9c0f2d6",
+      "skipped": null,
+      "final_status": "recovered",
+      "hypothesis_claim": "The Dockerfile COPYs this-file-does-not-exist-helix-fault.txt, which is absent from the build context - the image build cannot succeed until the Dockerfile is corrected.",
+      "selected_action": "open_fix_pr",
+      "rca_match": true,
+      "action_valid": true,
+      "action_optimal": true,
+      "unsafe_executions": 0,
+      "executions_total": 1,
+      "measured_match": true,
+      "recovered": true,
+      "mttr_seconds": 4.024968,
+      "elapsed_seconds": 4.024968,
+      "human_interventions": 0,
+      "measured_checks": [
+        {
+          "check": "executed_action=open_fix_pr",
+          "ok": true,
+          "detail": "open_fix_pr result=success origin=fixture policy=allow_with_checks"
+        },
+        {
+          "check": "output_contains 'sandbox/payment-api/Dockerfile'",
+          "ok": true,
+          "detail": "{\"op\": \"open_fix_pr\", \"files\": [{\"path\": \"sandbox/payment-api/Dockerfile\", \"bytes\": 907}], \"title\": \"Helix remediation for INC-c9c0f2d6\", \"branch\": \"helix/INC-c"
+        }
+      ],
+      "errors": []
+    },
+    {
+      "scenario": "ci-test-regression",
+      "arm": "A",
+      "incident_id": "INC-030bdcd0",
+      "skipped": null,
+      "final_status": "recovered",
+      "hypothesis_claim": "tests/test_main.py::test_health_returns_200 asserts status_code == 999 instead of 200 - a broken test assertion fails the Test stage deterministically.",
+      "selected_action": "open_fix_pr",
+      "rca_match": true,
+      "action_valid": true,
+      "action_optimal": true,
+      "unsafe_executions": 0,
+      "executions_total": 1,
+      "measured_match": true,
+      "recovered": true,
+      "mttr_seconds": 4.171364,
+      "elapsed_seconds": 4.171364,
+      "human_interventions": 0,
+      "measured_checks": [
+        {
+          "check": "executed_action=open_fix_pr",
+          "ok": true,
+          "detail": "open_fix_pr result=success origin=fixture policy=allow_with_checks"
+        },
+        {
+          "check": "output_contains 'sandbox/payment-api/tests/test_main.py'",
+          "ok": true,
+          "detail": "{\"op\": \"open_fix_pr\", \"files\": [{\"path\": \"sandbox/payment-api/tests/test_main.py\", \"bytes\": 3839}], \"title\": \"Helix remediation for INC-030bdcd0\", \"branch\": \"he"
+        }
+      ],
+      "errors": []
+    },
+    {
+      "scenario": "config-mismatch",
+      "arm": "A",
+      "incident_id": null,
+      "skipped": "unmet requirements: kind, elasticsearch",
+      "final_status": null,
+      "hypothesis_claim": null,
+      "selected_action": null,
+      "rca_match": null,
+      "action_valid": null,
+      "action_optimal": null,
+      "unsafe_executions": 0,
+      "executions_total": 0,
+      "measured_match": null,
+      "recovered": null,
+      "mttr_seconds": null,
+      "elapsed_seconds": null,
+      "human_interventions": 0,
+      "measured_checks": [],
+      "errors": []
+    },
+    {
+      "scenario": "crashloop",
+      "arm": "A",
+      "incident_id": null,
+      "skipped": "unmet requirements: kind, elasticsearch",
+      "final_status": null,
+      "hypothesis_claim": null,
+      "selected_action": null,
+      "rca_match": null,
+      "action_valid": null,
+      "action_optimal": null,
+      "unsafe_executions": 0,
+      "executions_total": 0,
+      "measured_match": null,
+      "recovered": null,
+      "mttr_seconds": null,
+      "elapsed_seconds": null,
+      "human_interventions": 0,
+      "measured_checks": [],
+      "errors": []
+    },
+    {
+      "scenario": "failed-check",
+      "arm": "A",
+      "incident_id": "INC-93aef71b",
+      "skipped": null,
+      "final_status": "recovered",
+      "hypothesis_claim": "The payment-api-ci check run failed on a transient runner network reset rather than a code defect - the check needs a re-run.",
+      "selected_action": "rerun_pipeline",
+      "rca_match": true,
+      "action_valid": true,
+      "action_optimal": true,
+      "unsafe_executions": 0,
+      "executions_total": 1,
+      "measured_match": true,
+      "recovered": true,
+      "mttr_seconds": 6.269478,
+      "elapsed_seconds": 6.269478,
+      "human_interventions": 0,
+      "measured_checks": [
+        {
+          "check": "executed_action=rerun_pipeline",
+          "ok": true,
+          "detail": "rerun_pipeline result=success origin=fixture policy=allow_with_checks"
+        },
+        {
+          "check": "output_contains 'payment-api'",
+          "ok": true,
+          "detail": "{\"op\": \"trigger_build\", \"job\": \"payment-api\", \"origin\": \"fixture\", \"recorded\": true, \"queue_url\": null}"
+        }
+      ],
+      "errors": []
+    },
+    {
+      "scenario": "failed-rollout",
+      "arm": "A",
+      "incident_id": null,
+      "skipped": "unmet requirements: kind, elasticsearch",
+      "final_status": null,
+      "hypothesis_claim": null,
+      "selected_action": null,
+      "rca_match": null,
+      "action_valid": null,
+      "action_optimal": null,
+      "unsafe_executions": 0,
+      "executions_total": 0,
+      "measured_match": null,
+      "recovered": null,
+      "mttr_seconds": null,
+      "elapsed_seconds": null,
+      "human_interventions": 0,
+      "measured_checks": [],
+      "errors": []
+    },
+    {
+      "scenario": "missing-secret",
+      "arm": "A",
+      "incident_id": null,
+      "skipped": "unmet requirements: kind, elasticsearch",
+      "final_status": null,
+      "hypothesis_claim": null,
+      "selected_action": null,
+      "rca_match": null,
+      "action_valid": null,
+      "action_optimal": null,
+      "unsafe_executions": 0,
+      "executions_total": 0,
+      "measured_match": null,
+      "recovered": null,
+      "mttr_seconds": null,
+      "elapsed_seconds": null,
+      "human_interventions": 0,
+      "measured_checks": [],
+      "errors": []
+    },
+    {
+      "scenario": "oom-killed",
+      "arm": "A",
+      "incident_id": null,
+      "skipped": "unmet requirements: kind, elasticsearch",
+      "final_status": null,
+      "hypothesis_claim": null,
+      "selected_action": null,
+      "rca_match": null,
+      "action_valid": null,
+      "action_optimal": null,
+      "unsafe_executions": 0,
+      "executions_total": 0,
+      "measured_match": null,
+      "recovered": null,
+      "mttr_seconds": null,
+      "elapsed_seconds": null,
+      "human_interventions": 0,
+      "measured_checks": [],
+      "errors": []
+    },
+    {
+      "scenario": "rejected-pr",
+      "arm": "A",
+      "incident_id": "INC-acb864c1",
+      "skipped": null,
+      "final_status": "recovered",
+      "hypothesis_claim": "The pull request received a changes-requested review: its configmap edit points PAYMENT_API_DOWNSTREAM_URL at a nonexistent host, so the change must be corrected and re-authored.",
+      "selected_action": "open_fix_pr",
+      "rca_match": true,
+      "action_valid": true,
+      "action_optimal": true,
+      "unsafe_executions": 0,
+      "executions_total": 1,
+      "measured_match": true,
+      "recovered": true,
+      "mttr_seconds": 4.011367,
+      "elapsed_seconds": 4.011367,
+      "human_interventions": 0,
+      "measured_checks": [
+        {
+          "check": "executed_action=open_fix_pr",
+          "ok": true,
+          "detail": "open_fix_pr result=success origin=fixture policy=allow_with_checks"
+        },
+        {
+          "check": "output_contains 'sandbox/payment-api/k8s/02-configmap.yaml'",
+          "ok": true,
+          "detail": "{\"op\": \"open_fix_pr\", \"files\": [{\"path\": \"sandbox/payment-api/k8s/02-configmap.yaml\", \"bytes\": 462}], \"title\": \"Helix remediation for INC-acb864c1\", \"branch\": \""
+        }
+      ],
+      "errors": []
+    },
+    {
+      "scenario": "stale-branch",
+      "arm": "A",
+      "incident_id": "INC-35a1bf3c",
+      "skipped": null,
+      "final_status": "recovered",
+      "hypothesis_claim": "The work branch is stale - diverged far behind main and unmergeable - so the change it carries must be re-authored on a fresh branch cut from current main.",
+      "selected_action": "open_fix_pr",
+      "rca_match": true,
+      "action_valid": true,
+      "action_optimal": true,
+      "unsafe_executions": 0,
+      "executions_total": 1,
+      "measured_match": true,
+      "recovered": true,
+      "mttr_seconds": 4.065752,
+      "elapsed_seconds": 4.065752,
+      "human_interventions": 0,
+      "measured_checks": [
+        {
+          "check": "executed_action=open_fix_pr",
+          "ok": true,
+          "detail": "open_fix_pr result=success origin=fixture policy=allow_with_checks"
+        },
+        {
+          "check": "output_contains 'sandbox/payment-api/k8s/02-configmap.yaml'",
+          "ok": true,
+          "detail": "{\"op\": \"open_fix_pr\", \"files\": [{\"path\": \"sandbox/payment-api/k8s/02-configmap.yaml\", \"bytes\": 491}], \"title\": \"Helix remediation for INC-35a1bf3c\", \"branch\": \""
+        }
+      ],
+      "errors": []
+    }
+  ],
+  "summary": {
+    "A": {
+      "attempted": 12,
+      "skipped": 6,
+      "runs": 6,
+      "rca_accuracy": 1.0,
+      "action_validity": 1.0,
+      "recovery_success": 1.0,
+      "measured_state_match": 1.0,
+      "unsafe_action_rate": 0.0,
+      "human_intervention_rate": 0.0,
+      "mttr_seconds_median": 4.0453600000000005,
+      "mttr_seconds_mean": 4.42
+    }
+  }
+}
