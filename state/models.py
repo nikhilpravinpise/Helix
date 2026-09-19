@@ -717,6 +717,10 @@ class EventRecord(Base):
     #: makes the two disagree, and both are worth keeping.
     occurred_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
     envelope: Mapped[dict[str, Any]] = mapped_column(_json_doc())
+    #: Set once the outbox drain has produced this row to Kafka (E5).
+    #: NULL means unpublished - including for every event CONSUMED from
+    #: the stream, which Helix never produced and must not claim to have.
+    published_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
     incident: Mapped[Incident] = relationship(back_populates="event_records")

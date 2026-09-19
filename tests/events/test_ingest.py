@@ -241,7 +241,14 @@ class TestReplay:
         assert second.duplicate is False
         assert second.correlated is True
         assert second.incident_id == first.incident_id
-        assert db_session.query(models.EventRecord).count() == 2
+        # Scoped to vendor events: the incident also carries Helix's own
+        # incident.created lifecycle record (E5), in the same history.
+        assert (
+            db_session.query(models.EventRecord)
+            .filter(models.EventRecord.source != "helix")
+            .count()
+            == 2
+        )
 
     def test_replaying_the_whole_stream_many_times_is_stable(self, db_session):
         events = four_source_chain()
@@ -249,7 +256,9 @@ class TestReplay:
             for e in events:
                 ingest_event(db_session, e)
         assert db_session.query(models.Incident).count() == 1
-        assert db_session.query(models.EventRecord).count() == len(events)
+        assert db_session.query(models.EventRecord).filter(
+            models.EventRecord.source != "helix"
+        ).count() == len(events)
 
     def test_ingest_never_advances_an_incident(self, db_session):
         """Replay must not be able to re-execute anything, and the reason
@@ -268,14 +277,18 @@ class TestRecordedEnvelope:
         fields E4 reads would force a re-ingest to recover the rest."""
         original = event(EventType.POD_FAILED, EventSource.KUBERNETES, pod="p", waiting_reason="x")
         ingest_event(db_session, original)
-        record = db_session.query(models.EventRecord).one()
+        record = (
+            db_session.query(models.EventRecord).filter(models.EventRecord.source != "helix").one()
+        )
         assert EngineeringEvent.model_validate(record.envelope) == original
 
     def test_occurred_at_is_kept_apart_from_consumed_at(self, db_session):
         """Out-of-order delivery makes the two disagree, and both matter."""
         past = event(EventType.POD_FAILED, EventSource.KUBERNETES, at=T0)
         ingest_event(db_session, past)
-        record = db_session.query(models.EventRecord).one()
+        record = (
+            db_session.query(models.EventRecord).filter(models.EventRecord.source != "helix").one()
+        )
         assert record.occurred_at.replace(tzinfo=UTC) == T0
         assert record.created_at is not None
 

@@ -47,7 +47,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from events.correlation import CORRELATION_WINDOW, tokens_for
-from events.schemas import EngineeringEvent
+from events.schemas import EngineeringEvent, EventSource
 from state import machine, models
 from state.intake import _new_incident_id
 from state.machine import IncidentStatus
@@ -94,8 +94,18 @@ def _correlated_incident(
         # The window is measured against the incident's most recent event,
         # not its creation: a long chain of related events legitimately
         # keeps an incident correlatable, while a forgotten one ages out.
+        #
+        # Helix's own lifecycle events (E5) are excluded. They are stamped
+        # when Helix reacts, not when anything happened in the outside
+        # world, so counting them would let an incident hold its
+        # correlation window open by transitioning - and a stale incident
+        # being walked through a replan would never age out at all.
         latest = max(
-            (record.occurred_at for record in incident.event_records),
+            (
+                record.occurred_at
+                for record in incident.event_records
+                if record.source != EventSource.HELIX.value
+            ),
             default=incident.created_at,
         )
         if latest is None:
@@ -186,15 +196,26 @@ def ingest_event(session: Session, event: EngineeringEvent) -> IngestResult:
 
 
 def correlated_sources(session: Session, incident_id: str) -> set[str]:
-    """Which systems contributed events to an incident.
+    """Which EXTERNAL systems contributed events to an incident.
 
     The E4 exit criterion is stated in these terms - one incident with all
     four sources correlated - so it is worth being able to ask directly.
+
+    Helix's own lifecycle events (E5) are excluded: they are not evidence
+    that another system observed anything, and counting Helix as a
+    correlated source would make every incident look one source richer
+    than it is.
     """
     incident = session.scalar(
         select(models.Incident).where(models.Incident.incident_id == incident_id)
     )
-    return {record.source for record in incident.event_records} if incident else set()
+    if incident is None:
+        return set()
+    return {
+        record.source
+        for record in incident.event_records
+        if record.source != EventSource.HELIX.value
+    }
 
 
 def run_consumer(

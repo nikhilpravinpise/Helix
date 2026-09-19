@@ -149,6 +149,19 @@ def transition(
     )
     incident.status = to_status
     session.add(row)
+    # Helix's own lifecycle event, written in this same transaction so the
+    # event and the state change it describes can never disagree (E5).
+    # Imported here rather than at module scope: events.lifecycle needs
+    # IncidentStatus from this module.
+    from events.lifecycle import emit_for_transition
+
+    emit_for_transition(
+        incident,
+        from_status=from_status,
+        to_status=to_status,
+        cause=cause,
+        session=session,
+    )
     session.flush()
     return row
 
@@ -166,5 +179,14 @@ def record_creation(incident: "Incident", *, cause: str, session: Session) -> "T
         cause=cause,
     )
     session.add(row)
+    from events.lifecycle import emit_for_transition
+
+    emit_for_transition(
+        incident,
+        from_status=None,
+        to_status=IncidentStatus(incident.status),
+        cause=cause,
+        session=session,
+    )
     session.flush()
     return row

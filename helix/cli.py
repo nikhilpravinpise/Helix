@@ -120,6 +120,20 @@ def build_parser() -> argparse.ArgumentParser:
         help="stop after handling this many events (default: run until the topic goes quiet)",
     )
 
+    emit = subparsers.add_parser(
+        "emit",
+        help="publish Helix's own lifecycle events to Kafka (subphase E5). "
+        "They are written to the history store inside the transaction that "
+        "changed the state, so this only drains what is already durable; "
+        "re-running is safe because every event id is stable",
+    )
+    emit.add_argument(
+        "--limit",
+        type=int,
+        default=500,
+        help="maximum events to publish in one drain (default: 500)",
+    )
+
     return parser
 
 
@@ -432,6 +446,26 @@ def _cmd_consume(args: argparse.Namespace) -> int:
     return 0
 
 
+def _cmd_emit(args: argparse.Namespace) -> int:
+    """Drain the lifecycle-event outbox to Kafka (subphase E5).
+
+    Rows are marked published only after the producer flush returns, so a
+    broker that is down leaves them pending for the next run rather than
+    losing them.
+    """
+    from sqlalchemy import create_engine
+
+    from events.emit import drain
+    from helix.config import get_settings
+    from state.db import session_scope
+
+    engine = create_engine(get_settings().database_url)
+    with session_scope(engine) as session:
+        published = drain(session, limit=args.limit)
+    print(f"published {published} lifecycle event(s)")
+    return 0
+
+
 def _cmd_provenance(args: argparse.Namespace) -> int:
     """Print the incident's decision-provenance record as Markdown -
     state.provenance.render_markdown over the assembled record."""
@@ -478,6 +512,8 @@ def main(argv: list[str] | None = None) -> int:
         return _cmd_decide(args, approved=False)
     if args.command == "consume":
         return _cmd_consume(args)
+    if args.command == "emit":
+        return _cmd_emit(args)
     if args.command == "provenance":
         return _cmd_provenance(args)
     return 2
