@@ -175,6 +175,43 @@ that.
 
 ---
 
+## 3a. What running the LLM arms established, and what it did not
+
+Arms B, C and E were executed once against a local Ollama (`llama3.2`,
+3B class) purely to find out whether they run. **Those scores are not in
+the ablation table above and must never be put there.** A 3B local model
+against the intended `llama-3.3-70b` measures model size, not
+architecture, and a weak result from it would be misread as evidence
+against the design.
+
+What the exercise did establish is worth more than the scores would have
+been:
+
+- **Arm C had never executed a single node.** `build_graph(deps,
+  arm="C")` raised `KeyError: 'C'` unconditionally from the moment E6
+  added the arm. E6 registered C in `_ARM_NODES` and the graph
+  construction chain, but six other sites in `agent/agents/coordinator.py`
+  special-case arm B and none learned about C. The E6 test asserted
+  `_ARM_NODES["C"] == _ARM_NODES["B"]` - it checked the dict its author
+  had just written rather than whether a graph could be built from it.
+  Fixed, with regression tests that drive the real composition.
+- **Arm E completed a full cycle** - diagnose, plan, validate, policy
+  gate, execute, verify - reaching `recovered` on one scenario. That is
+  the first end-to-end execution of the full graph in the project's
+  history.
+- **Arm E produced one unsafe execution**, selecting an action the
+  scenario catalogue marks unsafe. With a 3B model that says nothing
+  about the architecture, but it is the first time the D2 unsafe-action
+  measurement has had a real non-zero value to count, rather than a
+  structurally-zero one from a rules table that cannot choose wrongly.
+- **D7's structured-output path held**, producing valid schema-conformant
+  output on the first attempt without falling back to the prompt-instructed
+  JSON path.
+
+So E6's exit criterion - "ablation arm C runs end to end" - is now met.
+E7's - "arm C measured against arms A, B and E" - is not, and cannot be
+until a representative model is available.
+
 ## 4. What this evaluation does and does not establish
 
 **What it establishes:**
