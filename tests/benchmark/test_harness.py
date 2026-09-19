@@ -6,15 +6,20 @@ run` subprocesses against Postgres) is the integration tier.
 """
 
 import pytest
+from sqlalchemy import create_engine, select
+from sqlalchemy.orm import Session
 
 from benchmark import catalog
 from benchmark.harness import (
     HarnessConfig,
     _collect,
+    _ingest_via_events,
     _measure,
     check_requirements,
+    run_benchmark,
     run_scenario,
 )
+from state import models
 
 SCENARIOS = catalog.load_scenarios()
 BAD_URL = "postgresql+psycopg://helix:helix@127.0.0.1:59999/helix"
@@ -144,6 +149,104 @@ def test_executed_action_ignores_failed_and_compensating_rows():
     assert executed["detail"] == "no successful executions row"
 
 
+def _sqlite_url(tmp_path) -> str:
+    """A file-backed SQLite URL, not `sqlite://` in-memory - the harness's
+    `_ingest_via_events` and this test's own read-back each open their own
+    engine, and only a real file gives them the same database."""
+    return f"sqlite:///{tmp_path / 'event-path.db'}"
+
+
+class TestIngestViaEvents:
+    """Unit tier for the event-path intake helper (subphase E7): no
+    subprocess, no Postgres - a file-backed SQLite engine exercises the
+    same `events.ingest.ingest_event` call the real harness makes."""
+
+    def test_ingests_a_classifiable_signal_and_opens_an_incident(self, tmp_path):
+        db_url = _sqlite_url(tmp_path)
+        engine = create_engine(db_url)
+        models.Base.metadata.create_all(engine)
+
+        incident_id, skip = _ingest_via_events(SCENARIOS["ci-test-regression"], db_url)
+
+        assert skip is None
+        assert incident_id is not None
+        with Session(engine) as session:
+            incident = session.scalar(
+                select(models.Incident).where(models.Incident.incident_id == incident_id)
+            )
+            assert incident is not None
+            # The canonical event landed (E7's actual deliverable): the
+            # vendor event ingest_event recorded, plus the `incident.created`
+            # lifecycle event `machine.record_creation` always emits on a
+            # new incident (E5) - both source paths get one of those.
+            event_types = {r.event_type for r in incident.event_records}
+            assert event_types == {"build.failed", "incident.created"}
+            # No Signal row - the event path writes nothing beyond what
+            # ingest_event itself produces. `agent/graph.py`'s
+            # `_signal_from_events` is what reads this incident's diagnosis
+            # input back out; see tests/agent/test_graph.py::TestSignalFallback.
+            assert incident.signals == []
+
+    def test_unclassifiable_signal_is_an_honest_skip_not_a_fabricated_event(self, tmp_path):
+        db_url = _sqlite_url(tmp_path)
+        engine = create_engine(db_url)
+        models.Base.metadata.create_all(engine)
+
+        scenario = {
+            "signal": {
+                "source": "kubernetes",
+                "service": "payment-api",
+                "environment": "sandbox",
+                "signature": {},  # no waiting_reason/reason/symptom -> no rule matches
+                "raw": {},
+            }
+        }
+        incident_id, skip = _ingest_via_events(scenario, db_url)
+
+        assert incident_id is None
+        assert skip is not None
+        assert "unclassifiable" in skip
+        with Session(engine) as session:
+            assert session.scalar(select(models.Incident)) is None
+
+    def test_invalid_signal_is_an_honest_skip(self, tmp_path):
+        db_url = _sqlite_url(tmp_path)
+        engine = create_engine(db_url)
+        models.Base.metadata.create_all(engine)
+
+        incident_id, skip = _ingest_via_events({"signal": {"source": "kubernetes"}}, db_url)
+
+        assert incident_id is None
+        assert skip is not None
+        assert "invalid signal" in skip
+
+
+def test_run_scenario_event_path_skips_on_unmet_requirements_before_ingesting():
+    """The requirements gate runs before intake, whichever path is
+    configured - an event-path run with no Postgres must skip exactly like
+    the direct path, never attempt to ingest against a dead database."""
+    cfg = HarnessConfig(arms=["A"], database_url=BAD_URL, path="event")
+    record = run_scenario("ci-test-regression", SCENARIOS["ci-test-regression"], "A", cfg)
+    assert record.skipped is not None
+    assert "postgres" in record.skipped
+
+
+def test_run_benchmark_records_the_configured_path():
+    """The report's top-level `path` field is what `benchmark.compare`
+    reads to tell a direct-path report from an event-path one."""
+    cfg = HarnessConfig(arms=["A"], scenarios=["does-not-exist"], path="event")
+    report = run_benchmark(cfg)
+    assert report["path"] == "event"
+    assert report["mode"] == "auto"
+    assert report["outcomes"] == []
+
+
+def test_run_benchmark_default_path_is_direct():
+    cfg = HarnessConfig(arms=["A"], scenarios=["does-not-exist"])
+    report = run_benchmark(cfg)
+    assert report["path"] == "direct"
+
+
 @pytest.mark.integration
 class TestHarnessEndToEnd:
     """Real `helix intake`/`helix run` subprocesses against the compose
@@ -173,3 +276,20 @@ class TestHarnessEndToEnd:
         assert record.incident_id is not None
         collected = _collect(get_settings().database_url, record.incident_id)
         assert collected["final_status"] == "recovered"
+
+    def test_fixture_arm_a_recovers_through_the_event_path(self):
+        """The same scenario as the direct-path test above, but intake
+        goes through `events.ingest.ingest_event` instead of `helix
+        intake` - the E7 comparison's whole point is that this reaches the
+        same outcome as the direct path."""
+        cfg = HarnessConfig(arms=["A"], scenarios=["ci-test-regression"], path="event")
+        record = run_scenario("ci-test-regression", SCENARIOS["ci-test-regression"], "A", cfg)
+        assert record.skipped is None
+        assert record.final_status == "recovered"
+        assert record.selected_action == "open_fix_pr"
+        assert any(
+            e["action"] == "open_fix_pr" and e["result"] == "success" and e["origin"] == "fixture"
+            for e in record.executions
+        )
+        assert any(v["outcome"] == "pass" for v in record.verifications)
+        assert record.recovered_at is not None

@@ -70,6 +70,7 @@ from agent.agents.verification import verification_node
 from agent.rules import rules_diagnosis_node, rules_plan_node
 from agent.state import WorkflowState
 from agent.validation import candidate_fingerprint
+from events.schemas import EventSource
 from helix.config import get_settings
 from helix.llm import LLMClient, OpenAICompatibleLLMClient
 from helix.observability import trace_workflow_step
@@ -393,6 +394,41 @@ def _outstanding_compensation(session, incident_pk: int) -> bool:
     return outstanding_compensation(session, incident_pk)
 
 
+def _signal_from_events(incident: models.Incident) -> dict[str, Any]:
+    """Fallback `signal` view for an incident with no `state.models.Signal`
+    row (subphase E7): an incident opened by `events.ingest.ingest_event`
+    carries its trigger only as a canonical `EventRecord`, and
+    `agent/rules.py`'s `match_rule` and `agent/agents/diagnosis.py`'s
+    `_signal_context` both read the `{source, signature, raw}` shape the
+    direct intake path builds from `state.models.Signal`.
+
+    Reconstructed from the most recent non-Helix event: `signature` and
+    `raw` come straight out of that event's `metadata`, which is where
+    `state.intake.build_event` puts them for a Phase 1 signal ingested
+    through the event path, and where a vendor-adapter event's own detail
+    lives too. A key `metadata` genuinely does not carry is left out
+    rather than defaulted to `{}` - `match_rule` and `_signal_context`
+    already treat an absent key as "nothing here", so inventing one would
+    only hide what the event actually contained.
+
+    Helix's own lifecycle events (`incident.created` and the rest) are
+    excluded - they describe what Helix did, not what was reported to it,
+    the same exclusion `events.ingest.correlated_sources` and
+    `events.correlation` make.
+    """
+    events = [r for r in incident.event_records if r.source != EventSource.HELIX.value]
+    if not events:
+        return {}
+    latest = events[-1]  # `event_records` is relationship-ordered by id (state/models.py)
+    metadata = (latest.envelope or {}).get("metadata") or {}
+    signal: dict[str, Any] = {"source": latest.source}
+    if "signature" in metadata:
+        signal["signature"] = metadata["signature"]
+    if "raw" in metadata:
+        signal["raw"] = metadata["raw"]
+    return signal
+
+
 def _intake_node(deps: GraphDeps, arm: str = "E"):
     """Load the incident (and its latest signal + prior evidence rows)
     into WorkflowState. Resets run-scoped fields so a re-run cannot
@@ -430,7 +466,7 @@ def _intake_node(deps: GraphDeps, arm: str = "E"):
                             "raw": latest.raw,
                         }
                         if latest
-                        else {}
+                        else _signal_from_events(incident)
                     ),
                     "evidence": [_evidence_from_row(row) for row in incident.evidence_items],
                     "attempts": incident.attempt_count,

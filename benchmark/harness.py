@@ -9,9 +9,13 @@ Flow per (scenario, arm):
    the scenario honestly (no partial credit, no fabricated result).
 3. Inject: `inject: live` runs `scripts/<fault_script>`; `inject:
    fixture` points `HELIX_FIXTURE_PATH` at the declared evidence fixture.
-4. `helix intake` records the signal through the real intake path
-   (dedup, transitions row) - the subprocess is exactly what a CLI
-   operator would run.
+4. Intake happens one of two ways, chosen by `HarnessConfig.path`:
+   `direct` (default, unchanged Phase 1 behaviour) shells out to `helix
+   intake`, exactly what a CLI operator would run. `event` (subphase E7)
+   classifies the scenario's signal and ingests it through
+   `events.ingest.ingest_event` instead - the same entry point the Kafka
+   consumer drives - to measure what the event layer bought against the
+   identical scenario set.
 5. `helix run` in a hop loop until the incident reaches a terminal
    status, parks (same status twice - arm B's `verifying` end-state or a
    suspended approval that stays undecided), or the hop bound trips.
@@ -38,15 +42,19 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
+from pydantic import ValidationError
 from sqlalchemy import create_engine, select
 from sqlalchemy.orm import Session
 
 from benchmark import catalog
 from benchmark.approver import service_suspended_run
 from benchmark.scoring import OutcomeRecord, dumps_report, render_markdown, score_outcome, summarize
+from events.classify import UnclassifiedSignal, classify
+from events.ingest import ingest_event
 from helix.config import get_settings
 from state import models
 from state.db import session_scope
+from state.intake import Signal, build_event
 from state.machine import IncidentStatus
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
@@ -80,6 +88,7 @@ class HarnessConfig:
     out_dir: Path = REPORTS_DIR
     max_hops: int = 10  # `helix run` invocations before declaring a stall
     database_url: str | None = None  # None = settings.database_url
+    path: str = "direct"  # direct | event (subphase E7) - see module docstring
 
 
 # --- Requirement checks ------------------------------------------------------
@@ -155,6 +164,44 @@ def _helix(
         # a replan hop or two. 900s covers that with headroom.
         timeout=900,
     )
+
+
+def _ingest_via_events(
+    scenario: dict[str, Any], database_url: str
+) -> tuple[str | None, str | None]:
+    """Event-path intake (subphase E7): classify the scenario's signal,
+    build the canonical envelope, and ingest it through
+    `events.ingest.ingest_event` - the same entry point the Kafka consumer
+    drives - instead of shelling out to `helix intake`.
+
+    Writes nothing beyond what `ingest_event` itself writes. Earlier this
+    also backfilled a `state.models.Signal` row so the graph's intake node
+    had something to diagnose from - `ingest_event` never produces one,
+    and the graph could not read anything else. That made the comparison
+    dishonest: the event path was really "events plus a hand-written
+    Signal row", not the event layer standing on its own. `agent/graph.py`
+    now falls back to the incident's `EventRecord` envelope
+    (`_signal_from_events`) when there is no Signal row, which is the real
+    fix and belongs in the graph, not here.
+
+    Returns `(incident_id, skip_reason)` - exactly one of the two is not
+    `None`. An unclassifiable signal is an honest skip, matching how
+    `events.classify` is documented to behave - never a fabricated event
+    type.
+    """
+    try:
+        signal = Signal.model_validate(scenario["signal"])
+    except ValidationError as exc:
+        return None, f"invalid signal for event path: {exc}"
+    try:
+        event_type = classify(signal.source.value, signal.signature)
+    except UnclassifiedSignal as exc:
+        return None, f"unclassifiable signal for event path: {exc}"
+    event = build_event(signal, event_type)
+    engine = create_engine(database_url)
+    with session_scope(engine) as session:
+        result = ingest_event(session, event)
+    return result.incident_id, None
 
 
 def _inject_live(scenario: dict[str, Any]) -> str | None:
@@ -442,12 +489,18 @@ def run_scenario(
             record.skipped = f"injection failed: {fail}"
             return record
 
-    # `helix intake` reads stdin when --file is omitted - the operator path.
-    intake = _helix(["intake"], env, stdin_text=json.dumps(scenario["signal"]))
-    if intake.returncode != 0:
-        record.skipped = f"intake failed: {intake.stderr.strip()[:300]}"
-        return record
-    incident_id = intake.stdout.strip().splitlines()[-1]
+    if cfg.path == "event":
+        incident_id, skip = _ingest_via_events(scenario, database_url)
+        if skip:
+            record.skipped = skip
+            return record
+    else:
+        # `helix intake` reads stdin when --file is omitted - the operator path.
+        intake = _helix(["intake"], env, stdin_text=json.dumps(scenario["signal"]))
+        if intake.returncode != 0:
+            record.skipped = f"intake failed: {intake.stderr.strip()[:300]}"
+            return record
+        incident_id = intake.stdout.strip().splitlines()[-1]
     record.incident_id = incident_id
 
     record.errors.extend(_drive(incident_id, env, cfg, scenario))
@@ -483,6 +536,7 @@ def run_benchmark(cfg: HarnessConfig) -> dict[str, Any]:
         "generated_at": datetime.now(UTC).isoformat(),
         "arms": cfg.arms,
         "mode": cfg.mode,
+        "path": cfg.path,
         "outcomes": [o.to_dict() for o in outcomes],
         "summary": summarize(outcomes),
     }
@@ -539,6 +593,14 @@ def main(argv: list[str] | None = None) -> int:
         help="state DB URL (default HELIX_DATABASE_URL/settings)",
     )
     parser.add_argument("--max-hops", type=int, default=10)
+    parser.add_argument(
+        "--path",
+        choices=["direct", "event"],
+        default="direct",
+        help="intake path: direct shells out to `helix intake` (default, "
+        "unchanged Phase 1 behaviour); event ingests through "
+        "events.ingest.ingest_event (subphase E7)",
+    )
     args = parser.parse_args(argv)
 
     cfg = HarnessConfig(
@@ -548,6 +610,7 @@ def main(argv: list[str] | None = None) -> int:
         out_dir=args.out,
         max_hops=args.max_hops,
         database_url=args.database_url,
+        path=args.path,
     )
     report = run_benchmark(cfg)
     json_path, md_path = write_report(report, cfg.out_dir)
