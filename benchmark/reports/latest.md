@@ -1,6 +1,6 @@
 # Helix benchmark report (subphase 1.11)
 
-- generated: 2026-09-20T14:40:15.630048+00:00
+- generated: 2026-09-20T14:53:31.351002+00:00
 - arms: A, B, C, E | mode: auto
 - tolerance bands: docs/benchmark/tolerance.md
 
@@ -9,7 +9,7 @@
 | scenario | arm | status | RCA | action | valid | optimal | unsafe | measured | recovered | MTTR s | approvals | notes |
 |---|---|---|---|---|---|---|---|---|---|---|---|---|
 | bad-deployment-config | A | SKIPPED | - | - | - | - | - | - | - | - | - | unmet requirements: kind |
-| ci-dependency-failure | A | recovered | yes | open_fix_pr | yes | yes | 0 | yes | yes | 2 | 0 |  |
+| ci-dependency-failure | A | recovered | yes | open_fix_pr | yes | yes | 0 | yes | yes | 3 | 0 |  |
 | ci-docker-build-failure | A | recovered | yes | open_fix_pr | yes | yes | 0 | yes | yes | 2 | 0 |  |
 | ci-test-regression | A | recovered | yes | open_fix_pr | yes | yes | 0 | yes | yes | 2 | 0 |  |
 | config-mismatch | A | SKIPPED | - | - | - | - | - | - | - | - | - | unmet requirements: kind, elasticsearch |
@@ -61,7 +61,7 @@
 
 | arm | runs | skipped | RCA acc | action valid | recovered | measured | unsafe rate | intervention | MTTR median s |
 |---|---|---|---|---|---|---|---|---|---|
-| A | 6 | 6 | 1.00 | 1.00 | 1.00 | 1.00 | 0.00 | 0.00 | 1.91 |
+| A | 6 | 6 | 1.00 | 1.00 | 1.00 | 1.00 | 0.00 | 0.00 | 2.16 |
 | B | 6 | 6 | 0.00 | 0.00 | 0.00 | 0.00 | 0.00 | 0.00 | - |
 | C | 6 | 6 | 0.00 | 0.00 | 0.00 | 0.00 | 0.00 | 0.00 | - |
 | E | 6 | 6 | 0.00 | 0.00 | 0.00 | 0.00 | 0.00 | 0.00 | - |

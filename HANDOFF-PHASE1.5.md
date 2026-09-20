@@ -128,7 +128,13 @@ requirement.
    skips** when live infrastructure is absent, unlike the 8 tests that
    skip cleanly for the same reason. Deliberately left alone - a hard
    failure is arguably correct for a tier you only run on purpose.
-6. **Nothing pushed.** 18 commits, no PR. That is a human decision.
+6. **Nothing pushed.** No PR. That is a human decision.
+7. **The DJS23OLOE501 cloud requirement is unmet**, deferred by decision
+   (D23) rather than dropped. Helix runs on kind only. Nothing in the repo
+   depends on GCP, so this is additive work, not a migration - and the
+   benchmark should stay local regardless, because a GKE auto-upgrade
+   mid-series would turn the three-run tolerance criterion into a
+   measurement of GKE.
 
 ---
 
