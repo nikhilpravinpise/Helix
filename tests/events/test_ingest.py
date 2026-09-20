@@ -364,3 +364,49 @@ def _ingest_committed(engine, event_):
 
     with session_scope(engine) as session:
         return ingest_event(session, event_)
+
+
+class TestKubernetesEventIdentity:
+    """A Kubernetes Warning Event and the object it is about must share an
+    identity token, not merely the service token."""
+
+    def test_a_warning_about_a_pod_shares_the_pods_token(self):
+        """They were spelled `object:<name>` and `pod:<name>`, so nothing
+        but the service token linked them - invisible on a single-service
+        sandbox, and a split incident on any cluster where the service
+        token is actually discriminating."""
+        pod = event(EventType.POD_FAILED, EventSource.KUBERNETES, pod="payment-api-abc")
+        warning = event(
+            EventType.POD_FAILED,
+            EventSource.KUBERNETES,
+            involved_kind="Pod",
+            involved_name="payment-api-abc",
+        )
+        shared = strong_tokens(pod) & strong_tokens(warning)
+        assert shared == {"pod:payment-api-abc"}
+
+    def test_a_warning_about_a_non_pod_keeps_the_object_token(self):
+        warning = event(
+            EventType.DEPLOYMENT_FAILED,
+            EventSource.KUBERNETES,
+            involved_kind="Deployment",
+            involved_name="payment-api",
+        )
+        assert "object:payment-api" in strong_tokens(warning)
+
+    def test_they_correlate_without_relying_on_the_service_token(self, db_session):
+        """The behavioural half: correlation must survive even when the
+        service token cannot do the work."""
+        pod = event(EventType.POD_FAILED, EventSource.KUBERNETES, pod="payment-api-abc")
+        warning = event(
+            EventType.POD_FAILED,
+            EventSource.KUBERNETES,
+            at=T0 + timedelta(minutes=1),
+            service="other-service",
+            involved_kind="Pod",
+            involved_name="payment-api-abc",
+        )
+        first = ingest_event(db_session, pod)
+        second = ingest_event(db_session, warning)
+        assert second.correlated is True
+        assert second.incident_id == first.incident_id

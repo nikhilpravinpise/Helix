@@ -245,9 +245,24 @@ until a representative model is available.
   (`HELIX_ARM` selection, the shared validate/execute/verify machinery)
   exists and is exercised by arm A's runs through the same graph
   construction path.
-- Correlation accuracy - the specific thing E4 built and E7 was asked to
-  measure - has no number from a live run in this document. It is
-  unit-tested, not benchmarked here.
+- Correlation accuracy now has a live number: **1.00 over 2 groups**
+  (`bash scripts/correlation-accuracy.sh`), with ground truth in
+  `benchmark/correlation/groups.py` built by running real captured
+  evidence through the real adapters. Two groups is a narrow denominator
+  and should be read as such - it is the number of captured fixtures that
+  pair two vendor sources against one documented incident without
+  stitching unrelated captures together. It is a real measurement, not a
+  broad one.
+- That measurement was worth more for what it exposed than for its rate.
+  Both groups initially correlated on `service:payment-api:sandbox`
+  alone - the proximity token - not on identity. Two defects behind it,
+  both now fixed and regression-tested: a Kubernetes Warning about a pod
+  emitted `object:<name>` while the pod's own failure emitted
+  `pod:<name>`, so they never met on identity; and the correlation window
+  compared a signed difference, bounding only the future, so an
+  out-of-order event merged two real faults 22 hours apart onto one
+  incident. Neither is visible on a single-service sandbox, where the
+  service token matches everything.
 - MTTR was unmeasurable on the event path until `_first_observed_at`
   landed during this evaluation, and the comparison reported NO
   REGRESSION throughout, because MTTR is not a gated metric. Both paths
@@ -284,11 +299,13 @@ table."*
    OpenAI-compatible) endpoint to run arms B, C, and E at all. Nothing in
    this evaluation can substitute for that - no local model, no invented
    numbers, per the constraint this evaluation was run under.
-2. Correlation accuracy needs `expected_groups` ground truth wired from
-   the benchmark catalog (e.g., scenarios that inject a multi-source
-   correlation chain and declare which event ids should land together)
-   and fed into `event_layer_report`/`correlation_accuracy` from a
-   harness run, not just from unit tests.
+2. ~~Correlation accuracy needs ground truth~~ - done during this
+   evaluation. `benchmark/correlation/groups.py` declares it from real
+   captured evidence and `scripts/correlation-accuracy.sh` measures it
+   live. Widening it past two groups needs fixture captures that pair
+   more vendor sources against one documented incident; the ELK envelope
+   is already synthesized because no capture ever queried Elasticsearch
+   directly.
 3. ~~MTTR on the event path~~ - fixed during this evaluation.
    `benchmark/harness.py::_first_observed_at` falls back to the earliest
    non-Helix `EventRecord.occurred_at` when an incident has no signal

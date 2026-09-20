@@ -77,9 +77,18 @@ def tokens_for(event: EngineeringEvent) -> set[str]:
     if metadata.get("job") and metadata.get("build_number") is not None:
         _add(tokens, "build", f"{metadata['job']}:{metadata['build_number']}")
     _add(tokens, "pod", metadata.get("pod"))
-    # A Kubernetes Event names the object it is about, which is how a
-    # Warning on a Deployment reaches the same incident as its pods.
-    _add(tokens, "object", metadata.get("involved_name"))
+    # A Kubernetes Event names the object it is about. Its token has to be
+    # spelled the same way that object's own events spell it, or the two
+    # never match on identity: a pod failure emits `pod:<name>` while the
+    # cluster's Warning about that same pod was emitting `object:<name>`,
+    # so the only thing correlating them was the service token. That is
+    # invisible on a single-service sandbox, where the service token
+    # matches everything, and would split one fault across two incidents
+    # on a cluster where it does not.
+    involved_name = metadata.get("involved_name")
+    if involved_name:
+        kind = str(metadata.get("involved_kind") or "").lower()
+        _add(tokens, "pod" if kind == "pod" else "object", involved_name)
     _add(tokens, "deployment", metadata.get("deployment"))
     return tokens
 

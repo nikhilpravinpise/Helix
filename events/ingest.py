@@ -110,7 +110,15 @@ def _correlated_incident(
         )
         if latest is None:
             continue
-        if _aware(occurred_at) - _aware(latest) <= CORRELATION_WINDOW:
+        # Absolute difference, not signed. A signed check bounds only the
+        # future: an event older than the incident's latest produces a
+        # negative delta, which passes `<= CORRELATION_WINDOW` however far
+        # back it is. Out-of-order delivery is exactly what a Kafka topic
+        # produces, so that gap let a replayed event from a day earlier
+        # attach to an unrelated open incident on nothing but the service
+        # token. Measured on real captured fixtures: two faults 22 hours
+        # apart merged into one incident when ingested newest-first.
+        if abs(_aware(occurred_at) - _aware(latest)) <= CORRELATION_WINDOW:
             return incident
     return None
 
