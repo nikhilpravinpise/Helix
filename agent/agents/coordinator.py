@@ -255,7 +255,17 @@ def _decide(
             return _Decision(None, "")
         if state.get("hypothesis"):
             return _Decision(IncidentStatus.REMEDIATION_PENDING, "diagnosis produced a hypothesis")
-        return _Decision(IncidentStatus.FAILED, "diagnosis produced no hypothesis")
+        # Carry WHY. "no hypothesis" is the symptom of several unrelated
+        # causes - a provider 404 on a decommissioned model, a rate limit,
+        # a schema the model would not satisfy, or a model that genuinely
+        # had nothing to say - and they rendered identically in the
+        # durable record. Diagnosing two separate benchmark failures meant
+        # reproducing the LLM call by hand, because the transition said
+        # only that nothing came back. The node already records the reason
+        # in state["errors"]; it was simply being dropped here.
+        reasons = [str(e) for e in (state.get("errors") or [])]
+        detail = f": {reasons[-1]}" if reasons else " and recorded no reason"
+        return _Decision(IncidentStatus.FAILED, f"diagnosis produced no hypothesis{detail}")
     if status == IncidentStatus.REMEDIATION_PENDING:
         if state.get("plan_failed"):
             return _Decision(

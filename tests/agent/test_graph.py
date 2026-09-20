@@ -444,3 +444,42 @@ class TestRunGuard:
             )
             assert len(incident.workflow_runs) == 2
             assert incident.status == IncidentStatus.ESCALATED
+
+
+class TestFailureCauseCarriesTheReason:
+    """A failed diagnosis must record WHY, not only that it failed.
+
+    "diagnosis produced no hypothesis" is the symptom of a provider 404, a
+    rate limit, a schema rejection and a genuinely empty answer alike.
+    Two separate benchmark failures had to be diagnosed by reproducing the
+    LLM call by hand, because the durable record kept no reason.
+    """
+
+    def test_a_provider_error_reaches_the_transition_cause(self):
+        from agent.agents.coordinator import _decide
+
+        decision = _decide(
+            {
+                "status": IncidentStatus.DIAGNOSING,
+                "diagnosis_complete": True,
+                "hypothesis": None,
+                "errors": ["fused diagnose/plan call failed: Error code: 429 - rate limit"],
+            },
+            None,
+        )
+        assert "429" in decision.cause
+        assert "rate limit" in decision.cause
+
+    def test_no_recorded_reason_says_so_rather_than_staying_silent(self):
+        from agent.agents.coordinator import _decide
+
+        decision = _decide(
+            {
+                "status": IncidentStatus.DIAGNOSING,
+                "diagnosis_complete": True,
+                "hypothesis": None,
+                "errors": [],
+            },
+            None,
+        )
+        assert "recorded no reason" in decision.cause
