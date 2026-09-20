@@ -1,7 +1,7 @@
 # Handoff - Phase 1.5 (Event-Driven Helix)
 
 **Date:** 2026-09-20
-**Branch:** `phase-1.5-event-layer` (18 commits, not pushed, no PR opened)
+**Branch:** `phase-1.5-event-layer` (25 commits, not pushed, no PR opened)
 **Plan:** [plan.md](plan.md) E1-E7 | prior handoff: [HANDOFF-PHASE1.md](HANDOFF-PHASE1.md)
 
 ---
@@ -19,22 +19,48 @@ except one, and that one cannot be met on this machine.
 | E4 | Correlation and consumption | Done |
 | E5 | Helix event emission, history, replay | Done |
 | E6 | Retrieval over history, ablation arm C | Done |
-| E7 | Phase 1.5 evaluation | **Partial - see below** |
+| E7 | Phase 1.5 evaluation | **Measured once - stability unmet** |
 
-**E7's open half, and the only thing blocking Phase 2.** plan.md E7
-requires "ablation arm C measured against arms A, B, and E". Arms B, C
-and E all reason through an LLM, and `HELIX_LLM_API_KEY` is unset. Three
-of E7's four deliverables are done and measured; the ablation table's
-arm B/C/E cells are marked `not measured` with the reason, never
-estimated or left blank.
+**E7's remaining half.** A key was supplied on 2026-09-20 and all four
+arms ran for the first time. The exit criterion's ablation clause is met;
+the 1.11 stability clause is not.
 
-That single gap blocks E7's exit criterion, which blocks Phase 1.5's exit
-gate, which is **Phase 2's entry gate**. One free Groq key fills the
-whole table in a single run.
+**One valid four-arm run** (arm A 1.00 with zero spread, so the control
+is clean):
+
+| arm | RCA | action valid | measured | unsafe |
+|---|---|---|---|---|
+| A rules | 1.00 | 1.00 | 1.00 | 0.00 |
+| B single LLM | 0.50 | 0.83 | 0.17 | 0.00 |
+| C LLM + retrieval | 0.83 | 0.83 | 0.67 | 0.00 |
+| E full graph | 0.33 | 0.83 | **0.00** | 0.00 |
+
+**The finding.** Arm E reached `recovered` on four of six scenarios and
+measured correct on zero. It opened fix PRs against paths like
+`sandbox/payment-api/src/main/java/...` - a Java tree in a Python project.
+Helix's own verification passed them; only the harness's independent
+measurement caught that the change was fictional. Every one of those
+writes was approved by the policy gate as `allow_with_checks`, and they
+were harmless solely because fixture mode records intended writes rather
+than opening real PRs (D10). With `HELIX_GITHUB_TOKEN` set, arm E would
+have opened four real PRs editing files that do not exist.
+
+**What retrieval bought**, visible in the paths: arm B wrote an invented
+`config/payment.yaml`; arm C wrote `pyproject.toml`, `Dockerfile`,
+`tests/test_main.py` - all real. RCA 0.50 -> 0.83, measured 0.17 -> 0.67.
+Retrieval's contribution here was grounding the model in paths that
+exist, because the incidents it cites reference real ones.
+
+**Stability is unmet.** Two attempts at three consecutive runs were
+discarded: the first to cross-invocation contamination (now fixed), the
+second to Groq's daily token cap (199,672 of 200,000 on
+`openai/gpt-oss-120b`). Arm A held 1.00 with zero spread throughout both,
+which is what proves the harness was sound and the LLM arms hit an
+external wall. Those zeros are not recorded as arm performance.
 
 Phase 2 was deliberately not started. 2.1 needs no LLM, but it
 restructures the agents into the Phase 2 shape, and the entire purpose of
-the pending ablation is determining which components earned their place.
+the ablation is determining which components earned their place.
 
 ---
 
@@ -114,14 +140,18 @@ requirement.
 
 ## Known gaps
 
-1. **The ablation.** Arms B, C and E unmeasured. The blocker.
-2. **Ollama proved the arms execute**, which genuinely closes E6's "arm C
-   runs end to end", but a 3B local model measures model size rather than
-   architecture and its scores are deliberately kept out of the table.
-3. **Arm E produced one unsafe execution** on the local model - the first
-   real non-zero value the D2 unsafe-action measurement has ever had, as
-   a rules table cannot choose wrongly. Worth revisiting once a
-   representative model runs.
+1. **Three-run stability, not the ablation.** The ablation is measured;
+   the 1.11 tolerance criterion needs three consecutive runs in band and
+   the daily token quota ran out. Cheapest route is `openai/gpt-oss-20b`
+   for stability runs - variance is what that criterion measures, and a
+   smaller model measures variance fine even at lower absolute scores.
+2. **Arm E hallucinates file paths** and its own verification does not
+   catch it. This is the most important open finding in the project and
+   is not a benchmark defect - it is a real behaviour of the full graph.
+3. **A provider 404 and a rate limit used to be indistinguishable from a
+   model with nothing to say.** Fixed - the cause is carried into the
+   transition - but the benchmark report still surfaces workflow errors
+   as an empty `errors` list, so the reason lives only in the database.
 4. **Correlation ground truth is two groups.** Widening it needs fixture
    captures pairing more vendor sources against one documented incident.
 5. **`tests/integrations/test_live_integration.py` fails rather than
@@ -140,11 +170,13 @@ requirement.
 
 ## Next actions
 
-1. **Human:** drop a free Groq key into `.env` as `HELIX_LLM_API_KEY`.
-   Then `bash scripts/benchmark.sh --arm A --arm B --arm C --arm E`
-   fills the ablation table, and E7, Phase 1.5's exit gate and Phase 2's
-   entry gate all unblock together.
-2. **Human:** decide whether these 18 commits go out as one PR or are
+1. **Rotate the Groq key.** A failing test printed it in plaintext before
+   the repr guard landed. The guard is committed; the exposed key is not
+   revoked.
+2. **Three stability runs** once the daily quota resets, then
+   `make benchmark-tolerance REPORTS="r1 r2 r3"`. Consider
+   `openai/gpt-oss-20b` to stay inside the cap.
+3. **Human:** decide whether these 25 commits go out as one PR or are
    split per subphase, matching the one-PR-per-subphase pattern Phase 1
    used.
 3. **Then:** Phase 2 from 2.1, with the ablation available to say which
