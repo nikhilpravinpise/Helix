@@ -5,6 +5,8 @@ paths - no subprocess runs. The real end-to-end (`helix intake` + `helix
 run` subprocesses against Postgres) is the integration tier.
 """
 
+from types import SimpleNamespace
+
 import pytest
 from sqlalchemy import create_engine, select
 from sqlalchemy.orm import Session
@@ -44,10 +46,25 @@ def test_run_scenario_skips_on_unmet_requirements():
 
 
 def test_arm_b_and_e_skip_without_llm_key(monkeypatch):
-    monkeypatch.delenv("HELIX_LLM_API_KEY", raising=False)
+    monkeypatch.setattr(harness, "get_settings", lambda: SimpleNamespace(llm_api_key=None))
     cfg = HarnessConfig(arms=["B"], database_url=BAD_URL)
     record = run_scenario("ci-test-regression", SCENARIOS["ci-test-regression"], "B", cfg)
-    assert record.skipped == "arm B requires HELIX_LLM_API_KEY"
+    assert record.skipped.startswith("arm B requires HELIX_LLM_API_KEY")
+
+
+@pytest.mark.parametrize("arm", ["B", "C", "E"])
+def test_a_key_in_dot_env_is_enough_to_run_an_llm_arm(monkeypatch, arm):
+    """The key's documented home is .env, which only pydantic-settings
+    loads - os.environ never sees it. Gating the skip on os.environ meant
+    putting the key exactly where every document says to put it left all
+    three LLM arms skipping, with a message naming a variable the user had
+    already set. Reaching the requirements check at all is the assertion:
+    it proves the arm was not refused for a missing key."""
+    monkeypatch.delenv("HELIX_LLM_API_KEY", raising=False)  # .env only, not the environment
+    monkeypatch.setattr(harness, "get_settings", lambda: SimpleNamespace(llm_api_key="gsk_x"))
+    cfg = HarnessConfig(arms=[arm], database_url=BAD_URL)
+    record = run_scenario("ci-test-regression", SCENARIOS["ci-test-regression"], arm, cfg)
+    assert "requires HELIX_LLM_API_KEY" not in (record.skipped or "")
 
 
 def test_forcing_fixture_mode_on_a_live_scenario_skips_rather_than_crashes():

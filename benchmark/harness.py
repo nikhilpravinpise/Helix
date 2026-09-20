@@ -68,7 +68,7 @@ from events.schemas import EventSource
 from helix.config import get_settings
 from state import models
 from state.db import session_scope
-from state.intake import Signal, build_event
+from state.intake import Signal, build_event, fingerprint
 from state.machine import TERMINAL_STATUSES, IncidentStatus, transition
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
@@ -266,6 +266,58 @@ def _session_factory(cfg: HarnessConfig):
     url = cfg.database_url or get_settings().database_url
     engine = create_engine(url)
     return lambda: session_scope(engine)
+
+
+def _close_preexisting_incidents(database_url: str, scenarios: dict[str, Any]) -> int:
+    """Close any still-open incident a scenario in this run would dedupe
+    onto, before the run starts. Returns how many were closed.
+
+    `_close_arm_incidents` isolates arms from each other *within* one
+    invocation. This closes the other half of the same hole: an incident
+    left open by an *earlier* invocation. Intake dedup matches on
+    `source | service | environment | signature`, which is identical
+    across invocations, so a leftover attaches silently.
+
+    That is not hypothetical. An arm-B smoke test left an incident parked
+    at `verifying`; the next full ablation's arm A deduped onto it,
+    inherited arm B's hypothesis and candidate, drove it to `recovered`
+    and reported the result as arm A's. The candidate row still read
+    `components={"arm": "B"}`. Arm A scored 0.83 instead of 1.00 on
+    reasoning it never did, and nothing in the report said so - the
+    incident ids were all distinct, because the contamination arrived
+    before the run rather than during it.
+
+    Scoped to fingerprints this run will actually produce, so it cannot
+    touch unrelated incidents, and it closes through the ordinary
+    validated transition rather than deleting anything.
+    """
+    fingerprints: set[str] = set()
+    for scenario in scenarios.values():
+        try:
+            fingerprints.add(fingerprint(Signal.model_validate(scenario["signal"])))
+        except (ValidationError, KeyError):
+            continue  # a malformed scenario is caught by catalog validation
+    if not fingerprints:
+        return 0
+
+    closed = 0
+    engine = create_engine(database_url)
+    with Session(engine) as session:
+        stale = session.scalars(
+            select(models.Incident)
+            .where(models.Incident.fingerprint.in_(sorted(fingerprints)))
+            .where(models.Incident.status.not_in(TERMINAL_STATUSES))
+        ).all()
+        for incident in stale:
+            transition(
+                incident,
+                IncidentStatus.ESCALATED,
+                cause="benchmark: closing an incident left open by an earlier run",
+                session=session,
+            )
+            closed += 1
+        session.commit()
+    return closed
 
 
 def _close_arm_incidents(database_url: str, incident_ids: set[str], arm: str) -> None:
@@ -548,10 +600,17 @@ def run_scenario(
         return record
 
     # Arm-level requirement: B, C and E reason through the LLM - without
-    # HELIX_LLM_API_KEY they are honestly unrunnable, not failed runs.
-    # Arm A's deterministic tables need no key.
-    if arm in ("B", "C", "E") and not os.environ.get("HELIX_LLM_API_KEY"):
-        record.skipped = f"arm {arm} requires HELIX_LLM_API_KEY"
+    # a key they are honestly unrunnable, not failed runs. Arm A's
+    # deterministic tables need no key.
+    #
+    # Read through Settings, not os.environ. The key's documented home is
+    # .env (.env.example, docs/bring-up.md), which only pydantic-settings
+    # loads - os.environ never sees it. Gating on os.environ meant putting
+    # the key exactly where every document says to put it left all three
+    # LLM arms skipping with a message naming the variable that was, as
+    # far as the user could tell, already set.
+    if arm in ("B", "C", "E") and not get_settings().llm_api_key:
+        record.skipped = f"arm {arm} requires HELIX_LLM_API_KEY (set it in .env or the environment)"
         return record
 
     mode = scenario["inject"] if cfg.mode == "auto" else cfg.mode
@@ -623,6 +682,12 @@ def run_benchmark(cfg: HarnessConfig) -> dict[str, Any]:
     if cfg.scenarios:
         scenarios = {k: v for k, v in scenarios.items() if k in set(cfg.scenarios)}
     database_url = cfg.database_url or get_settings().database_url
+    # Before anything runs: close incidents a previous invocation left
+    # open that these scenarios would dedupe onto. See
+    # _close_preexisting_incidents for the contamination this prevents.
+    stale = _close_preexisting_incidents(database_url, scenarios)
+    if stale:
+        print(f"closed {stale} incident(s) left open by an earlier run", file=sys.stderr)
     outcomes: list[Any] = []
     for arm_index, arm in enumerate(cfg.arms):
         touched: set[str] = set()

@@ -306,10 +306,14 @@ class TestArmC:
         assert "C" in BANDS
 
     def test_arm_c_skips_honestly_without_a_key(self, monkeypatch):
-        from benchmark import catalog
+        from types import SimpleNamespace
+
+        from benchmark import catalog, harness
         from benchmark.harness import HarnessConfig, run_scenario
 
-        monkeypatch.delenv("HELIX_LLM_API_KEY", raising=False)
+        # Patch the settings the harness reads, not the environment: the
+        # key's home is .env, which os.environ never sees.
+        monkeypatch.setattr(harness, "get_settings", lambda: SimpleNamespace(llm_api_key=None))
         scenarios = catalog.load_scenarios()
         record = run_scenario(
             "ci-test-regression",
@@ -317,4 +321,4 @@ class TestArmC:
             "C",
             HarnessConfig(arms=["C"], database_url="postgresql+psycopg://x@127.0.0.1:59999/x"),
         )
-        assert record.skipped == "arm C requires HELIX_LLM_API_KEY"
+        assert record.skipped.startswith("arm C requires HELIX_LLM_API_KEY")
