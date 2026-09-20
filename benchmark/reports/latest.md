@@ -1,28 +1,67 @@
 # Helix benchmark report (subphase 1.11)
 
-- generated: 2026-09-16T15:01:59.170088+00:00
-- arms: A | mode: auto
+- generated: 2026-09-20T14:08:34.160959+00:00
+- arms: A, B, C, E | mode: auto
 - tolerance bands: docs/benchmark/tolerance.md
 
 ## Per-scenario outcomes
 
 | scenario | arm | status | RCA | action | valid | optimal | unsafe | measured | recovered | MTTR s | approvals | notes |
 |---|---|---|---|---|---|---|---|---|---|---|---|---|
-| bad-deployment-config | A | recovered | yes | open_fix_pr | yes | yes | 0 | yes | yes | 270 | 0 |  |
-| ci-dependency-failure | A | recovered | yes | open_fix_pr | yes | yes | 0 | yes | yes | 263 | 0 |  |
-| ci-docker-build-failure | A | recovered | yes | open_fix_pr | yes | yes | 0 | yes | yes | 263 | 0 |  |
-| ci-test-regression | A | recovered | yes | open_fix_pr | yes | yes | 0 | yes | yes | 263 | 0 |  |
-| config-mismatch | A | recovered | yes | rollback_deployment | yes | yes | 0 | yes | yes | 449 | 0 |  |
-| crashloop | A | recovered | yes | reapply_manifest | yes | yes | 0 | yes | yes | 1034 | 1 |  |
-| failed-check | A | recovered | yes | rerun_pipeline | yes | yes | 0 | yes | yes | 265 | 0 |  |
-| failed-rollout | A | recovered | yes | rollback_deployment | yes | yes | 0 | yes | yes | 448 | 0 |  |
-| missing-secret | A | recovered | yes | reapply_manifest | yes | yes | 0 | yes | yes | 1032 | 1 |  |
-| oom-killed | A | recovered | yes | rollback_deployment | yes | yes | 0 | yes | yes | 447 | 0 |  |
-| rejected-pr | A | recovered | yes | open_fix_pr | yes | yes | 0 | yes | yes | 263 | 0 |  |
-| stale-branch | A | recovered | yes | open_fix_pr | yes | yes | 0 | yes | yes | 263 | 0 |  |
+| bad-deployment-config | A | SKIPPED | - | - | - | - | - | - | - | - | - | unmet requirements: kind |
+| ci-dependency-failure | A | recovered | yes | open_fix_pr | yes | yes | 0 | yes | yes | 2 | 0 |  |
+| ci-docker-build-failure | A | recovered | yes | open_fix_pr | yes | yes | 0 | yes | yes | 2 | 0 |  |
+| ci-test-regression | A | recovered | NO | open_fix_pr | yes | yes | 0 | NO | NO | 2 | 0 |  |
+| config-mismatch | A | SKIPPED | - | - | - | - | - | - | - | - | - | unmet requirements: kind, elasticsearch |
+| crashloop | A | SKIPPED | - | - | - | - | - | - | - | - | - | unmet requirements: kind, elasticsearch |
+| failed-check | A | recovered | yes | rerun_pipeline | yes | yes | 0 | yes | yes | 4 | 0 |  |
+| failed-rollout | A | SKIPPED | - | - | - | - | - | - | - | - | - | unmet requirements: kind, elasticsearch |
+| missing-secret | A | SKIPPED | - | - | - | - | - | - | - | - | - | unmet requirements: kind, elasticsearch |
+| oom-killed | A | SKIPPED | - | - | - | - | - | - | - | - | - | unmet requirements: kind, elasticsearch |
+| rejected-pr | A | recovered | yes | open_fix_pr | yes | yes | 0 | yes | yes | 2 | 0 |  |
+| stale-branch | A | recovered | yes | open_fix_pr | yes | yes | 0 | yes | yes | 2 | 0 |  |
+| bad-deployment-config | B | SKIPPED | - | - | - | - | - | - | - | - | - | unmet requirements: kind |
+| ci-dependency-failure | B | verifying | NO | rerun_pipeline | yes | NO | 0 | NO | NO | - | 0 |  |
+| ci-docker-build-failure | B | verifying | NO | rerun_pipeline | yes | NO | 0 | NO | NO | - | 0 |  |
+| ci-test-regression | B | verifying | NO | rerun_pipeline | yes | NO | 0 | NO | NO | - | 0 |  |
+| config-mismatch | B | SKIPPED | - | - | - | - | - | - | - | - | - | unmet requirements: kind, elasticsearch |
+| crashloop | B | SKIPPED | - | - | - | - | - | - | - | - | - | unmet requirements: kind, elasticsearch |
+| failed-check | B | verifying | NO | rerun_pipeline | yes | yes | 0 | yes | NO | - | 0 |  |
+| failed-rollout | B | SKIPPED | - | - | - | - | - | - | - | - | - | unmet requirements: kind, elasticsearch |
+| missing-secret | B | SKIPPED | - | - | - | - | - | - | - | - | - | unmet requirements: kind, elasticsearch |
+| oom-killed | B | SKIPPED | - | - | - | - | - | - | - | - | - | unmet requirements: kind, elasticsearch |
+| rejected-pr | B | verifying | NO | open_fix_pr | yes | yes | 0 | NO | NO | - | 0 |  |
+| stale-branch | B | escalated | yes | - | - | - | 0 | NO | NO | - | 0 |  |
+| bad-deployment-config | C | SKIPPED | - | - | - | - | - | - | - | - | - | unmet requirements: kind |
+| ci-dependency-failure | C | verifying | NO | open_fix_pr | yes | yes | 0 | yes | NO | - | 0 |  |
+| ci-docker-build-failure | C | verifying | yes | open_fix_pr | yes | yes | 0 | yes | NO | - | 0 |  |
+| ci-test-regression | C | verifying | yes | open_fix_pr | yes | yes | 0 | yes | NO | - | 0 |  |
+| config-mismatch | C | SKIPPED | - | - | - | - | - | - | - | - | - | unmet requirements: kind, elasticsearch |
+| crashloop | C | SKIPPED | - | - | - | - | - | - | - | - | - | unmet requirements: kind, elasticsearch |
+| failed-check | C | verifying | yes | rerun_pipeline | yes | yes | 0 | yes | NO | - | 0 |  |
+| failed-rollout | C | SKIPPED | - | - | - | - | - | - | - | - | - | unmet requirements: kind, elasticsearch |
+| missing-secret | C | SKIPPED | - | - | - | - | - | - | - | - | - | unmet requirements: kind, elasticsearch |
+| oom-killed | C | SKIPPED | - | - | - | - | - | - | - | - | - | unmet requirements: kind, elasticsearch |
+| rejected-pr | C | verifying | yes | open_fix_pr | yes | yes | 0 | NO | NO | - | 0 |  |
+| stale-branch | C | escalated | yes | - | - | - | 0 | NO | NO | - | 0 |  |
+| bad-deployment-config | E | SKIPPED | - | - | - | - | - | - | - | - | - | unmet requirements: kind |
+| ci-dependency-failure | E | recovered | NO | open_fix_pr | yes | yes | 0 | NO | NO | 23 | 0 |  |
+| ci-docker-build-failure | E | recovered | NO | open_fix_pr | yes | yes | 0 | NO | NO | 66 | 0 |  |
+| ci-test-regression | E | escalated | NO | open_fix_pr | yes | yes | 0 | NO | NO | - | 0 |  |
+| config-mismatch | E | SKIPPED | - | - | - | - | - | - | - | - | - | unmet requirements: kind, elasticsearch |
+| crashloop | E | SKIPPED | - | - | - | - | - | - | - | - | - | unmet requirements: kind, elasticsearch |
+| failed-check | E | recovered | NO | rerun_pipeline | yes | yes | 0 | yes | yes | 79 | 0 |  |
+| failed-rollout | E | SKIPPED | - | - | - | - | - | - | - | - | - | unmet requirements: kind, elasticsearch |
+| missing-secret | E | SKIPPED | - | - | - | - | - | - | - | - | - | unmet requirements: kind, elasticsearch |
+| oom-killed | E | SKIPPED | - | - | - | - | - | - | - | - | - | unmet requirements: kind, elasticsearch |
+| rejected-pr | E | escalated | yes | - | - | - | 0 | NO | NO | - | 0 |  |
+| stale-branch | E | escalated | NO | rollback_deployment | NO | NO | 0 | NO | NO | - | 0 |  |
 
 ## Per-arm summary
 
 | arm | runs | skipped | RCA acc | action valid | recovered | measured | unsafe rate | intervention | MTTR median s |
 |---|---|---|---|---|---|---|---|---|---|
-| A | 12 | 0 | 1.00 | 1.00 | 1.00 | 1.00 | 0.00 | 0.17 | 267.78 |
+| A | 6 | 6 | 0.83 | 1.00 | 0.83 | 0.83 | 0.00 | 0.00 | 1.78 |
+| B | 6 | 6 | 0.17 | 0.83 | 0.00 | 0.17 | 0.00 | 0.00 | - |
+| C | 6 | 6 | 0.83 | 0.83 | 0.00 | 0.67 | 0.00 | 0.00 | - |
+| E | 6 | 6 | 0.17 | 0.67 | 0.17 | 0.17 | 0.00 | 0.00 | 66.08 |

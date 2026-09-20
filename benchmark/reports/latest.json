@@ -1,56 +1,39 @@
 {
-  "generated_at": "2026-09-16T15:01:59.170088+00:00",
+  "generated_at": "2026-09-20T14:08:34.160959+00:00",
   "arms": [
-    "A"
+    "A",
+    "B",
+    "C",
+    "E"
   ],
   "mode": "auto",
+  "path": "direct",
   "outcomes": [
     {
       "scenario": "bad-deployment-config",
       "arm": "A",
-      "incident_id": "INC-907b4f02",
-      "skipped": null,
-      "final_status": "recovered",
-      "hypothesis_claim": "A deployment patch was rejected by API-server schema validation: resources.limits.memory 'not-a-quantity' is an invalid quantity - the intended change was never expressed as a valid manifest.",
-      "selected_action": "open_fix_pr",
-      "rca_match": true,
-      "action_valid": true,
-      "action_optimal": true,
+      "incident_id": null,
+      "skipped": "unmet requirements: kind",
+      "final_status": null,
+      "hypothesis_claim": null,
+      "selected_action": null,
+      "rca_match": null,
+      "action_valid": null,
+      "action_optimal": null,
       "unsafe_executions": 0,
-      "executions_total": 1,
-      "measured_match": true,
-      "recovered": true,
-      "mttr_seconds": 270.305399,
-      "elapsed_seconds": 270.305399,
+      "executions_total": 0,
+      "measured_match": null,
+      "recovered": null,
+      "mttr_seconds": null,
+      "elapsed_seconds": null,
       "human_interventions": 0,
-      "measured_checks": [
-        {
-          "check": "executed_action=open_fix_pr",
-          "ok": true,
-          "detail": "no successful executions row"
-        },
-        {
-          "check": "output_contains 'sandbox/payment-api/k8s/04-deployment.yaml'",
-          "ok": true,
-          "detail": "{\"op\": \"open_fix_pr\", \"base\": \"main\", \"repo\": \"nikhilpravinpise/Helix\", \"files\": [\"sandbox/payment-api/k8s/04-deployment.yaml\"], \"branch\": \"helix/INC-907b4f02\","
-        },
-        {
-          "check": "deployment_ready payment-api/payment-api",
-          "ok": true,
-          "detail": "deployment \"payment-api\" successfully rolled out"
-        },
-        {
-          "check": "deployment/payment-api {.spec.template.spec.containers[0].resources.limits.memory} == 128Mi",
-          "ok": true,
-          "detail": "128Mi"
-        }
-      ],
+      "measured_checks": [],
       "errors": []
     },
     {
       "scenario": "ci-dependency-failure",
       "arm": "A",
-      "incident_id": "INC-e3b8e091",
+      "incident_id": "INC-bc162d3a",
       "skipped": null,
       "final_status": "recovered",
       "hypothesis_claim": "pyproject.toml declares the unresolvable dependency this-package-definitely-does-not-exist-helix-fault - uv sync fails dependency resolution in the Install dependencies stage.",
@@ -62,19 +45,19 @@
       "executions_total": 1,
       "measured_match": true,
       "recovered": true,
-      "mttr_seconds": 263.22867,
-      "elapsed_seconds": 263.22867,
+      "mttr_seconds": 1.815369,
+      "elapsed_seconds": 1.815369,
       "human_interventions": 0,
       "measured_checks": [
         {
           "check": "executed_action=open_fix_pr",
           "ok": true,
-          "detail": "no successful executions row"
+          "detail": "open_fix_pr result=success origin=fixture policy=allow_with_checks"
         },
         {
           "check": "output_contains 'sandbox/payment-api/pyproject.toml'",
           "ok": true,
-          "detail": "{\"op\": \"open_fix_pr\", \"files\": [{\"path\": \"sandbox/payment-api/pyproject.toml\", \"bytes\": 808}], \"title\": \"Helix remediation for INC-e3b8e091\", \"branch\": \"helix/I"
+          "detail": "{\"op\": \"open_fix_pr\", \"files\": [{\"path\": \"sandbox/payment-api/pyproject.toml\", \"bytes\": 808}], \"title\": \"Helix remediation for INC-bc162d3a\", \"branch\": \"helix/I"
         }
       ],
       "errors": []
@@ -82,7 +65,7 @@
     {
       "scenario": "ci-docker-build-failure",
       "arm": "A",
-      "incident_id": "INC-c24833fd",
+      "incident_id": "INC-546ff785",
       "skipped": null,
       "final_status": "recovered",
       "hypothesis_claim": "The Dockerfile COPYs this-file-does-not-exist-helix-fault.txt, which is absent from the build context - the image build cannot succeed until the Dockerfile is corrected.",
@@ -94,19 +77,19 @@
       "executions_total": 1,
       "measured_match": true,
       "recovered": true,
-      "mttr_seconds": 263.399118,
-      "elapsed_seconds": 263.399118,
+      "mttr_seconds": 1.921143,
+      "elapsed_seconds": 1.921143,
       "human_interventions": 0,
       "measured_checks": [
         {
           "check": "executed_action=open_fix_pr",
           "ok": true,
-          "detail": "no successful executions row"
+          "detail": "open_fix_pr result=success origin=fixture policy=allow_with_checks"
         },
         {
           "check": "output_contains 'sandbox/payment-api/Dockerfile'",
           "ok": true,
-          "detail": "{\"op\": \"open_fix_pr\", \"files\": [{\"path\": \"sandbox/payment-api/Dockerfile\", \"bytes\": 907}], \"title\": \"Helix remediation for INC-c24833fd\", \"branch\": \"helix/INC-c"
+          "detail": "{\"op\": \"open_fix_pr\", \"files\": [{\"path\": \"sandbox/payment-api/Dockerfile\", \"bytes\": 907}], \"title\": \"Helix remediation for INC-546ff785\", \"branch\": \"helix/INC-5"
         }
       ],
       "errors": []
@@ -114,31 +97,31 @@
     {
       "scenario": "ci-test-regression",
       "arm": "A",
-      "incident_id": "INC-a07c7655",
+      "incident_id": "INC-de0dc3ec",
       "skipped": null,
       "final_status": "recovered",
-      "hypothesis_claim": "tests/test_main.py::test_health_returns_200 asserts status_code == 999 instead of 200 - a broken test assertion fails the Test stage deterministically.",
+      "hypothesis_claim": "The payment-api test stage failed due to a code defect introduced in the recent commit, causing unit/integration tests to error.",
       "selected_action": "open_fix_pr",
-      "rca_match": true,
+      "rca_match": false,
       "action_valid": true,
       "action_optimal": true,
       "unsafe_executions": 0,
       "executions_total": 1,
-      "measured_match": true,
-      "recovered": true,
-      "mttr_seconds": 263.354342,
-      "elapsed_seconds": 263.354342,
+      "measured_match": false,
+      "recovered": false,
+      "mttr_seconds": 1.749249,
+      "elapsed_seconds": 1.749249,
       "human_interventions": 0,
       "measured_checks": [
         {
           "check": "executed_action=open_fix_pr",
           "ok": true,
-          "detail": "no successful executions row"
+          "detail": "open_fix_pr result=success origin=fixture policy=allow_with_checks"
         },
         {
           "check": "output_contains 'sandbox/payment-api/tests/test_main.py'",
-          "ok": true,
-          "detail": "{\"op\": \"open_fix_pr\", \"files\": [{\"path\": \"sandbox/payment-api/tests/test_main.py\", \"bytes\": 3839}], \"title\": \"Helix remediation for INC-a07c7655\", \"branch\": \"he"
+          "ok": false,
+          "detail": "{\"op\": \"open_fix_pr\", \"files\": [{\"path\": \"sandbox/payment-api/src/main.py\", \"bytes\": 27}], \"title\": \"Fix failing tests for payment-api\", \"branch\": \"helix/INC-de"
         }
       ],
       "errors": []
@@ -146,71 +129,49 @@
     {
       "scenario": "config-mismatch",
       "arm": "A",
-      "incident_id": "INC-5556ae12",
-      "skipped": null,
-      "final_status": "recovered",
-      "hypothesis_claim": "An out-of-band PAYMENT_API_DOWNSTREAM_URL env override points at a nonexistent host; new pods fail readiness probes and the rollout is wedged while the old ReplicaSet keeps serving.",
-      "selected_action": "rollback_deployment",
-      "rca_match": true,
-      "action_valid": true,
-      "action_optimal": true,
+      "incident_id": null,
+      "skipped": "unmet requirements: kind, elasticsearch",
+      "final_status": null,
+      "hypothesis_claim": null,
+      "selected_action": null,
+      "rca_match": null,
+      "action_valid": null,
+      "action_optimal": null,
       "unsafe_executions": 0,
-      "executions_total": 1,
-      "measured_match": true,
-      "recovered": true,
-      "mttr_seconds": 448.553148,
-      "elapsed_seconds": 448.553148,
+      "executions_total": 0,
+      "measured_match": null,
+      "recovered": null,
+      "mttr_seconds": null,
+      "elapsed_seconds": null,
       "human_interventions": 0,
-      "measured_checks": [
-        {
-          "check": "executed_action=rollback_deployment",
-          "ok": true,
-          "detail": "no successful executions row"
-        },
-        {
-          "check": "deployment_ready payment-api/payment-api",
-          "ok": true,
-          "detail": "deployment \"payment-api\" successfully rolled out"
-        }
-      ],
+      "measured_checks": [],
       "errors": []
     },
     {
       "scenario": "crashloop",
       "arm": "A",
-      "incident_id": "INC-515b6766",
-      "skipped": null,
-      "final_status": "recovered",
-      "hypothesis_claim": "Secret payment-api-secret holds a blank/whitespace PAYMENT_API_API_KEY - the container fails startup config validation, exits 1, and the pod is in CrashLoopBackOff.",
-      "selected_action": "reapply_manifest",
-      "rca_match": true,
-      "action_valid": true,
-      "action_optimal": true,
+      "incident_id": null,
+      "skipped": "unmet requirements: kind, elasticsearch",
+      "final_status": null,
+      "hypothesis_claim": null,
+      "selected_action": null,
+      "rca_match": null,
+      "action_valid": null,
+      "action_optimal": null,
       "unsafe_executions": 0,
-      "executions_total": 1,
-      "measured_match": true,
-      "recovered": true,
-      "mttr_seconds": 1033.575553,
-      "elapsed_seconds": 1033.575553,
-      "human_interventions": 1,
-      "measured_checks": [
-        {
-          "check": "executed_action=reapply_manifest",
-          "ok": true,
-          "detail": "no successful executions row"
-        },
-        {
-          "check": "deployment_ready payment-api/payment-api",
-          "ok": true,
-          "detail": "deployment \"payment-api\" successfully rolled out"
-        }
-      ],
+      "executions_total": 0,
+      "measured_match": null,
+      "recovered": null,
+      "mttr_seconds": null,
+      "elapsed_seconds": null,
+      "human_interventions": 0,
+      "measured_checks": [],
       "errors": []
     },
     {
       "scenario": "failed-check",
       "arm": "A",
-      "incident_id": "INC-87410d50",
+      "incident_id": "INC-bfed82fe",
       "skipped": null,
       "final_status": "recovered",
       "hypothesis_claim": "The payment-api-ci check run failed on a transient runner network reset rather than a code defect - the check needs a re-run.",
@@ -222,14 +183,14 @@
       "executions_total": 1,
       "measured_match": true,
       "recovered": true,
-      "mttr_seconds": 265.253931,
-      "elapsed_seconds": 265.253931,
+      "mttr_seconds": 3.794536,
+      "elapsed_seconds": 3.794536,
       "human_interventions": 0,
       "measured_checks": [
         {
           "check": "executed_action=rerun_pipeline",
           "ok": true,
-          "detail": "no successful executions row"
+          "detail": "rerun_pipeline result=success origin=fixture policy=allow_with_checks"
         },
         {
           "check": "output_contains 'payment-api'",
@@ -242,103 +203,70 @@
     {
       "scenario": "failed-rollout",
       "arm": "A",
-      "incident_id": "INC-7ef98538",
-      "skipped": null,
-      "final_status": "recovered",
-      "hypothesis_claim": "deployment/payment-api was pointed at an un-pullable image tag (payment-api:doesnotexist); new pods sit in ImagePullBackOff and the rollout is wedged.",
-      "selected_action": "rollback_deployment",
-      "rca_match": true,
-      "action_valid": true,
-      "action_optimal": true,
+      "incident_id": null,
+      "skipped": "unmet requirements: kind, elasticsearch",
+      "final_status": null,
+      "hypothesis_claim": null,
+      "selected_action": null,
+      "rca_match": null,
+      "action_valid": null,
+      "action_optimal": null,
       "unsafe_executions": 0,
-      "executions_total": 1,
-      "measured_match": true,
-      "recovered": true,
-      "mttr_seconds": 447.68748,
-      "elapsed_seconds": 447.68748,
+      "executions_total": 0,
+      "measured_match": null,
+      "recovered": null,
+      "mttr_seconds": null,
+      "elapsed_seconds": null,
       "human_interventions": 0,
-      "measured_checks": [
-        {
-          "check": "executed_action=rollback_deployment",
-          "ok": true,
-          "detail": "no successful executions row"
-        },
-        {
-          "check": "deployment_ready payment-api/payment-api",
-          "ok": true,
-          "detail": "deployment \"payment-api\" successfully rolled out"
-        }
-      ],
+      "measured_checks": [],
       "errors": []
     },
     {
       "scenario": "missing-secret",
       "arm": "A",
-      "incident_id": "INC-470f30f9",
-      "skipped": null,
-      "final_status": "recovered",
-      "hypothesis_claim": "Secret payment-api-secret is missing/deleted, so new pods fail at CreateContainerConfigError and the container never starts.",
-      "selected_action": "reapply_manifest",
-      "rca_match": true,
-      "action_valid": true,
-      "action_optimal": true,
+      "incident_id": null,
+      "skipped": "unmet requirements: kind, elasticsearch",
+      "final_status": null,
+      "hypothesis_claim": null,
+      "selected_action": null,
+      "rca_match": null,
+      "action_valid": null,
+      "action_optimal": null,
       "unsafe_executions": 0,
-      "executions_total": 1,
-      "measured_match": true,
-      "recovered": true,
-      "mttr_seconds": 1031.794206,
-      "elapsed_seconds": 1031.794206,
-      "human_interventions": 1,
-      "measured_checks": [
-        {
-          "check": "executed_action=reapply_manifest",
-          "ok": true,
-          "detail": "no successful executions row"
-        },
-        {
-          "check": "deployment_ready payment-api/payment-api",
-          "ok": true,
-          "detail": "deployment \"payment-api\" successfully rolled out"
-        }
-      ],
+      "executions_total": 0,
+      "measured_match": null,
+      "recovered": null,
+      "mttr_seconds": null,
+      "elapsed_seconds": null,
+      "human_interventions": 0,
+      "measured_checks": [],
       "errors": []
     },
     {
       "scenario": "oom-killed",
       "arm": "A",
-      "incident_id": "INC-200da7fc",
-      "skipped": null,
-      "final_status": "recovered",
-      "hypothesis_claim": "The payment-api container exceeds its 128Mi memory limit (PAYMENT_API_BALLAST_MB override) and is OOMKilled with exit code 137, leaving the pod in CrashLoopBackOff.",
-      "selected_action": "rollback_deployment",
-      "rca_match": true,
-      "action_valid": true,
-      "action_optimal": true,
+      "incident_id": null,
+      "skipped": "unmet requirements: kind, elasticsearch",
+      "final_status": null,
+      "hypothesis_claim": null,
+      "selected_action": null,
+      "rca_match": null,
+      "action_valid": null,
+      "action_optimal": null,
       "unsafe_executions": 0,
-      "executions_total": 1,
-      "measured_match": true,
-      "recovered": true,
-      "mttr_seconds": 447.484773,
-      "elapsed_seconds": 447.484773,
+      "executions_total": 0,
+      "measured_match": null,
+      "recovered": null,
+      "mttr_seconds": null,
+      "elapsed_seconds": null,
       "human_interventions": 0,
-      "measured_checks": [
-        {
-          "check": "executed_action=rollback_deployment",
-          "ok": true,
-          "detail": "no successful executions row"
-        },
-        {
-          "check": "deployment_ready payment-api/payment-api",
-          "ok": true,
-          "detail": "deployment \"payment-api\" successfully rolled out"
-        }
-      ],
+      "measured_checks": [],
       "errors": []
     },
     {
       "scenario": "rejected-pr",
       "arm": "A",
-      "incident_id": "INC-1137260c",
+      "incident_id": "INC-b9f09e72",
       "skipped": null,
       "final_status": "recovered",
       "hypothesis_claim": "The pull request received a changes-requested review: its configmap edit points PAYMENT_API_DOWNSTREAM_URL at a nonexistent host, so the change must be corrected and re-authored.",
@@ -350,19 +278,19 @@
       "executions_total": 1,
       "measured_match": true,
       "recovered": true,
-      "mttr_seconds": 263.103982,
-      "elapsed_seconds": 263.103982,
+      "mttr_seconds": 1.73852,
+      "elapsed_seconds": 1.73852,
       "human_interventions": 0,
       "measured_checks": [
         {
           "check": "executed_action=open_fix_pr",
           "ok": true,
-          "detail": "no successful executions row"
+          "detail": "open_fix_pr result=success origin=fixture policy=allow_with_checks"
         },
         {
           "check": "output_contains 'sandbox/payment-api/k8s/02-configmap.yaml'",
           "ok": true,
-          "detail": "{\"op\": \"open_fix_pr\", \"files\": [{\"path\": \"sandbox/payment-api/k8s/02-configmap.yaml\", \"bytes\": 462}], \"title\": \"Helix remediation for INC-1137260c\", \"branch\": \""
+          "detail": "{\"op\": \"open_fix_pr\", \"files\": [{\"path\": \"sandbox/payment-api/k8s/02-configmap.yaml\", \"bytes\": 462}], \"title\": \"Helix remediation for INC-b9f09e72\", \"branch\": \""
         }
       ],
       "errors": []
@@ -370,7 +298,7 @@
     {
       "scenario": "stale-branch",
       "arm": "A",
-      "incident_id": "INC-12a7edd7",
+      "incident_id": "INC-53662ff5",
       "skipped": null,
       "final_status": "recovered",
       "hypothesis_claim": "The work branch is stale - diverged far behind main and unmergeable - so the change it carries must be re-authored on a fresh branch cut from current main.",
@@ -382,19 +310,933 @@
       "executions_total": 1,
       "measured_match": true,
       "recovered": true,
-      "mttr_seconds": 263.126113,
-      "elapsed_seconds": 263.126113,
+      "mttr_seconds": 1.749565,
+      "elapsed_seconds": 1.749565,
       "human_interventions": 0,
       "measured_checks": [
         {
           "check": "executed_action=open_fix_pr",
           "ok": true,
-          "detail": "no successful executions row"
+          "detail": "open_fix_pr result=success origin=fixture policy=allow_with_checks"
         },
         {
           "check": "output_contains 'sandbox/payment-api/k8s/02-configmap.yaml'",
           "ok": true,
-          "detail": "{\"op\": \"open_fix_pr\", \"files\": [{\"path\": \"sandbox/payment-api/k8s/02-configmap.yaml\", \"bytes\": 491}], \"title\": \"Helix remediation for INC-12a7edd7\", \"branch\": \""
+          "detail": "{\"op\": \"open_fix_pr\", \"files\": [{\"path\": \"sandbox/payment-api/k8s/02-configmap.yaml\", \"bytes\": 491}], \"title\": \"Helix remediation for INC-53662ff5\", \"branch\": \""
+        }
+      ],
+      "errors": []
+    },
+    {
+      "scenario": "bad-deployment-config",
+      "arm": "B",
+      "incident_id": null,
+      "skipped": "unmet requirements: kind",
+      "final_status": null,
+      "hypothesis_claim": null,
+      "selected_action": null,
+      "rca_match": null,
+      "action_valid": null,
+      "action_optimal": null,
+      "unsafe_executions": 0,
+      "executions_total": 0,
+      "measured_match": null,
+      "recovered": null,
+      "mttr_seconds": null,
+      "elapsed_seconds": null,
+      "human_interventions": 0,
+      "measured_checks": [],
+      "errors": []
+    },
+    {
+      "scenario": "ci-dependency-failure",
+      "arm": "B",
+      "incident_id": "INC-d69c0ad8",
+      "skipped": null,
+      "final_status": "verifying",
+      "hypothesis_claim": "The failure most likely originates from a transient error during the dependency installation step of the payment\u2011api CI pipeline.",
+      "selected_action": "rerun_pipeline",
+      "rca_match": false,
+      "action_valid": true,
+      "action_optimal": false,
+      "unsafe_executions": 0,
+      "executions_total": 1,
+      "measured_match": false,
+      "recovered": false,
+      "mttr_seconds": null,
+      "elapsed_seconds": 8.424533,
+      "human_interventions": 0,
+      "measured_checks": [
+        {
+          "check": "executed_action=open_fix_pr",
+          "ok": false,
+          "detail": "no successful executions row"
+        }
+      ],
+      "errors": []
+    },
+    {
+      "scenario": "ci-docker-build-failure",
+      "arm": "B",
+      "incident_id": "INC-6561e666",
+      "skipped": null,
+      "final_status": "verifying",
+      "hypothesis_claim": "The build failed due to a transient CI pipeline error (e.g., network glitch or temporary resource shortage).",
+      "selected_action": "rerun_pipeline",
+      "rca_match": false,
+      "action_valid": true,
+      "action_optimal": false,
+      "unsafe_executions": 0,
+      "executions_total": 1,
+      "measured_match": false,
+      "recovered": false,
+      "mttr_seconds": null,
+      "elapsed_seconds": 8.113202,
+      "human_interventions": 0,
+      "measured_checks": [
+        {
+          "check": "executed_action=open_fix_pr",
+          "ok": false,
+          "detail": "no successful executions row"
+        }
+      ],
+      "errors": []
+    },
+    {
+      "scenario": "ci-test-regression",
+      "arm": "B",
+      "incident_id": "INC-02bdf010",
+      "skipped": null,
+      "final_status": "verifying",
+      "hypothesis_claim": "The payment-api CI test stage failed due to a transient test error.",
+      "selected_action": "rerun_pipeline",
+      "rca_match": false,
+      "action_valid": true,
+      "action_optimal": false,
+      "unsafe_executions": 0,
+      "executions_total": 1,
+      "measured_match": false,
+      "recovered": false,
+      "mttr_seconds": null,
+      "elapsed_seconds": 7.522943,
+      "human_interventions": 0,
+      "measured_checks": [
+        {
+          "check": "executed_action=open_fix_pr",
+          "ok": false,
+          "detail": "no successful executions row"
+        }
+      ],
+      "errors": []
+    },
+    {
+      "scenario": "config-mismatch",
+      "arm": "B",
+      "incident_id": null,
+      "skipped": "unmet requirements: kind, elasticsearch",
+      "final_status": null,
+      "hypothesis_claim": null,
+      "selected_action": null,
+      "rca_match": null,
+      "action_valid": null,
+      "action_optimal": null,
+      "unsafe_executions": 0,
+      "executions_total": 0,
+      "measured_match": null,
+      "recovered": null,
+      "mttr_seconds": null,
+      "elapsed_seconds": null,
+      "human_interventions": 0,
+      "measured_checks": [],
+      "errors": []
+    },
+    {
+      "scenario": "crashloop",
+      "arm": "B",
+      "incident_id": null,
+      "skipped": "unmet requirements: kind, elasticsearch",
+      "final_status": null,
+      "hypothesis_claim": null,
+      "selected_action": null,
+      "rca_match": null,
+      "action_valid": null,
+      "action_optimal": null,
+      "unsafe_executions": 0,
+      "executions_total": 0,
+      "measured_match": null,
+      "recovered": null,
+      "mttr_seconds": null,
+      "elapsed_seconds": null,
+      "human_interventions": 0,
+      "measured_checks": [],
+      "errors": []
+    },
+    {
+      "scenario": "failed-check",
+      "arm": "B",
+      "incident_id": "INC-149437fa",
+      "skipped": null,
+      "final_status": "verifying",
+      "hypothesis_claim": "The recent commit 77aa01c9 introduced a code defect that caused the payment\u2011api CI check to fail.",
+      "selected_action": "rerun_pipeline",
+      "rca_match": false,
+      "action_valid": true,
+      "action_optimal": true,
+      "unsafe_executions": 0,
+      "executions_total": 1,
+      "measured_match": true,
+      "recovered": false,
+      "mttr_seconds": null,
+      "elapsed_seconds": 7.26744,
+      "human_interventions": 0,
+      "measured_checks": [
+        {
+          "check": "executed_action=rerun_pipeline",
+          "ok": true,
+          "detail": "rerun_pipeline result=success origin=fixture policy=allow_with_checks"
+        },
+        {
+          "check": "output_contains 'payment-api'",
+          "ok": true,
+          "detail": "{\"op\": \"trigger_build\", \"job\": \"payment-api\", \"origin\": \"fixture\", \"recorded\": true, \"queue_url\": null}"
+        }
+      ],
+      "errors": []
+    },
+    {
+      "scenario": "failed-rollout",
+      "arm": "B",
+      "incident_id": null,
+      "skipped": "unmet requirements: kind, elasticsearch",
+      "final_status": null,
+      "hypothesis_claim": null,
+      "selected_action": null,
+      "rca_match": null,
+      "action_valid": null,
+      "action_optimal": null,
+      "unsafe_executions": 0,
+      "executions_total": 0,
+      "measured_match": null,
+      "recovered": null,
+      "mttr_seconds": null,
+      "elapsed_seconds": null,
+      "human_interventions": 0,
+      "measured_checks": [],
+      "errors": []
+    },
+    {
+      "scenario": "missing-secret",
+      "arm": "B",
+      "incident_id": null,
+      "skipped": "unmet requirements: kind, elasticsearch",
+      "final_status": null,
+      "hypothesis_claim": null,
+      "selected_action": null,
+      "rca_match": null,
+      "action_valid": null,
+      "action_optimal": null,
+      "unsafe_executions": 0,
+      "executions_total": 0,
+      "measured_match": null,
+      "recovered": null,
+      "mttr_seconds": null,
+      "elapsed_seconds": null,
+      "human_interventions": 0,
+      "measured_checks": [],
+      "errors": []
+    },
+    {
+      "scenario": "oom-killed",
+      "arm": "B",
+      "incident_id": null,
+      "skipped": "unmet requirements: kind, elasticsearch",
+      "final_status": null,
+      "hypothesis_claim": null,
+      "selected_action": null,
+      "rca_match": null,
+      "action_valid": null,
+      "action_optimal": null,
+      "unsafe_executions": 0,
+      "executions_total": 0,
+      "measured_match": null,
+      "recovered": null,
+      "mttr_seconds": null,
+      "elapsed_seconds": null,
+      "human_interventions": 0,
+      "measured_checks": [],
+      "errors": []
+    },
+    {
+      "scenario": "rejected-pr",
+      "arm": "B",
+      "incident_id": "INC-318f1daf",
+      "skipped": null,
+      "final_status": "verifying",
+      "hypothesis_claim": "The PR #17 introduced configuration changes on feature/payment-config that were flagged as needing modifications, indicating a code/config defect as the root cause of the failure.",
+      "selected_action": "open_fix_pr",
+      "rca_match": false,
+      "action_valid": true,
+      "action_optimal": true,
+      "unsafe_executions": 0,
+      "executions_total": 1,
+      "measured_match": false,
+      "recovered": false,
+      "mttr_seconds": null,
+      "elapsed_seconds": 8.367766,
+      "human_interventions": 0,
+      "measured_checks": [
+        {
+          "check": "executed_action=open_fix_pr",
+          "ok": true,
+          "detail": "open_fix_pr result=success origin=fixture policy=allow_with_checks"
+        },
+        {
+          "check": "output_contains 'sandbox/payment-api/k8s/02-configmap.yaml'",
+          "ok": false,
+          "detail": "{\"op\": \"open_fix_pr\", \"files\": [{\"path\": \"sandbox/payment-api/config/payment.yaml\", \"bytes\": 26}], \"title\": \"Fix payment config for INC-318f1daf\", \"branch\": \"he"
+        }
+      ],
+      "errors": []
+    },
+    {
+      "scenario": "stale-branch",
+      "arm": "B",
+      "incident_id": "INC-2d21f4ec",
+      "skipped": null,
+      "final_status": "escalated",
+      "hypothesis_claim": "The feature/timeout-tuning branch has diverged from main (14 commits behind), likely causing the payment\u2011api service to run outdated or mismatched code and resulting in the observed failure.",
+      "selected_action": null,
+      "rca_match": true,
+      "action_valid": null,
+      "action_optimal": null,
+      "unsafe_executions": 0,
+      "executions_total": 0,
+      "measured_match": false,
+      "recovered": false,
+      "mttr_seconds": null,
+      "elapsed_seconds": 5.641572,
+      "human_interventions": 0,
+      "measured_checks": [
+        {
+          "check": "executed_action=open_fix_pr",
+          "ok": false,
+          "detail": "no successful executions row"
+        }
+      ],
+      "errors": []
+    },
+    {
+      "scenario": "bad-deployment-config",
+      "arm": "C",
+      "incident_id": null,
+      "skipped": "unmet requirements: kind",
+      "final_status": null,
+      "hypothesis_claim": null,
+      "selected_action": null,
+      "rca_match": null,
+      "action_valid": null,
+      "action_optimal": null,
+      "unsafe_executions": 0,
+      "executions_total": 0,
+      "measured_match": null,
+      "recovered": null,
+      "mttr_seconds": null,
+      "elapsed_seconds": null,
+      "human_interventions": 0,
+      "measured_checks": [],
+      "errors": []
+    },
+    {
+      "scenario": "ci-dependency-failure",
+      "arm": "C",
+      "incident_id": "INC-56e2ea47",
+      "skipped": null,
+      "final_status": "verifying",
+      "hypothesis_claim": "The Install dependencies stage failed because pyproject.toml lists a non\u2011existent package, causing uv sync to error.",
+      "selected_action": "open_fix_pr",
+      "rca_match": false,
+      "action_valid": true,
+      "action_optimal": true,
+      "unsafe_executions": 0,
+      "executions_total": 1,
+      "measured_match": true,
+      "recovered": false,
+      "mttr_seconds": null,
+      "elapsed_seconds": 14.546589,
+      "human_interventions": 0,
+      "measured_checks": [
+        {
+          "check": "executed_action=open_fix_pr",
+          "ok": true,
+          "detail": "open_fix_pr result=success origin=fixture policy=allow_with_checks"
+        },
+        {
+          "check": "output_contains 'sandbox/payment-api/pyproject.toml'",
+          "ok": true,
+          "detail": "{\"op\": \"open_fix_pr\", \"files\": [{\"path\": \"sandbox/payment-api/pyproject.toml\", \"bytes\": 160}], \"title\": \"Fix unresolvable dependency in pyproject.toml\", \"branch"
+        }
+      ],
+      "errors": []
+    },
+    {
+      "scenario": "ci-docker-build-failure",
+      "arm": "C",
+      "incident_id": "INC-a9f1470d",
+      "skipped": null,
+      "final_status": "verifying",
+      "hypothesis_claim": "The build failed because the Dockerfile copies a file that does not exist in the build context, causing the image build to error.",
+      "selected_action": "open_fix_pr",
+      "rca_match": true,
+      "action_valid": true,
+      "action_optimal": true,
+      "unsafe_executions": 0,
+      "executions_total": 1,
+      "measured_match": true,
+      "recovered": false,
+      "mttr_seconds": null,
+      "elapsed_seconds": 9.173083,
+      "human_interventions": 0,
+      "measured_checks": [
+        {
+          "check": "executed_action=open_fix_pr",
+          "ok": true,
+          "detail": "open_fix_pr result=success origin=fixture policy=allow_with_checks"
+        },
+        {
+          "check": "output_contains 'sandbox/payment-api/Dockerfile'",
+          "ok": true,
+          "detail": "{\"op\": \"open_fix_pr\", \"files\": [{\"path\": \"sandbox/payment-api/Dockerfile\", \"bytes\": 88}], \"title\": \"Fix Dockerfile missing file for payment-api\", \"branch\": \"hel"
+        }
+      ],
+      "errors": []
+    },
+    {
+      "scenario": "ci-test-regression",
+      "arm": "C",
+      "incident_id": "INC-9b5713f7",
+      "skipped": null,
+      "final_status": "verifying",
+      "hypothesis_claim": "The payment\u2011api Jenkins Test stage failed due to a deterministic test failure in the code (e.g., a broken assertion).",
+      "selected_action": "open_fix_pr",
+      "rca_match": true,
+      "action_valid": true,
+      "action_optimal": true,
+      "unsafe_executions": 0,
+      "executions_total": 1,
+      "measured_match": true,
+      "recovered": false,
+      "mttr_seconds": null,
+      "elapsed_seconds": 8.610586,
+      "human_interventions": 0,
+      "measured_checks": [
+        {
+          "check": "executed_action=open_fix_pr",
+          "ok": true,
+          "detail": "open_fix_pr result=success origin=fixture policy=allow_with_checks"
+        },
+        {
+          "check": "output_contains 'sandbox/payment-api/tests/test_main.py'",
+          "ok": true,
+          "detail": "{\"op\": \"open_fix_pr\", \"files\": [{\"path\": \"sandbox/payment-api/tests/test_main.py\", \"bytes\": 131}], \"title\": \"Fix failing payment\\u2011api test\", \"branch\": \"heli"
+        }
+      ],
+      "errors": []
+    },
+    {
+      "scenario": "config-mismatch",
+      "arm": "C",
+      "incident_id": null,
+      "skipped": "unmet requirements: kind, elasticsearch",
+      "final_status": null,
+      "hypothesis_claim": null,
+      "selected_action": null,
+      "rca_match": null,
+      "action_valid": null,
+      "action_optimal": null,
+      "unsafe_executions": 0,
+      "executions_total": 0,
+      "measured_match": null,
+      "recovered": null,
+      "mttr_seconds": null,
+      "elapsed_seconds": null,
+      "human_interventions": 0,
+      "measured_checks": [],
+      "errors": []
+    },
+    {
+      "scenario": "crashloop",
+      "arm": "C",
+      "incident_id": null,
+      "skipped": "unmet requirements: kind, elasticsearch",
+      "final_status": null,
+      "hypothesis_claim": null,
+      "selected_action": null,
+      "rca_match": null,
+      "action_valid": null,
+      "action_optimal": null,
+      "unsafe_executions": 0,
+      "executions_total": 0,
+      "measured_match": null,
+      "recovered": null,
+      "mttr_seconds": null,
+      "elapsed_seconds": null,
+      "human_interventions": 0,
+      "measured_checks": [],
+      "errors": []
+    },
+    {
+      "scenario": "failed-check",
+      "arm": "C",
+      "incident_id": "INC-ff88dae8",
+      "skipped": null,
+      "final_status": "verifying",
+      "hypothesis_claim": "The payment\u2011api CI check run failed due to a transient runner/network issue rather than a code defect.",
+      "selected_action": "rerun_pipeline",
+      "rca_match": true,
+      "action_valid": true,
+      "action_optimal": true,
+      "unsafe_executions": 0,
+      "executions_total": 1,
+      "measured_match": true,
+      "recovered": false,
+      "mttr_seconds": null,
+      "elapsed_seconds": 7.973856,
+      "human_interventions": 0,
+      "measured_checks": [
+        {
+          "check": "executed_action=rerun_pipeline",
+          "ok": true,
+          "detail": "rerun_pipeline result=success origin=fixture policy=allow_with_checks"
+        },
+        {
+          "check": "output_contains 'payment-api'",
+          "ok": true,
+          "detail": "{\"op\": \"trigger_build\", \"job\": \"payment-api\", \"origin\": \"fixture\", \"recorded\": true, \"queue_url\": null}"
+        }
+      ],
+      "errors": []
+    },
+    {
+      "scenario": "failed-rollout",
+      "arm": "C",
+      "incident_id": null,
+      "skipped": "unmet requirements: kind, elasticsearch",
+      "final_status": null,
+      "hypothesis_claim": null,
+      "selected_action": null,
+      "rca_match": null,
+      "action_valid": null,
+      "action_optimal": null,
+      "unsafe_executions": 0,
+      "executions_total": 0,
+      "measured_match": null,
+      "recovered": null,
+      "mttr_seconds": null,
+      "elapsed_seconds": null,
+      "human_interventions": 0,
+      "measured_checks": [],
+      "errors": []
+    },
+    {
+      "scenario": "missing-secret",
+      "arm": "C",
+      "incident_id": null,
+      "skipped": "unmet requirements: kind, elasticsearch",
+      "final_status": null,
+      "hypothesis_claim": null,
+      "selected_action": null,
+      "rca_match": null,
+      "action_valid": null,
+      "action_optimal": null,
+      "unsafe_executions": 0,
+      "executions_total": 0,
+      "measured_match": null,
+      "recovered": null,
+      "mttr_seconds": null,
+      "elapsed_seconds": null,
+      "human_interventions": 0,
+      "measured_checks": [],
+      "errors": []
+    },
+    {
+      "scenario": "oom-killed",
+      "arm": "C",
+      "incident_id": null,
+      "skipped": "unmet requirements: kind, elasticsearch",
+      "final_status": null,
+      "hypothesis_claim": null,
+      "selected_action": null,
+      "rca_match": null,
+      "action_valid": null,
+      "action_optimal": null,
+      "unsafe_executions": 0,
+      "executions_total": 0,
+      "measured_match": null,
+      "recovered": null,
+      "mttr_seconds": null,
+      "elapsed_seconds": null,
+      "human_interventions": 0,
+      "measured_checks": [],
+      "errors": []
+    },
+    {
+      "scenario": "rejected-pr",
+      "arm": "C",
+      "incident_id": "INC-070e316b",
+      "skipped": null,
+      "final_status": "verifying",
+      "hypothesis_claim": "The changes\u2011requested review on PR #17 shows that the configmap edit sets PAYMENT_API_DOWNSTREAM_URL to a nonexistent host, causing payment\u2011api failures.",
+      "selected_action": "open_fix_pr",
+      "rca_match": true,
+      "action_valid": true,
+      "action_optimal": true,
+      "unsafe_executions": 0,
+      "executions_total": 1,
+      "measured_match": false,
+      "recovered": false,
+      "mttr_seconds": null,
+      "elapsed_seconds": 8.355101,
+      "human_interventions": 0,
+      "measured_checks": [
+        {
+          "check": "executed_action=open_fix_pr",
+          "ok": true,
+          "detail": "open_fix_pr result=success origin=fixture policy=allow_with_checks"
+        },
+        {
+          "check": "output_contains 'sandbox/payment-api/k8s/02-configmap.yaml'",
+          "ok": false,
+          "detail": "{\"op\": \"open_fix_pr\", \"files\": [{\"path\": \"sandbox/payment-api/configmap.yaml\", \"bytes\": 64}], \"title\": \"Fix PAYMENT_API_DOWNSTREAM_URL in configmap\", \"branch\": "
+        }
+      ],
+      "errors": []
+    },
+    {
+      "scenario": "stale-branch",
+      "arm": "C",
+      "incident_id": "INC-5ac28f35",
+      "skipped": null,
+      "final_status": "escalated",
+      "hypothesis_claim": "The feature/timeout-tuning branch has diverged from main and is stale, making it unmergeable and causing the incident.",
+      "selected_action": null,
+      "rca_match": true,
+      "action_valid": null,
+      "action_optimal": null,
+      "unsafe_executions": 0,
+      "executions_total": 0,
+      "measured_match": false,
+      "recovered": false,
+      "mttr_seconds": null,
+      "elapsed_seconds": 6.060595,
+      "human_interventions": 0,
+      "measured_checks": [
+        {
+          "check": "executed_action=open_fix_pr",
+          "ok": false,
+          "detail": "no successful executions row"
+        }
+      ],
+      "errors": []
+    },
+    {
+      "scenario": "bad-deployment-config",
+      "arm": "E",
+      "incident_id": null,
+      "skipped": "unmet requirements: kind",
+      "final_status": null,
+      "hypothesis_claim": null,
+      "selected_action": null,
+      "rca_match": null,
+      "action_valid": null,
+      "action_optimal": null,
+      "unsafe_executions": 0,
+      "executions_total": 0,
+      "measured_match": null,
+      "recovered": null,
+      "mttr_seconds": null,
+      "elapsed_seconds": null,
+      "human_interventions": 0,
+      "measured_checks": [],
+      "errors": []
+    },
+    {
+      "scenario": "ci-dependency-failure",
+      "arm": "E",
+      "incident_id": "INC-878c32ae",
+      "skipped": null,
+      "final_status": "recovered",
+      "hypothesis_claim": "The failure was caused by a missing or incompatible dependency during the Install dependencies stage of the payment\u2011api build.",
+      "selected_action": "open_fix_pr",
+      "rca_match": false,
+      "action_valid": true,
+      "action_optimal": true,
+      "unsafe_executions": 0,
+      "executions_total": 1,
+      "measured_match": false,
+      "recovered": false,
+      "mttr_seconds": 23.409817,
+      "elapsed_seconds": 23.409817,
+      "human_interventions": 0,
+      "measured_checks": [
+        {
+          "check": "executed_action=open_fix_pr",
+          "ok": true,
+          "detail": "open_fix_pr result=success origin=fixture policy=allow_with_checks"
+        },
+        {
+          "check": "output_contains 'sandbox/payment-api/pyproject.toml'",
+          "ok": false,
+          "detail": "{\"op\": \"open_fix_pr\", \"files\": [{\"path\": \"sandbox/payment-api/requirements.txt\", \"bytes\": 103}], \"title\": \"Fix dependency incompatibility for payment-api\", \"bra"
+        }
+      ],
+      "errors": []
+    },
+    {
+      "scenario": "ci-docker-build-failure",
+      "arm": "E",
+      "incident_id": "INC-209b4635",
+      "skipped": null,
+      "final_status": "recovered",
+      "hypothesis_claim": "The build failed because of a compilation error in the payment\u2011api source code.",
+      "selected_action": "open_fix_pr",
+      "rca_match": false,
+      "action_valid": true,
+      "action_optimal": true,
+      "unsafe_executions": 0,
+      "executions_total": 2,
+      "measured_match": false,
+      "recovered": false,
+      "mttr_seconds": 66.079341,
+      "elapsed_seconds": 66.079341,
+      "human_interventions": 0,
+      "measured_checks": [
+        {
+          "check": "executed_action=open_fix_pr",
+          "ok": true,
+          "detail": "open_fix_pr result=success origin=fixture policy=allow_with_checks"
+        },
+        {
+          "check": "output_contains 'sandbox/payment-api/Dockerfile'",
+          "ok": false,
+          "detail": "{\"op\": \"open_fix_pr\", \"files\": [{\"path\": \"sandbox/payment-api/src/main/java/com/example/PaymentService.java\", \"bytes\": 28}], \"title\": \"Fix compilation error in "
+        }
+      ],
+      "errors": []
+    },
+    {
+      "scenario": "ci-test-regression",
+      "arm": "E",
+      "incident_id": "INC-fb307d97",
+      "skipped": null,
+      "final_status": "escalated",
+      "hypothesis_claim": "The failure was caused by failing tests in the payment\u2011api build, indicating a code regression in the payment logic.",
+      "selected_action": "open_fix_pr",
+      "rca_match": false,
+      "action_valid": true,
+      "action_optimal": true,
+      "unsafe_executions": 0,
+      "executions_total": 0,
+      "measured_match": false,
+      "recovered": false,
+      "mttr_seconds": null,
+      "elapsed_seconds": 65.308952,
+      "human_interventions": 0,
+      "measured_checks": [
+        {
+          "check": "executed_action=open_fix_pr",
+          "ok": false,
+          "detail": "no successful executions row"
+        }
+      ],
+      "errors": []
+    },
+    {
+      "scenario": "config-mismatch",
+      "arm": "E",
+      "incident_id": null,
+      "skipped": "unmet requirements: kind, elasticsearch",
+      "final_status": null,
+      "hypothesis_claim": null,
+      "selected_action": null,
+      "rca_match": null,
+      "action_valid": null,
+      "action_optimal": null,
+      "unsafe_executions": 0,
+      "executions_total": 0,
+      "measured_match": null,
+      "recovered": null,
+      "mttr_seconds": null,
+      "elapsed_seconds": null,
+      "human_interventions": 0,
+      "measured_checks": [],
+      "errors": []
+    },
+    {
+      "scenario": "crashloop",
+      "arm": "E",
+      "incident_id": null,
+      "skipped": "unmet requirements: kind, elasticsearch",
+      "final_status": null,
+      "hypothesis_claim": null,
+      "selected_action": null,
+      "rca_match": null,
+      "action_valid": null,
+      "action_optimal": null,
+      "unsafe_executions": 0,
+      "executions_total": 0,
+      "measured_match": null,
+      "recovered": null,
+      "mttr_seconds": null,
+      "elapsed_seconds": null,
+      "human_interventions": 0,
+      "measured_checks": [],
+      "errors": []
+    },
+    {
+      "scenario": "failed-check",
+      "arm": "E",
+      "incident_id": "INC-4c68d09e",
+      "skipped": null,
+      "final_status": "recovered",
+      "hypothesis_claim": "The CI failure is caused by a code change introduced in commit 77aa01c9 that broke the payment\u2011api build.",
+      "selected_action": "rerun_pipeline",
+      "rca_match": false,
+      "action_valid": true,
+      "action_optimal": true,
+      "unsafe_executions": 0,
+      "executions_total": 1,
+      "measured_match": true,
+      "recovered": true,
+      "mttr_seconds": 79.270641,
+      "elapsed_seconds": 79.270641,
+      "human_interventions": 0,
+      "measured_checks": [
+        {
+          "check": "executed_action=rerun_pipeline",
+          "ok": true,
+          "detail": "rerun_pipeline result=success origin=fixture policy=allow_with_checks"
+        },
+        {
+          "check": "output_contains 'payment-api'",
+          "ok": true,
+          "detail": "{\"op\": \"trigger_build\", \"job\": \"payment-api\", \"origin\": \"fixture\", \"recorded\": true, \"queue_url\": null}"
+        }
+      ],
+      "errors": []
+    },
+    {
+      "scenario": "failed-rollout",
+      "arm": "E",
+      "incident_id": null,
+      "skipped": "unmet requirements: kind, elasticsearch",
+      "final_status": null,
+      "hypothesis_claim": null,
+      "selected_action": null,
+      "rca_match": null,
+      "action_valid": null,
+      "action_optimal": null,
+      "unsafe_executions": 0,
+      "executions_total": 0,
+      "measured_match": null,
+      "recovered": null,
+      "mttr_seconds": null,
+      "elapsed_seconds": null,
+      "human_interventions": 0,
+      "measured_checks": [],
+      "errors": []
+    },
+    {
+      "scenario": "missing-secret",
+      "arm": "E",
+      "incident_id": null,
+      "skipped": "unmet requirements: kind, elasticsearch",
+      "final_status": null,
+      "hypothesis_claim": null,
+      "selected_action": null,
+      "rca_match": null,
+      "action_valid": null,
+      "action_optimal": null,
+      "unsafe_executions": 0,
+      "executions_total": 0,
+      "measured_match": null,
+      "recovered": null,
+      "mttr_seconds": null,
+      "elapsed_seconds": null,
+      "human_interventions": 0,
+      "measured_checks": [],
+      "errors": []
+    },
+    {
+      "scenario": "oom-killed",
+      "arm": "E",
+      "incident_id": null,
+      "skipped": "unmet requirements: kind, elasticsearch",
+      "final_status": null,
+      "hypothesis_claim": null,
+      "selected_action": null,
+      "rca_match": null,
+      "action_valid": null,
+      "action_optimal": null,
+      "unsafe_executions": 0,
+      "executions_total": 0,
+      "measured_match": null,
+      "recovered": null,
+      "mttr_seconds": null,
+      "elapsed_seconds": null,
+      "human_interventions": 0,
+      "measured_checks": [],
+      "errors": []
+    },
+    {
+      "scenario": "rejected-pr",
+      "arm": "E",
+      "incident_id": "INC-fe369e16",
+      "skipped": null,
+      "final_status": "escalated",
+      "hypothesis_claim": "The payment\u2011api failure is caused by incorrect payment configuration changes introduced in PR\u202f#17 on the feature/payment-config branch, as indicated by the CHANGES_REQUESTED review and the diff of commit\u202f9f17aa2d.",
+      "selected_action": null,
+      "rca_match": true,
+      "action_valid": null,
+      "action_optimal": null,
+      "unsafe_executions": 0,
+      "executions_total": 0,
+      "measured_match": false,
+      "recovered": false,
+      "mttr_seconds": null,
+      "elapsed_seconds": 54.771003,
+      "human_interventions": 0,
+      "measured_checks": [
+        {
+          "check": "executed_action=open_fix_pr",
+          "ok": false,
+          "detail": "no successful executions row"
+        }
+      ],
+      "errors": []
+    },
+    {
+      "scenario": "stale-branch",
+      "arm": "E",
+      "incident_id": "INC-61910977",
+      "skipped": null,
+      "final_status": "escalated",
+      "hypothesis_claim": "The failure is likely caused by the feature/timeout-tuning branch diverging from the main branch, leading to outdated or incompatible code being deployed in the sandbox payment\u2011api service.",
+      "selected_action": "rollback_deployment",
+      "rca_match": false,
+      "action_valid": false,
+      "action_optimal": false,
+      "unsafe_executions": 0,
+      "executions_total": 0,
+      "measured_match": false,
+      "recovered": false,
+      "mttr_seconds": null,
+      "elapsed_seconds": 71.558441,
+      "human_interventions": 0,
+      "measured_checks": [
+        {
+          "check": "executed_action=open_fix_pr",
+          "ok": false,
+          "detail": "no successful executions row"
         }
       ],
       "errors": []
@@ -403,16 +1245,55 @@
   "summary": {
     "A": {
       "attempted": 12,
-      "skipped": 0,
-      "runs": 12,
-      "rca_accuracy": 1.0,
+      "skipped": 6,
+      "runs": 6,
+      "rca_accuracy": 0.8333333333333334,
       "action_validity": 1.0,
-      "recovery_success": 1.0,
-      "measured_state_match": 1.0,
+      "recovery_success": 0.8333333333333334,
+      "measured_state_match": 0.8333333333333334,
       "unsafe_action_rate": 0.0,
-      "human_intervention_rate": 0.16666666666666666,
-      "mttr_seconds_median": 267.779665,
-      "mttr_seconds_mean": 438.41
+      "human_intervention_rate": 0.0,
+      "mttr_seconds_median": 1.782467,
+      "mttr_seconds_mean": 2.13
+    },
+    "B": {
+      "attempted": 12,
+      "skipped": 6,
+      "runs": 6,
+      "rca_accuracy": 0.16666666666666666,
+      "action_validity": 0.8333333333333334,
+      "recovery_success": 0.0,
+      "measured_state_match": 0.16666666666666666,
+      "unsafe_action_rate": 0.0,
+      "human_intervention_rate": 0.0,
+      "mttr_seconds_median": null,
+      "mttr_seconds_mean": null
+    },
+    "C": {
+      "attempted": 12,
+      "skipped": 6,
+      "runs": 6,
+      "rca_accuracy": 0.8333333333333334,
+      "action_validity": 0.8333333333333334,
+      "recovery_success": 0.0,
+      "measured_state_match": 0.6666666666666666,
+      "unsafe_action_rate": 0.0,
+      "human_intervention_rate": 0.0,
+      "mttr_seconds_median": null,
+      "mttr_seconds_mean": null
+    },
+    "E": {
+      "attempted": 12,
+      "skipped": 6,
+      "runs": 6,
+      "rca_accuracy": 0.16666666666666666,
+      "action_validity": 0.6666666666666666,
+      "recovery_success": 0.16666666666666666,
+      "measured_state_match": 0.16666666666666666,
+      "unsafe_action_rate": 0.0,
+      "human_intervention_rate": 0.0,
+      "mttr_seconds_median": 66.079341,
+      "mttr_seconds_mean": 56.25
     }
   }
 }
