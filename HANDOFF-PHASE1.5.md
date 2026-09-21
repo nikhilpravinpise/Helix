@@ -160,11 +160,14 @@ requirement.
    failure is arguably correct for a tier you only run on purpose.
 6. **Nothing pushed.** No PR. That is a human decision.
 7. **The DJS23OLOE501 cloud requirement is unmet**, deferred by decision
-   (D23) rather than dropped. Helix runs on kind only. Nothing in the repo
-   depends on GCP, so this is additive work, not a migration - and the
-   benchmark should stay local regardless, because a GKE auto-upgrade
-   mid-series would turn the three-run tolerance criterion into a
-   measurement of GKE.
+   (D23) rather than dropped, and now stubbed. `infra/gcp/README.md`
+   scopes the full kind-to-GKE delta; `scripts/gcp-up.sh` is the entry
+   point and refuses to run, printing the prerequisites. Nothing in the
+   repo depends on GCP, so this is additive work rather than a migration.
+   Two things to get right when it is built: pin the cluster version, or
+   a GKE auto-upgrade mid-series turns the three-run tolerance criterion
+   into a measurement of GKE; and keep the benchmark local, because it
+   rebuilds cluster state on every run.
 
 ---
 
