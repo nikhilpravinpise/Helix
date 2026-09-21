@@ -10,25 +10,41 @@ Phases follow the source documents exactly. This file adds 32 subphases, each wi
 
 ## Current Status
 
-**Last updated: 2026-09-20.** Keep this block current - it is the one
+**Last updated: 2026-09-21.** Keep this block current - it is the one
 place that answers "how much is done" without reading the whole file.
 
-**20 of 32 subphases complete (63%).**
+**20 of 32 subphases complete (63%). Phase 1.5 is finished.**
 
 | Phase | Subphases | Status |
 |---|---|---|
 | Phase 1 - MVP | 1.1 - 1.13 | **13/13 done.** Exit gate met: the benchmark runs unattended and reports all five metrics |
-| Phase 1.5 - Event Layer | E1 - E7 | **7/7 built.** E1-E6 exit criteria met; E7 measured once, three-run stability outstanding |
+| Phase 1.5 - Event Layer | E1 - E7 | **7/7 done.** All exit criteria met, including E7's ablation. One open defect found by it, recorded below |
 | Phase 2 - Full Helix | 2.1 - 2.11 | **0/11.** Not started, deliberately |
 | Optional | OPT-1 | Not started |
 
-**The one thing between here and Phase 2:** subphase 1.11's tolerance
-criterion - "three consecutive runs stay inside a documented tolerance
-band" - is unmet. The ablation itself is measured (all four arms ran on
-2026-09-20), but two attempts at three consecutive runs were discarded,
-one to cross-invocation contamination and one to the provider's daily
-token cap. Arm A held 1.00 with zero spread through both, which is what
-proves the harness was sound rather than the measurement.
+**Phase 1.5's exit gate is met.** Phase 1 benchmark results reproduce
+through the event path with no regression, correlation and replay metrics
+are recorded, and ablation arm C is measured against A, B and E
+(`docs/benchmark/phase-1.5-evaluation.md`). Phase 2's entry gate is
+therefore open.
+
+**What the ablation concluded.** Retrieval earned its place - arm C beats
+arm B on every reasoning metric across six runs on two models. The full
+graph did not: arm E is the worst LLM arm and the least stable. Arm A
+scores 1.00 with zero spread across three runs, which measures the
+determinism policy rather than the architecture.
+
+**One open defect, found by the ablation and not yet fixed.** Arm B
+selected `rollback_deployment` - a Kubernetes write - in response to a
+rejected pull request and a diverged branch, and the policy gate allowed
+it unapproved, in 2 of 3 runs. `agent/policy.py` judges an action's risk
+tier in isolation and never asks whether the action is coherent with the
+evidence that produced it. Harmless only because fixture mode records
+intended writes (D10); with a live kube context it is a real rollback
+triggered by a code-review event. `benchmark/tolerance.py` fails its
+verdict on this, correctly. Arms A, C and E never did it - arm B is the
+only arm with no validation stage, which is the ablation demonstrating
+what validation is for.
 
 **Open commitments not covered by any subphase:**
 

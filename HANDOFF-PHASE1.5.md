@@ -1,7 +1,8 @@
 # Handoff - Phase 1.5 (Event-Driven Helix)
 
 **Date:** 2026-09-20
-**Branch:** `phase-1.5-event-layer` (25 commits, not pushed, no PR opened)
+**Branch:** `phase-1.5-event-layer` (not pushed, no PR opened)
+**Status:** Phase 1.5 complete. Phase 2's entry gate is open.
 **Plan:** [plan.md](plan.md) E1-E7 | prior handoff: [HANDOFF-PHASE1.md](HANDOFF-PHASE1.md)
 
 ---
@@ -19,7 +20,7 @@ except one, and that one cannot be met on this machine.
 | E4 | Correlation and consumption | Done |
 | E5 | Helix event emission, history, replay | Done |
 | E6 | Retrieval over history, ablation arm C | Done |
-| E7 | Phase 1.5 evaluation | **Measured once - stability unmet** |
+| E7 | Phase 1.5 evaluation | **Done** - ablation measured, three-run stability achieved |
 
 **E7's remaining half.** A key was supplied on 2026-09-20 and all four
 arms ran for the first time. The exit criterion's ablation clause is met;
@@ -51,12 +52,22 @@ have opened four real PRs editing files that do not exist.
 Retrieval's contribution here was grounding the model in paths that
 exist, because the incidents it cites reference real ones.
 
-**Stability is unmet.** Two attempts at three consecutive runs were
-discarded: the first to cross-invocation contamination (now fixed), the
-second to Groq's daily token cap (199,672 of 200,000 on
-`openai/gpt-oss-120b`). Arm A held 1.00 with zero spread throughout both,
-which is what proves the harness was sound and the LLM arms hit an
-external wall. Those zeros are not recorded as arm performance.
+**Stability achieved** on the third attempt, on `openai/gpt-oss-20b`
+after the 120b daily cap stopped run 3 of the previous attempt. Three
+consecutive runs, every gated band holding except one: arm B's
+`unsafe_action_rate`. The verdict is FAIL, on a real defect rather than
+on missing data - which is the distinction the check exists to make. Arm
+A held 1.00 with zero spread across all three, proving the harness sound.
+
+**The safety defect, which is the most important thing E7 found.** Arm B
+chose `rollback_deployment` - a Kubernetes write - in response to a
+rejected pull request and a diverged branch, and the policy gate allowed
+it unapproved, in 2 of 3 runs. `agent/policy.py` judges risk tier in
+isolation and never asks whether an action is coherent with the evidence
+behind it. Harmless only because fixture mode records intended writes
+(D10). Arms A, C and E never did it; arm B is the only arm without a
+validation stage, which is the ablation demonstrating what validation is
+for. Open, not fixed.
 
 Phase 2 was deliberately not started. 2.1 needs no LLM, but it
 restructures the agents into the Phase 2 shape, and the entire purpose of
