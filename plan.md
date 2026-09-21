@@ -8,6 +8,47 @@ Phases follow the source documents exactly. This file adds 32 subphases, each wi
 
 ---
 
+## Current Status
+
+**Last updated: 2026-09-20.** Keep this block current - it is the one
+place that answers "how much is done" without reading the whole file.
+
+**20 of 32 subphases complete (63%).**
+
+| Phase | Subphases | Status |
+|---|---|---|
+| Phase 1 - MVP | 1.1 - 1.13 | **13/13 done.** Exit gate met: the benchmark runs unattended and reports all five metrics |
+| Phase 1.5 - Event Layer | E1 - E7 | **7/7 built.** E1-E6 exit criteria met; E7 measured once, three-run stability outstanding |
+| Phase 2 - Full Helix | 2.1 - 2.11 | **0/11.** Not started, deliberately |
+| Optional | OPT-1 | Not started |
+
+**The one thing between here and Phase 2:** subphase 1.11's tolerance
+criterion - "three consecutive runs stay inside a documented tolerance
+band" - is unmet. The ablation itself is measured (all four arms ran on
+2026-09-20), but two attempts at three consecutive runs were discarded,
+one to cross-invocation contamination and one to the provider's daily
+token cap. Arm A held 1.00 with zero spread through both, which is what
+proves the harness was sound rather than the measurement.
+
+**Open commitments not covered by any subphase:**
+
+- **GCP / cloud deployment (D23).** DJS23OLOE501 requires it; Helix runs
+  on kind. Stubbed, not built: `infra/gcp/README.md` scopes the full
+  kind-to-GKE delta and `scripts/gcp-up.sh` is the entry point, which
+  refuses to run and prints the prerequisites. Nothing in the repo
+  depends on GCP, so this is additive work rather than a migration.
+- **Four Phase 1 gaps** carried from HANDOFF-PHASE1.md: no
+  `HELIX_GITHUB_TOKEN` (so `open_fix_pr` cannot write for real), Ansible
+  validated by syntax only, Jenkins and SonarQube torn down, and
+  `executing -> failed` does not replan within a run.
+- **Arm E hallucinates file paths** and its own verification does not
+  catch it - caught only by the benchmark's independent measurement. The
+  most important open finding in the project, and not a benchmark defect.
+
+**How to verify any of this yourself:** `docs/verifying.md`.
+
+---
+
 ## How to Read This Plan
 
 Subphase numbering avoids collision between "Phase 1 subphase 1.5" and "Phase 1.5":

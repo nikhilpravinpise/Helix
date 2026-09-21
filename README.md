@@ -56,3 +56,8 @@ including the SonarQube quality-gate stages), SonarQube
 # live scenarios need the sandbox stack. Reports: benchmark/reports/
 bash scripts/benchmark.sh
 ```
+
+## Status and verification
+
+- **How much is done:** the Current Status block at the top of [plan.md](plan.md).
+- **How to check it yourself:** [docs/verifying.md](docs/verifying.md), ordered by what each tier costs you.
