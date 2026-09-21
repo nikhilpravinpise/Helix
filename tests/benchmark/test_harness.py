@@ -5,16 +5,27 @@ paths - no subprocess runs. The real end-to-end (`helix intake` + `helix
 run` subprocesses against Postgres) is the integration tier.
 """
 
-import pytest
+from types import SimpleNamespace
 
-from benchmark import catalog
+import pytest
+from sqlalchemy import create_engine, select
+from sqlalchemy.orm import Session
+
+from benchmark import catalog, harness
 from benchmark.harness import (
     HarnessConfig,
     _collect,
+    _ingest_via_events,
     _measure,
     check_requirements,
+    run_benchmark,
     run_scenario,
 )
+from benchmark.scoring import OutcomeRecord
+from state import models
+from state.db import session_scope
+from state.intake import Signal, intake_signal
+from state.machine import TERMINAL_STATUSES, IncidentStatus, transition
 
 SCENARIOS = catalog.load_scenarios()
 BAD_URL = "postgresql+psycopg://helix:helix@127.0.0.1:59999/helix"
@@ -35,10 +46,47 @@ def test_run_scenario_skips_on_unmet_requirements():
 
 
 def test_arm_b_and_e_skip_without_llm_key(monkeypatch):
-    monkeypatch.delenv("HELIX_LLM_API_KEY", raising=False)
+    monkeypatch.setattr(harness, "get_settings", lambda: SimpleNamespace(llm_api_key=None))
     cfg = HarnessConfig(arms=["B"], database_url=BAD_URL)
     record = run_scenario("ci-test-regression", SCENARIOS["ci-test-regression"], "B", cfg)
-    assert record.skipped == "arm B requires HELIX_LLM_API_KEY"
+    assert record.skipped.startswith("arm B requires HELIX_LLM_API_KEY")
+
+
+@pytest.mark.parametrize("arm", ["B", "C", "E"])
+def test_a_key_in_dot_env_is_enough_to_run_an_llm_arm(monkeypatch, arm):
+    """The key's documented home is .env, which only pydantic-settings
+    loads - os.environ never sees it. Gating the skip on os.environ meant
+    putting the key exactly where every document says to put it left all
+    three LLM arms skipping, with a message naming a variable the user had
+    already set. Reaching the requirements check at all is the assertion:
+    it proves the arm was not refused for a missing key."""
+    monkeypatch.delenv("HELIX_LLM_API_KEY", raising=False)  # .env only, not the environment
+    monkeypatch.setattr(harness, "get_settings", lambda: SimpleNamespace(llm_api_key="gsk_x"))
+    cfg = HarnessConfig(arms=[arm], database_url=BAD_URL)
+    record = run_scenario("ci-test-regression", SCENARIOS["ci-test-regression"], arm, cfg)
+    assert "requires HELIX_LLM_API_KEY" not in (record.skipped or "")
+
+
+def test_forcing_fixture_mode_on_a_live_scenario_skips_rather_than_crashes():
+    """`--mode fixture` used to read `evidence_fixture` unconditionally,
+    and the live scenarios do not declare one - so the flag raised
+    KeyError and killed the whole run, but only when the cluster happened
+    to be up (with kind down these skip on requirements first). Checked
+    before requirements, so this holds either way."""
+    live = SCENARIOS["crashloop"]
+    assert "evidence_fixture" not in live, "fixture-less live scenario expected"
+    cfg = HarnessConfig(arms=["A"], mode="fixture", database_url=BAD_URL)
+    record = run_scenario("crashloop", live, "A", cfg)
+    assert record.skipped == "no evidence_fixture declared, cannot run in fixture mode"
+
+
+def test_fixture_mode_still_runs_scenarios_that_declare_a_fixture():
+    """The guard must not swallow the scenarios the flag exists for - they
+    proceed to the normal requirements check."""
+    cfg = HarnessConfig(arms=["A"], mode="fixture", database_url=BAD_URL)
+    record = run_scenario("ci-test-regression", SCENARIOS["ci-test-regression"], "A", cfg)
+    assert record.skipped is not None
+    assert "postgres" in record.skipped
 
 
 def test_malformed_scenario_is_a_catalog_defect_not_a_run():
@@ -48,26 +96,33 @@ def test_malformed_scenario_is_a_catalog_defect_not_a_run():
     assert record.errors
 
 
+def _execution_row(**overrides):
+    """An executions row shaped exactly as `_collect` builds one.
+
+    Deliberately no `detail` key: the Execution model has no such column,
+    so a fabricated one here hid the reporting bug that printed "no
+    successful executions row" underneath every passing check.
+    """
+    row = {
+        "action": "open_fix_pr",
+        "result": "success",
+        "policy_decision": "allow_with_checks",
+        "approval_id": None,
+        "decided_by": None,
+        "compensates_id": None,
+        "origin": "fixture",
+        "output": {
+            "branch": "helix/INC-x",
+            "files": ["sandbox/payment-api/tests/test_main.py"],
+        },
+    }
+    return {**row, **overrides}
+
+
 def test_measure_fixture_mode_checks_the_recorded_write():
     """Fixture measurement reads the recorded intended write: the right
     action succeeded and its output carries the declared content."""
-    record = {
-        "executions": [
-            {
-                "action": "open_fix_pr",
-                "result": "success",
-                "policy_decision": "allow_with_checks",
-                "approval_id": None,
-                "compensates_id": None,
-                "origin": "fixture",
-                "output": {
-                    "branch": "helix/INC-x",
-                    "files": ["sandbox/payment-api/tests/test_main.py"],
-                },
-                "detail": "open_fix_pr opened: recorded",
-            }
-        ]
-    }
+    record = {"executions": [_execution_row()]}
     scenario = SCENARIOS["ci-test-regression"]
     checks = _measure(HarnessConfig(), scenario, record)
     assert all(c["ok"] for c in checks)
@@ -79,6 +134,239 @@ def test_measure_flags_a_wrong_write():
     record = {"executions": []}
     checks = _measure(HarnessConfig(), SCENARIOS["ci-test-regression"], record)
     assert any(not c["ok"] for c in checks)
+
+
+def test_passing_executed_action_check_reports_the_row_it_matched():
+    """A passing check must not carry the not-found string as evidence -
+    the committed arm-A report did exactly that for all 12 scenarios."""
+    record = {"executions": [_execution_row()]}
+    checks = _measure(HarnessConfig(), SCENARIOS["ci-test-regression"], record)
+    executed = next(c for c in checks if c["check"].startswith("executed_action"))
+    assert executed["ok"]
+    assert "no successful executions row" not in executed["detail"]
+    assert "open_fix_pr" in executed["detail"]
+    assert "result=success" in executed["detail"]
+
+
+def test_failing_executed_action_check_says_the_row_is_missing():
+    checks = _measure(HarnessConfig(), SCENARIOS["ci-test-regression"], {"executions": []})
+    executed = next(c for c in checks if c["check"].startswith("executed_action"))
+    assert not executed["ok"]
+    assert executed["detail"] == "no successful executions row"
+
+
+def test_executed_action_ignores_failed_and_compensating_rows():
+    """Only a successful, non-compensating row counts - and when none
+    qualifies the detail must say so rather than describe a rejected row."""
+    record = {
+        "executions": [
+            _execution_row(result="failure"),
+            _execution_row(compensates_id=7),
+        ]
+    }
+    checks = _measure(HarnessConfig(), SCENARIOS["ci-test-regression"], record)
+    executed = next(c for c in checks if c["check"].startswith("executed_action"))
+    assert not executed["ok"]
+    assert executed["detail"] == "no successful executions row"
+
+
+def _sqlite_url(tmp_path) -> str:
+    """A file-backed SQLite URL, not `sqlite://` in-memory - the harness's
+    `_ingest_via_events` and this test's own read-back each open their own
+    engine, and only a real file gives them the same database."""
+    return f"sqlite:///{tmp_path / 'event-path.db'}"
+
+
+class TestIngestViaEvents:
+    """Unit tier for the event-path intake helper (subphase E7): no
+    subprocess, no Postgres - a file-backed SQLite engine exercises the
+    same `events.ingest.ingest_event` call the real harness makes."""
+
+    def test_ingests_a_classifiable_signal_and_opens_an_incident(self, tmp_path):
+        db_url = _sqlite_url(tmp_path)
+        engine = create_engine(db_url)
+        models.Base.metadata.create_all(engine)
+
+        incident_id, skip = _ingest_via_events(SCENARIOS["ci-test-regression"], db_url)
+
+        assert skip is None
+        assert incident_id is not None
+        with Session(engine) as session:
+            incident = session.scalar(
+                select(models.Incident).where(models.Incident.incident_id == incident_id)
+            )
+            assert incident is not None
+            # The canonical event landed (E7's actual deliverable): the
+            # vendor event ingest_event recorded, plus the `incident.created`
+            # lifecycle event `machine.record_creation` always emits on a
+            # new incident (E5) - both source paths get one of those.
+            event_types = {r.event_type for r in incident.event_records}
+            assert event_types == {"build.failed", "incident.created"}
+            # No Signal row - the event path writes nothing beyond what
+            # ingest_event itself produces. `agent/graph.py`'s
+            # `_signal_from_events` is what reads this incident's diagnosis
+            # input back out; see tests/agent/test_graph.py::TestSignalFallback.
+            assert incident.signals == []
+
+    def test_unclassifiable_signal_is_an_honest_skip_not_a_fabricated_event(self, tmp_path):
+        db_url = _sqlite_url(tmp_path)
+        engine = create_engine(db_url)
+        models.Base.metadata.create_all(engine)
+
+        scenario = {
+            "signal": {
+                "source": "kubernetes",
+                "service": "payment-api",
+                "environment": "sandbox",
+                "signature": {},  # no waiting_reason/reason/symptom -> no rule matches
+                "raw": {},
+            }
+        }
+        incident_id, skip = _ingest_via_events(scenario, db_url)
+
+        assert incident_id is None
+        assert skip is not None
+        assert "unclassifiable" in skip
+        with Session(engine) as session:
+            assert session.scalar(select(models.Incident)) is None
+
+    def test_invalid_signal_is_an_honest_skip(self, tmp_path):
+        db_url = _sqlite_url(tmp_path)
+        engine = create_engine(db_url)
+        models.Base.metadata.create_all(engine)
+
+        incident_id, skip = _ingest_via_events({"signal": {"source": "kubernetes"}}, db_url)
+
+        assert incident_id is None
+        assert skip is not None
+        assert "invalid signal" in skip
+
+
+def test_run_scenario_event_path_skips_on_unmet_requirements_before_ingesting():
+    """The requirements gate runs before intake, whichever path is
+    configured - an event-path run with no Postgres must skip exactly like
+    the direct path, never attempt to ingest against a dead database."""
+    cfg = HarnessConfig(arms=["A"], database_url=BAD_URL, path="event")
+    record = run_scenario("ci-test-regression", SCENARIOS["ci-test-regression"], "A", cfg)
+    assert record.skipped is not None
+    assert "postgres" in record.skipped
+
+
+def test_run_benchmark_records_the_configured_path():
+    """The report's top-level `path` field is what `benchmark.compare`
+    reads to tell a direct-path report from an event-path one."""
+    cfg = HarnessConfig(arms=["A"], scenarios=["does-not-exist"], path="event")
+    report = run_benchmark(cfg)
+    assert report["path"] == "event"
+    assert report["mode"] == "auto"
+    assert report["outcomes"] == []
+
+
+def test_run_benchmark_default_path_is_direct():
+    cfg = HarnessConfig(arms=["A"], scenarios=["does-not-exist"])
+    report = run_benchmark(cfg)
+    assert report["path"] == "direct"
+
+
+class TestCrossArmIsolation:
+    """Reproduces, and proves the fix for, the contamination mode in
+    docs/benchmark/methodology.md: `--arm B --arm C` run in one invocation
+    let arm C's identical signal attach to arm B's still-open (`verifying`)
+    incident, so arm C's scored result was actually arm B's.
+
+    Arms B/C/E need HELIX_LLM_API_KEY, unavailable here, so `run_scenario`
+    is replaced with a fake that drives the REAL dedup path
+    (`state.intake.intake_signal`) and the REAL state machine
+    (`state.machine.transition`) directly - the same functions `helix
+    intake`/`helix run` would call - and simulates arm B's actual documented
+    end state (parked at `verifying`, which is not terminal) by walking
+    real, validated transition edges. `run_benchmark`'s arm loop and
+    `harness._close_arm_incidents` are exercised for real; nothing in
+    `state/intake.py` is touched, weakened, or special-cased.
+    """
+
+    SIGNAL = {
+        "source": "kubernetes",
+        "service": "payment-api",
+        "environment": "sandbox",
+        "severity": "medium",
+        "signature": {"waiting_reason": "CrashLoopBackOff", "container": "payment-api"},
+        "raw": {},
+    }
+
+    def _fake_run_scenario(self, name, scenario, arm, cfg):
+        """Stand-in for the LLM-requiring arms: intakes the identical
+        signal through the real dedup path and, for arm B, drives the
+        incident to its real designed park state (`verifying`)."""
+        engine = create_engine(cfg.database_url)
+        with session_scope(engine) as session:
+            result = intake_signal(session, Signal.model_validate(self.SIGNAL))
+            incident = session.scalar(
+                select(models.Incident).where(models.Incident.incident_id == result.incident_id)
+            )
+            if arm == "B":
+                for status in (
+                    IncidentStatus.DIAGNOSING,
+                    IncidentStatus.REMEDIATION_PENDING,
+                    IncidentStatus.VALIDATING,
+                    IncidentStatus.EXECUTING,
+                    IncidentStatus.VERIFYING,
+                ):
+                    transition(incident, status, cause="simulated arm B drive", session=session)
+            final_status = IncidentStatus(incident.status).value
+        record = OutcomeRecord(scenario=name, arm=arm)
+        record.incident_id = result.incident_id
+        record.final_status = final_status
+        return record
+
+    def test_arm_c_does_not_inherit_arm_bs_open_incident(self, tmp_path, monkeypatch):
+        db_url = f"sqlite:///{tmp_path / 'isolation.db'}"
+        engine = create_engine(db_url)
+        models.Base.metadata.create_all(engine)
+
+        monkeypatch.setattr(harness, "run_scenario", self._fake_run_scenario)
+        cfg = HarnessConfig(arms=["B", "C"], scenarios=["ci-test-regression"], database_url=db_url)
+        report = run_benchmark(cfg)
+
+        b_outcome, c_outcome = report["outcomes"]
+        assert b_outcome["final_status"] == "verifying"
+        assert b_outcome["incident_id"] != c_outcome["incident_id"], (
+            "arm C attached to arm B's still-open incident - cross-arm contamination"
+        )
+        # Structural proof, not just "different id": arm B's incident must
+        # now be terminal, so a THIRD arm's identical signal cannot attach
+        # to it either.
+        with Session(engine) as session:
+            b_incident = session.scalar(
+                select(models.Incident).where(
+                    models.Incident.incident_id == b_outcome["incident_id"]
+                )
+            )
+            assert IncidentStatus(b_incident.status) in TERMINAL_STATUSES
+
+    def test_single_arm_never_closes_its_own_incidents(self, tmp_path, monkeypatch):
+        """Rule 4: a single-arm invocation must behave exactly as today -
+        `_close_arm_incidents` must never run when there is no later arm to
+        protect against, so a lone arm's incident is left exactly as its
+        own drive loop left it."""
+        db_url = f"sqlite:///{tmp_path / 'single-arm.db'}"
+        engine = create_engine(db_url)
+        models.Base.metadata.create_all(engine)
+
+        monkeypatch.setattr(harness, "run_scenario", self._fake_run_scenario)
+        cfg = HarnessConfig(arms=["B"], scenarios=["ci-test-regression"], database_url=db_url)
+        report = run_benchmark(cfg)
+
+        (b_outcome,) = report["outcomes"]
+        assert b_outcome["final_status"] == "verifying"
+        with Session(engine) as session:
+            incident = session.scalar(
+                select(models.Incident).where(
+                    models.Incident.incident_id == b_outcome["incident_id"]
+                )
+            )
+            # Untouched: still parked at verifying, not force-closed.
+            assert IncidentStatus(incident.status) == IncidentStatus.VERIFYING
 
 
 @pytest.mark.integration
@@ -110,3 +398,20 @@ class TestHarnessEndToEnd:
         assert record.incident_id is not None
         collected = _collect(get_settings().database_url, record.incident_id)
         assert collected["final_status"] == "recovered"
+
+    def test_fixture_arm_a_recovers_through_the_event_path(self):
+        """The same scenario as the direct-path test above, but intake
+        goes through `events.ingest.ingest_event` instead of `helix
+        intake` - the E7 comparison's whole point is that this reaches the
+        same outcome as the direct path."""
+        cfg = HarnessConfig(arms=["A"], scenarios=["ci-test-regression"], path="event")
+        record = run_scenario("ci-test-regression", SCENARIOS["ci-test-regression"], "A", cfg)
+        assert record.skipped is None
+        assert record.final_status == "recovered"
+        assert record.selected_action == "open_fix_pr"
+        assert any(
+            e["action"] == "open_fix_pr" and e["result"] == "success" and e["origin"] == "fixture"
+            for e in record.executions
+        )
+        assert any(v["outcome"] == "pass" for v in record.verifications)
+        assert record.recovered_at is not None

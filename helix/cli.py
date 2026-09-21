@@ -5,7 +5,10 @@ Implemented so far: `serve` (uvicorn over helix/api.py), `intake` (read a
 signal JSON file or stdin, call the same state.intake.intake_signal the
 API uses - no server needed, D6; `--run` then drives the workflow
 in-process), `incidents` (list incidents), `run` (drive an incident's
-workflow graph to its next stopping point), the 1.8 approval surface
+workflow graph to its next stopping point), `reclaim` (declare a stuck
+`running` workflow run stale after a hard-killed process and mark it
+failed, freeing the single-active-run guard - explicit, never automatic),
+the 1.8 approval surface
 (`approvals` lists the gate's pending/decided rows; `approve`/`reject`
 record the decision on an incident's pending approvals row and resume
 the suspended run), and `provenance` (1.9 - print an incident's decision
@@ -53,6 +56,22 @@ def build_parser() -> argparse.ArgumentParser:
     )
     run.add_argument("incident_id", metavar="INC_ID", help="the incident id (INC-*)")
 
+    reclaim = subparsers.add_parser(
+        "reclaim",
+        help="declare an incident's stuck `running` workflow run stale and mark it "
+        "failed, freeing the single-active-run guard so `helix run` can start "
+        "fresh; a run still within HELIX_STALE_RUN_TIMEOUT is refused, never "
+        "reclaimed, and an incident with no running row is a no-op",
+    )
+    reclaim.add_argument("incident_id", metavar="INC_ID", help="the incident id (INC-*)")
+    reclaim.add_argument(
+        "--timeout",
+        type=float,
+        default=None,
+        metavar="SECONDS",
+        help="override HELIX_STALE_RUN_TIMEOUT for this call",
+    )
+
     approvals = subparsers.add_parser(
         "approvals",
         help="list approval requests (pending by default; --all includes decided)",
@@ -93,6 +112,46 @@ def build_parser() -> argparse.ArgumentParser:
         "validation -> approval -> execution -> verification)",
     )
     provenance.add_argument("incident_id", metavar="INC_ID", help="the incident id (INC-*)")
+
+    consume = subparsers.add_parser(
+        "consume",
+        help="consume canonical events from Kafka and drive incident state "
+        "(subphase E4); correlates across sources and is safe to re-run, "
+        "because a replayed event is recorded once and executes nothing",
+    )
+    consume.add_argument(
+        "--group",
+        default="helix-ingest",
+        help="consumer group id (default: helix-ingest). A new group reads "
+        "from the beginning with --from-beginning; an existing one always "
+        "resumes from its committed offsets",
+    )
+    consume.add_argument(
+        "--from-beginning",
+        action="store_true",
+        help="for a new group, start at the oldest retained event instead of "
+        "only what arrives from now on",
+    )
+    consume.add_argument(
+        "--max-events",
+        type=int,
+        default=None,
+        help="stop after handling this many events (default: run until the topic goes quiet)",
+    )
+
+    emit = subparsers.add_parser(
+        "emit",
+        help="publish Helix's own lifecycle events to Kafka (subphase E5). "
+        "They are written to the history store inside the transaction that "
+        "changed the state, so this only drains what is already durable; "
+        "re-running is safe because every event id is stable",
+    )
+    emit.add_argument(
+        "--limit",
+        type=int,
+        default=500,
+        help="maximum events to publish in one drain (default: 500)",
+    )
 
     return parser
 
@@ -208,6 +267,65 @@ def _cmd_run(args: argparse.Namespace) -> int:
     if result.error:
         print(f"helix run: run failed: {result.error}", file=sys.stderr)
         return 1
+    return 0
+
+
+def _cmd_reclaim(args: argparse.Namespace) -> int:
+    """Explicit, human-invoked orphaned-run recovery (never automatic):
+    declare an incident's stuck `running` workflow run stale and mark it
+    `failed`, so a hard-killed process (SIGKILL, an OOM kill, a CI/harness
+    subprocess timeout) can no longer block every later `helix run` for
+    that incident with RunConflictError.
+
+    No running row is a no-op (exit 0) - nothing to reclaim. A running
+    row younger than the timeout is refused, not reclaimed (exit 2) - a
+    run genuinely still executing is never touched."""
+    from sqlalchemy import select
+    from sqlalchemy.exc import SQLAlchemyError
+
+    from agent.runner import reclaim_stale_run
+    from helix.config import get_settings
+    from state import models
+    from state.db import session_scope
+
+    timeout_s = args.timeout if args.timeout is not None else get_settings().stale_run_timeout
+
+    try:
+        with session_scope() as session:
+            incident = session.scalar(
+                select(models.Incident).where(models.Incident.incident_id == args.incident_id)
+            )
+            if incident is None:
+                print(f"helix reclaim: no such incident: {args.incident_id}", file=sys.stderr)
+                return 2
+            running = session.scalar(
+                select(models.WorkflowRun)
+                .where(models.WorkflowRun.incident_id == incident.id)
+                .where(models.WorkflowRun.status == models.RunStatus.RUNNING)
+                .order_by(models.WorkflowRun.id.desc())
+                .limit(1)
+            )
+            if running is None:
+                print(f"{args.incident_id}: no running workflow run - nothing to reclaim")
+                return 0
+            run_id = running.id
+            reclaimed = reclaim_stale_run(session, incident, timeout_s)
+            if reclaimed is None:
+                print(
+                    f"helix reclaim: {args.incident_id}: workflow run {run_id} is still "
+                    f"within HELIX_STALE_RUN_TIMEOUT={int(timeout_s)}s - not reclaimed",
+                    file=sys.stderr,
+                )
+                return 2
+            stale_reason = reclaimed.stale_reason
+    except SQLAlchemyError as exc:
+        print(
+            f"helix reclaim: database error (is Postgres up? see scripts/db-up.sh): {exc}",
+            file=sys.stderr,
+        )
+        return 1
+
+    print(f"{args.incident_id}: workflow run {run_id} reclaimed - {stale_reason}")
     return 0
 
 
@@ -380,6 +498,52 @@ def _cmd_decide(args: argparse.Namespace, approved: bool) -> int:
     return 0
 
 
+def _cmd_consume(args: argparse.Namespace) -> int:
+    """Drive incident state from the event stream (subphase E4).
+
+    Each event is handled in its own transaction, so one failure cannot
+    roll back the incidents its predecessors opened, and the redelivery
+    that follows is harmless because ingest is idempotent.
+    """
+    import functools
+
+    from sqlalchemy import create_engine
+
+    from events.ingest import run_consumer
+    from helix.config import get_settings
+    from state.db import session_scope
+
+    engine = create_engine(get_settings().database_url)
+    handled = run_consumer(
+        functools.partial(session_scope, engine),
+        group_id=args.group,
+        max_events=args.max_events,
+        from_beginning=args.from_beginning,
+    )
+    print(f"handled {handled} event(s)")
+    return 0
+
+
+def _cmd_emit(args: argparse.Namespace) -> int:
+    """Drain the lifecycle-event outbox to Kafka (subphase E5).
+
+    Rows are marked published only after the producer flush returns, so a
+    broker that is down leaves them pending for the next run rather than
+    losing them.
+    """
+    from sqlalchemy import create_engine
+
+    from events.emit import drain
+    from helix.config import get_settings
+    from state.db import session_scope
+
+    engine = create_engine(get_settings().database_url)
+    with session_scope(engine) as session:
+        published = drain(session, limit=args.limit)
+    print(f"published {published} lifecycle event(s)")
+    return 0
+
+
 def _cmd_provenance(args: argparse.Namespace) -> int:
     """Print the incident's decision-provenance record as Markdown -
     state.provenance.render_markdown over the assembled record."""
@@ -418,12 +582,18 @@ def main(argv: list[str] | None = None) -> int:
         return _cmd_incidents()
     if args.command == "run":
         return _cmd_run(args)
+    if args.command == "reclaim":
+        return _cmd_reclaim(args)
     if args.command == "approvals":
         return _cmd_approvals(args)
     if args.command == "approve":
         return _cmd_decide(args, approved=True)
     if args.command == "reject":
         return _cmd_decide(args, approved=False)
+    if args.command == "consume":
+        return _cmd_consume(args)
+    if args.command == "emit":
+        return _cmd_emit(args)
     if args.command == "provenance":
         return _cmd_provenance(args)
     return 2

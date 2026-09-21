@@ -15,10 +15,20 @@ from agent.prompts.diagnosis import _evidence_block, _incident_block
 from agent.prompts.planning import _PARAM_RULES
 
 
-def fused_prompt(incident: dict[str, Any], evidence: list[dict[str, Any]], menu: str) -> str:
+def fused_prompt(
+    incident: dict[str, Any],
+    evidence: list[dict[str, Any]],
+    menu: str,
+    prior_context: str = "",
+) -> str:
     """One call -> diagnosis AND action. The model answers with a single
     `FusedDiagnosisPlan`; an empty `action` is the honest "nothing safe to
-    do" answer."""
+    do" answer.
+
+    `prior_context` carries retrieved prior incidents (E6) and is empty
+    unless retrieval is enabled, so arm B's prompt is byte-identical to
+    what it was before E6 and the ablation against arm C measures
+    retrieval rather than a reworded prompt."""
     return f"""You are the Helix agent. Diagnose this failure and choose the \
 remediation action in one answer.
 
@@ -26,7 +36,7 @@ remediation action in one answer.
 
 Collected evidence (cite by id):
 {_evidence_block(evidence)}
-
+{prior_context}
 Actions you may select (catalogue only):
 {menu}
 

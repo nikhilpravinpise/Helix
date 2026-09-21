@@ -6,17 +6,19 @@ exercised in tests/agent/test_integration.py (integration tier).
 """
 
 import pytest
-from fakes import K8S_SIGNAL, FakeLLM, make_deps
+from fakes import JENKINS_SIGNAL, K8S_SIGNAL, FakeLLM, make_deps
 from sqlalchemy import select
 
 from agent.agents.diagnosis import EvidencePlan
 from agent.agents.planner import CandidateList, CandidateProposal
-from agent.graph import build_graph
+from agent.graph import _intake_node, _signal_from_events, build_graph
 from agent.runner import RunConflictError, run_incident, start_run
 from agent.state import Hypothesis
+from events.classify import classify
+from events.ingest import ingest_event
 from helix.llm import LLMError
 from state import models
-from state.intake import intake_signal
+from state.intake import Signal, build_event, intake_signal
 from state.machine import IncidentStatus
 
 
@@ -63,6 +65,99 @@ def _rows(sessions, model, incident_id: str):
         )
 
 
+class TestSignalFallback:
+    """E7: an incident opened by `events.ingest.ingest_event` carries no
+    `state.models.Signal` row - the intake node must reconstruct its
+    `signal` view from the incident's `EventRecord` envelope instead of
+    silently diagnosing off `signal: {}` (agent/graph.py's
+    `_signal_from_events`)."""
+
+    def _ingest_via_events(self, sessions, payload: dict) -> str:
+        signal = Signal.model_validate(payload)
+        event_type = classify(signal.source.value, signal.signature)
+        event = build_event(signal, event_type)
+        with sessions() as session:
+            return ingest_event(session, event).incident_id
+
+    def test_fallback_reconstructs_signal_from_the_event_envelope(self, sqlite_sessions):
+        """The only entry path E7 adds: no Signal row exists, so
+        `_signal_from_events` is what stands between this incident and an
+        empty signal."""
+        incident_id = self._ingest_via_events(sqlite_sessions, JENKINS_SIGNAL)
+        with sqlite_sessions() as session:
+            incident = session.scalar(
+                select(models.Incident).where(models.Incident.incident_id == incident_id)
+            )
+            assert not incident.signals  # confirms there is no Signal row to read instead
+            reconstructed = _signal_from_events(incident)
+
+        assert reconstructed == {
+            "source": "jenkins",
+            "signature": JENKINS_SIGNAL["signature"],
+            "raw": JENKINS_SIGNAL["raw"],
+        }
+
+    def test_direct_path_ignores_the_fallback_when_a_signal_row_exists(
+        self, sqlite_sessions, store
+    ):
+        """A directly-intaken incident carries a Signal row. Attaching a
+        deliberately CONFLICTING EventRecord to the same incident and
+        asserting the Kubernetes signal still wins is what proves the
+        fallback only fires in the absence of a Signal row - path=direct
+        is untouched by it."""
+        incident_id = _make_incident(sqlite_sessions, K8S_SIGNAL)
+
+        conflicting = Signal.model_validate(JENKINS_SIGNAL)
+        conflicting_type = classify(conflicting.source.value, conflicting.signature)
+        conflicting_event = build_event(conflicting, conflicting_type)
+        with sqlite_sessions() as session:
+            incident = session.scalar(
+                select(models.Incident).where(models.Incident.incident_id == incident_id)
+            )
+            session.add(
+                models.EventRecord(
+                    incident_id=incident.id,
+                    event_id=conflicting_event.event_id,
+                    event_type=conflicting_event.event_type.value,
+                    source=conflicting_event.source.value,
+                    service=conflicting_event.service,
+                    environment=conflicting_event.environment,
+                    occurred_at=conflicting_event.timestamp,
+                    envelope=conflicting_event.model_dump(mode="json"),
+                )
+            )
+
+        deps, _ = make_deps(sqlite_sessions, FakeLLM(), "crashloop", store)
+        result = _intake_node(deps, arm="A")({"incident_id": incident_id})
+
+        assert result["signal"]["source"] == "kubernetes"
+        assert result["signal"]["signature"] == K8S_SIGNAL["signature"]
+
+    def test_incident_with_neither_signal_nor_events_degrades_honestly(
+        self, sqlite_sessions, store
+    ):
+        """No Signal row, no EventRecord at all - `_signal_from_events`
+        must return an empty signal rather than raising, and the intake
+        node must complete rather than crash."""
+        with sqlite_sessions() as session:
+            incident = models.Incident(
+                incident_id="INC-nosignal",
+                fingerprint="fp-nosignal",
+                service="payment-api",
+                environment="sandbox",
+                severity="medium",
+                status=IncidentStatus.RECEIVED,
+            )
+            session.add(incident)
+            session.flush()
+            assert _signal_from_events(incident) == {}
+
+        deps, _ = make_deps(sqlite_sessions, FakeLLM(), "crashloop", store)
+        result = _intake_node(deps, arm="A")({"incident_id": "INC-nosignal"})
+
+        assert result["signal"] == {}
+
+
 class TestArmComposition:
     """D8: HELIX_ARM picks the node set - a composition switch, not code
     forks. Arm A/B node bodies landed in 1.11; this class pins the
@@ -98,6 +193,18 @@ class TestArmComposition:
         assert "rules_plan" in nodes
         assert "diagnosis" not in nodes
         assert "diagnose_and_plan" not in nodes
+
+    def test_arm_c_builds_and_matches_arm_b_composition(self, sqlite_sessions, store):
+        """E6: arm C is B plus retrieval - identical node/edge composition,
+        so it must build without error and share B's node set. Regression
+        test for a coordinator routing bug where make_router's per-arm
+        dicts defined "E"/"B"/"A" but never "C", so build_graph(arm="C")
+        raised KeyError on every call and no arm-C incident could ever
+        advance past intake."""
+        deps, _ = make_deps(sqlite_sessions, FakeLLM(), "cluster/crashloop", store)
+        nodes_b = set(build_graph(deps, arm="B").get_graph().nodes)
+        nodes_c = set(build_graph(deps, arm="C").get_graph().nodes)
+        assert nodes_c == nodes_b
 
     def test_unknown_arm_rejected(self, sqlite_sessions, store):
         deps, _ = make_deps(sqlite_sessions, FakeLLM(), "cluster/crashloop", store)
@@ -337,3 +444,42 @@ class TestRunGuard:
             )
             assert len(incident.workflow_runs) == 2
             assert incident.status == IncidentStatus.ESCALATED
+
+
+class TestFailureCauseCarriesTheReason:
+    """A failed diagnosis must record WHY, not only that it failed.
+
+    "diagnosis produced no hypothesis" is the symptom of a provider 404, a
+    rate limit, a schema rejection and a genuinely empty answer alike.
+    Two separate benchmark failures had to be diagnosed by reproducing the
+    LLM call by hand, because the durable record kept no reason.
+    """
+
+    def test_a_provider_error_reaches_the_transition_cause(self):
+        from agent.agents.coordinator import _decide
+
+        decision = _decide(
+            {
+                "status": IncidentStatus.DIAGNOSING,
+                "diagnosis_complete": True,
+                "hypothesis": None,
+                "errors": ["fused diagnose/plan call failed: Error code: 429 - rate limit"],
+            },
+            None,
+        )
+        assert "429" in decision.cause
+        assert "rate limit" in decision.cause
+
+    def test_no_recorded_reason_says_so_rather_than_staying_silent(self):
+        from agent.agents.coordinator import _decide
+
+        decision = _decide(
+            {
+                "status": IncidentStatus.DIAGNOSING,
+                "diagnosis_complete": True,
+                "hypothesis": None,
+                "errors": [],
+            },
+            None,
+        )
+        assert "recorded no reason" in decision.cause

@@ -136,6 +136,12 @@ class Incident(Base):
     verifications: Mapped[list["Verification"]] = relationship(
         back_populates="incident", order_by="Verification.id"
     )
+    event_records: Mapped[list["EventRecord"]] = relationship(
+        back_populates="incident", order_by="EventRecord.id"
+    )
+    correlation_tokens: Mapped[list["CorrelationToken"]] = relationship(
+        back_populates="incident", order_by="CorrelationToken.id"
+    )
 
 
 class Signal(Base):
@@ -369,7 +375,14 @@ class WorkflowRun(Base):
     while a `running` row exists for the incident, and the partial unique
     index `ux_workflow_runs_one_running` (migration 0002) makes that
     enforceable under concurrency - two transactions cannot both insert a
-    running row. Full lifecycle hardening (stale-run reclamation) is 1.10.
+    running row.
+
+    A `running` row whose process was killed outright never reaches
+    `finish_run`, so it would otherwise block the guard forever.
+    `stale_reason` records why (and by what rule) `helix reclaim`
+    (agent/runner.py::reclaim_stale_run, migration 0010) declared such a
+    row stale and marked it `failed`; NULL means the row ended normally
+    or was never reclaimed.
     """
 
     __tablename__ = "workflow_runs"
@@ -394,6 +407,7 @@ class WorkflowRun(Base):
     status: Mapped[RunStatus] = mapped_column(_run_status_type(), default=RunStatus.RUNNING)
     started_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     ended_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    stale_reason: Mapped[str | None] = mapped_column(Text, nullable=True)
 
     incident: Mapped[Incident] = relationship(back_populates="workflow_runs")
 
@@ -677,3 +691,66 @@ class Verification(Base):
     incident: Mapped[Incident] = relationship(back_populates="verifications")
     execution: Mapped[Execution | None] = relationship()
     candidate: Mapped[Candidate | None] = relationship()
+
+
+class EventRecord(Base):
+    """One canonical event consumed from the stream (subphase E4).
+
+    The unique index on `event_id` is what makes replay a no-op rather
+    than a convention: E3 derives event ids from the vendor payload's
+    natural key, so a redelivered webhook produces the same id, and the
+    index turns "already handled" into a database fact. The consumer looks
+    the id up and returns the incident it landed on the first time instead
+    of driving state again.
+
+    `envelope` keeps the whole event as received. E5 builds its durable
+    history and replay on this column; storing only the fields E4 happens
+    to need would mean re-ingesting to get the rest.
+    """
+
+    __tablename__ = "event_records"
+    __table_args__ = (Index("ux_event_records_event_id", "event_id", unique=True),)
+
+    id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
+    incident_id: Mapped[int] = mapped_column(
+        ForeignKey("incidents.id", ondelete="CASCADE"), index=True
+    )
+    event_id: Mapped[str] = mapped_column(String(64))
+    event_type: Mapped[str] = mapped_column(String(64))
+    source: Mapped[str] = mapped_column(String(32))
+    service: Mapped[str] = mapped_column(String(128))
+    environment: Mapped[str] = mapped_column(String(32))
+    #: When the event happened, per its own envelope - distinct from
+    #: created_at, which is when Helix consumed it. Out-of-order delivery
+    #: makes the two disagree, and both are worth keeping.
+    occurred_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    envelope: Mapped[dict[str, Any]] = mapped_column(_json_doc())
+    #: Set once the outbox drain has produced this row to Kafka (E5).
+    #: NULL means unpublished - including for every event CONSUMED from
+    #: the stream, which Helix never produced and must not claim to have.
+    published_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+    incident: Mapped[Incident] = relationship(back_populates="event_records")
+
+
+class CorrelationToken(Base):
+    """One token linking an incident to the identifiers its events carry
+    (subphase E4).
+
+    A row per (token, incident) pair. Lookup is by token, which is how an
+    arriving event finds the incident an earlier event from a different
+    system already opened.
+    """
+
+    __tablename__ = "correlation_tokens"
+    __table_args__ = (Index("ux_correlation_tokens_pair", "token", "incident_id", unique=True),)
+
+    id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
+    incident_id: Mapped[int] = mapped_column(
+        ForeignKey("incidents.id", ondelete="CASCADE"), index=True
+    )
+    token: Mapped[str] = mapped_column(String(256), index=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+    incident: Mapped[Incident] = relationship(back_populates="correlation_tokens")

@@ -1,0 +1,74 @@
+# Kafka backbone for the canonical event stream (subphase E2).
+#
+# Runs in Docker on the host, beside Postgres and the ELK stack, for the
+# same reason as D1 and D3: the transport that carries failure events must
+# not share a failure domain with the cluster being deliberately broken.
+#
+# Single broker in KRaft mode - no ZooKeeper. One broker means replication
+# factor 1 everywhere, which is correct for a sandbox and would be wrong
+# in production; the retention and acknowledgement settings are the parts
+# that carry over.
+#
+# The project name is pinned rather than left to Compose's default (the
+# compose file's parent directory, "infra"), for the same reason
+# infra/postgres-compose.yml pins "helix-state": that default collides with
+# an unrelated project on this host that also uses <repo>/infra.
+name: helix-kafka
+
+services:
+  kafka:
+    image: apache/kafka:3.9.0
+    container_name: helix-kafka
+    restart: unless-stopped
+    environment:
+      # Fixed cluster id so a re-created container adopts the existing log
+      # directory instead of refusing to start against a foreign cluster.
+      CLUSTER_ID: helix-sandbox-kafka-01
+      KAFKA_NODE_ID: "1"
+      KAFKA_PROCESS_ROLES: broker,controller
+      KAFKA_CONTROLLER_QUORUM_VOTERS: 1@localhost:9093
+      KAFKA_LISTENERS: PLAINTEXT://:9092,CONTROLLER://:9093
+      # Literal 127.0.0.1, not "localhost", for the same reason
+      # helix/config.py spells database_url that way. A client bootstraps
+      # against this address and then reconnects to whatever the broker
+      # advertises: advertising "localhost" makes it resolve again, hit
+      # ipv6 ::1 first, and be refused, because the port below is
+      # published on the ipv4 loopback only.
+      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://127.0.0.1:9092
+      KAFKA_CONTROLLER_LISTENER_NAMES: CONTROLLER
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: CONTROLLER:PLAINTEXT,PLAINTEXT:PLAINTEXT
+      KAFKA_INTER_BROKER_LISTENER_NAME: PLAINTEXT
+      # Single broker: every internal topic has to fit in one replica.
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: "1"
+      KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: "1"
+      KAFKA_TRANSACTION_STATE_LOG_MIN_ISR: "1"
+      KAFKA_DEFAULT_REPLICATION_FACTOR: "1"
+      KAFKA_MIN_INSYNC_REPLICAS: "1"
+      # No rebalance stall on a single-consumer group in tests.
+      KAFKA_GROUP_INITIAL_REBALANCE_DELAY_MS: "0"
+      # Topics are created explicitly by scripts/kafka-up.sh so that
+      # partitioning and retention are declared rather than defaulted. A
+      # typo in a topic name must fail loudly, not silently create an
+      # unconfigured topic with the wrong partition count.
+      KAFKA_AUTO_CREATE_TOPICS_ENABLE: "false"
+      # Retention is per topic (see kafka-up.sh); this is the fallback.
+      KAFKA_LOG_RETENTION_HOURS: "168"
+      # Durability across a broker restart is an E2 exit criterion, so the
+      # log directory must be a volume. The image's default lives under
+      # /tmp, which would make "broker restart loses nothing" false.
+      KAFKA_LOG_DIRS: /var/lib/kafka/data
+      KAFKA_HEAP_OPTS: -Xms256m -Xmx512m
+    mem_limit: 1g
+    ports:
+      - "127.0.0.1:9092:9092"
+    volumes:
+      - kafka-data:/var/lib/kafka/data
+    healthcheck:
+      test:
+        ["CMD-SHELL", "/opt/kafka/bin/kafka-broker-api-versions.sh --bootstrap-server localhost:9092 >/dev/null 2>&1"]
+      interval: 5s
+      timeout: 10s
+      retries: 30
+
+volumes:
+  kafka-data:

@@ -20,6 +20,7 @@ from pydantic import BaseModel, Field, ValidationError
 from agent.actions.catalogue import catalogue_view, get_action
 from agent.agents.diagnosis import _persist, _preselect, _signal_context
 from agent.prompts.fused import fused_prompt
+from agent.retrieval_context import prior_incident_context
 from agent.state import Hypothesis, WorkflowState
 from helix.llm import LLMError
 from helix.observability import trace_workflow_step
@@ -57,10 +58,13 @@ def _persist_selection(
     answer: FusedDiagnosisPlan,
     params: dict[str, Any],
     risk_tier: str,
+    arm_label: str = "B",
 ) -> int:
     """The fused arm's one candidate row: selected=True, rank=1, score 0.0
-    - there is no ranker behind arm B, so the score column records that
-    honestly rather than borrowing arm E's machinery."""
+    - there is no ranker behind arm B/C, so the score column records that
+    honestly rather than borrowing arm E's machinery. `arm_label` records
+    which ablation arm actually produced this row (B or C share this
+    node - hardcoding "B" here would mislabel arm C's provenance)."""
     with deps.session_scope() as session:
         row = models.Candidate(
             incident_id=state["incident_pk"],
@@ -73,17 +77,25 @@ def _persist_selection(
             score=0.0,
             risk_tier=risk_tier,
             selected=True,
-            components={"arm": "B", "selection": "fused single-call selection - no ranker"},
+            components={
+                "arm": arm_label,
+                "selection": "fused single-call selection - no ranker",
+            },
         )
         session.add(row)
         session.flush()
         return row.id
 
 
-def diagnose_and_plan_node(deps: "GraphDeps"):
+def diagnose_and_plan_node(deps: "GraphDeps", retrieval: bool = False):
     """The fused node: preselect evidence -> one structured call -> persist
     hypothesis + selected candidate. An LLM/provider failure is a run
-    failure (plan_failed), matching diagnosis/planner's treatment."""
+    failure (plan_failed), matching diagnosis/planner's treatment.
+
+    `retrieval` is what separates ablation arm C from arm B (E6): the same
+    single call, given prior resolved incidents as context. With it False
+    the prompt is byte-identical to arm B's, so the comparison isolates
+    retrieval."""
 
     def _diagnose_and_plan(state: WorkflowState) -> dict:
         with trace_workflow_step("diagnose_and_plan"):
@@ -101,8 +113,19 @@ def diagnose_and_plan_node(deps: "GraphDeps"):
                 "errors": errors,
             }
             try:
+                incident_view = _incident_view(state)
                 answer = deps.llm.complete_structured(
-                    fused_prompt(_incident_view(state), evidence_view, catalogue_view()),
+                    fused_prompt(
+                        incident_view,
+                        evidence_view,
+                        catalogue_view(),
+                        prior_incident_context(
+                            deps,
+                            incident_view,
+                            (state.get("signal") or {}).get("signature"),
+                            enabled=retrieval,
+                        ),
+                    ),
                     FusedDiagnosisPlan,
                 )
             except LLMError as exc:
@@ -141,7 +164,8 @@ def diagnose_and_plan_node(deps: "GraphDeps"):
             normalized = validated.model_dump(mode="json")
             tier = spec.risk_tier(validated).value
 
-            candidate_id = _persist_selection(deps, state, answer, normalized, tier)
+            arm_label = "C" if retrieval else "B"
+            candidate_id = _persist_selection(deps, state, answer, normalized, tier, arm_label)
             selected = {
                 "rank": 1,
                 "action": spec.name,
@@ -150,7 +174,7 @@ def diagnose_and_plan_node(deps: "GraphDeps"):
                 "evidence_refs": list(answer.action_evidence_refs),
                 "risk_tier": tier,
                 "score": 0.0,
-                "components": {"arm": "B", "selection": "fused single-call"},
+                "components": {"arm": arm_label, "selection": "fused single-call"},
             }
             outcome["candidates"] = [selected]
             outcome["selected_action"] = {**selected, "candidate_id": candidate_id}

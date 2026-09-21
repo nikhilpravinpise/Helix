@@ -7,6 +7,7 @@ variable names.
 
 from typing import Literal
 
+from pydantic import Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -21,23 +22,31 @@ class Settings(BaseSettings):
     # LLM provider (D14): any OpenAI-compatible endpoint. Defaults target
     # Groq's free tier; a local Ollama or another compatible provider works by
     # changing base_url/model only - no provider-specific client code exists.
-    llm_api_key: str | None = None
+    # repr=False on every credential below. pytest renders the whole
+    # Settings object when an assertion on it fails, which printed a live
+    # API key in plaintext - a failing test must not be a disclosure
+    # channel, and neither must a stack trace or a debug log.
+    llm_api_key: str | None = Field(default=None, repr=False)
     llm_base_url: str = "https://api.groq.com/openai/v1"
-    llm_model: str = "llama-3.3-70b-versatile"
+    llm_model: str = "openai/gpt-oss-120b"
 
     # Evidence layer (subphase 1.3). evidence_source selects live vendor
     # clients vs fixture-backed implementations; fixture_path names the
     # fixture a fixture-mode run replays (a path to a JSON file or a fault
     # name resolved under fixtures/faults/).
-    github_token: str | None = None
+    github_token: str | None = Field(default=None, repr=False)
     github_repo: str = "nikhilpravinpise/Helix"
     jenkins_url: str = "http://localhost:8080"
     jenkins_user: str = "admin"
-    jenkins_token: str = "admin-sandbox-placeholder"
+    jenkins_token: str = Field(default="admin-sandbox-placeholder", repr=False)
     es_url: str = "http://localhost:9200"
     kube_context: str = "kind-helix-sandbox"
     evidence_source: Literal["live", "fixtures"] = "live"
     fixture_path: str | None = None
+
+    # Kafka backbone (subphase E2), infra/kafka-compose.yml. Literal
+    # 127.0.0.1 for the same reason as database_url below.
+    kafka_bootstrap_servers: str = "127.0.0.1:9092"
 
     # Incident state + intake (subphase 1.4). database_url points at the
     # host Postgres from infra/postgres-compose.yml (D3); it is a full
@@ -52,7 +61,7 @@ class Settings(BaseSettings):
     database_url: str = "postgresql+psycopg://helix:helix@127.0.0.1:5432/helix"
     api_bind: str = "127.0.0.1"
     api_port: int = 8787
-    intake_token: str | None = None
+    intake_token: str | None = Field(default=None, repr=False)
 
     # Coordinator + diagnosis (subphase 1.5). max_evidence_rounds bounds the
     # LLM's request-more-evidence loop so an investigation cannot run away.
@@ -60,8 +69,18 @@ class Settings(BaseSettings):
     # graph, B collapses diagnosis+planning into one LLM call and drops
     # validate/verify/replan, A replaces LLM nodes with deterministic rule
     # tables (agent/rules.py - arm A runs with no HELIX_LLM_API_KEY).
+    # C is B plus retrieval (E6): the same single LLM call, given prior
+    # resolved incidents as context, so the ablation isolates what RAG
+    # buys over a bare LLM rather than confounding it with verification.
     max_evidence_rounds: int = 3
-    arm: Literal["A", "B", "E"] = "E"
+    arm: Literal["A", "B", "C", "E"] = "E"
+
+    # Retrieval over incident history (subphase E6). OFF by default: the
+    # point of the flag is that retrieval's effect on diagnosis is
+    # measured rather than assumed, so every arm except C runs without it
+    # unless it is turned on deliberately. Arm C enables it regardless.
+    retrieval_enabled: bool = False
+    retrieval_limit: int = 3
 
     # Safety policy + execution (subphase 1.8). allowed_kube_contexts is the
     # comma-separated allowlist of kube contexts the write client may mutate
@@ -110,6 +129,16 @@ class Settings(BaseSettings):
     max_attempts: int = 3
     approval_timeout: float = 86400.0
     step_timeout: float = 600.0
+
+    # Orphaned-run recovery. A hard-killed run process (SIGKILL, an OOM
+    # kill, a CI/harness subprocess timeout) never reaches finish_run, so
+    # its workflow_runs row stays `running` forever and blocks the
+    # single-active-run guard. stale_run_timeout is how long such a row
+    # may sit `running` before the explicit `helix reclaim` command (never
+    # automatic) will declare it stale and mark it `failed`. Conservative
+    # by default: comfortably above step_timeout, since a genuinely
+    # running incident can occupy several graph nodes in sequence.
+    stale_run_timeout: float = 3600.0
 
     def allowed_kube_context_set(self) -> frozenset[str]:
         """HELIX_ALLOWED_KUBE_CONTEXTS parsed into a set of context names."""

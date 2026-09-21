@@ -227,6 +227,79 @@ class TestArmARules:
         assert res.status == IncidentStatus.ESCALATED
 
 
+def _drive_c(incident_id, deps, hops=8):
+    """Arm C shares B's composition exactly (E6: the fused node plus
+    retrieval context) - same multi-hop shape as `_drive_b`."""
+    last = None
+    for _ in range(hops):
+        res = run_incident(incident_id, deps=deps, arm="C")
+        if res.error:
+            return res
+        if str(res.status) == str(last):
+            break
+        last = res.status
+    return res
+
+
+class TestArmCFused:
+    """E6: arm C is arm B's fused node plus retrieval context - identical
+    graph composition. Regression coverage for a routing bug where the
+    coordinator's per-arm dicts and arm-B special cases (`make_router`,
+    `_decide`, `_policy_gate`, `_intake_node`'s plan_complete reload) were
+    never extended to "C": `build_graph(arm="C")` raised `KeyError: 'C'`
+    on every call, and even after that no incident could progress past
+    `remediation_pending` because plan_complete was never reloaded for a
+    resumed arm-C run. No test built the arm-C graph or drove it before
+    this, so nothing caught it."""
+
+    def test_fused_node_executes_through_the_shared_gate(self, sqlite_sessions, store):
+        answer = FusedDiagnosisPlan(
+            claim="broken test assertion in tests/test_main.py",
+            confidence=0.8,
+            action="open_fix_pr",
+            params={
+                "title": "Fix the assertion",
+                "body": "Corrected by arm C fused call",
+                "branch": "helix/INC-test",
+                "files": [{"path": "sandbox/payment-api/tests/test_main.py", "content": "x=1\n"}],
+            },
+            rationale="the test asserts 999",
+        )
+        deps, caps = make_deps(sqlite_sessions, FakeLLM([answer]), "ci/test-regression", store)
+        iid = _intake(sqlite_sessions, JENKINS_SIGNAL)
+
+        res = _drive_c(iid, deps)
+
+        assert res.error is None
+        assert _status(sqlite_sessions, iid) == "verifying"  # parked - no verify stage
+        assert caps["github_write"].methods() == ["open_fix_pr"]
+        assert [c for c in deps.llm.calls if c[0] == "structured"] == [
+            ("structured", FusedDiagnosisPlan)
+        ]
+
+    def test_fused_provenance_records_arm_c_not_b(self, sqlite_sessions, store):
+        """The persisted candidate's `components["arm"]` must say which
+        arm actually ran - hardcoding "B" here would mislabel arm C."""
+        answer = FusedDiagnosisPlan(
+            claim="transient check failure",
+            confidence=0.9,
+            action="rerun_pipeline",
+            params={"job": "payment-api"},
+        )
+        deps, _caps = make_deps(sqlite_sessions, FakeLLM([answer]), "github/failed-check", store)
+        iid = _intake(sqlite_sessions, GITHUB_CHECK_SIGNAL)
+
+        run_incident(iid, deps=deps, arm="C")
+
+        with sqlite_sessions() as session:
+            incident = session.scalar(
+                select(models.Incident).where(models.Incident.incident_id == iid)
+            )
+            selected = [c for c in incident.candidates if c.selected]
+            assert len(selected) == 1
+            assert selected[0].components["arm"] == "C"
+
+
 class TestArmBFused:
     def test_fused_node_executes_through_the_shared_gate(self, sqlite_sessions, store):
         """A scripted fused answer lands hypothesis + candidate, the shared

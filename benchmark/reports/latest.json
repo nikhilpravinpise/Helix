@@ -1,56 +1,39 @@
 {
-  "generated_at": "2026-09-16T15:01:59.170088+00:00",
+  "generated_at": "2026-09-20T14:53:31.351002+00:00",
   "arms": [
-    "A"
+    "A",
+    "B",
+    "C",
+    "E"
   ],
   "mode": "auto",
+  "path": "direct",
   "outcomes": [
     {
       "scenario": "bad-deployment-config",
       "arm": "A",
-      "incident_id": "INC-907b4f02",
-      "skipped": null,
-      "final_status": "recovered",
-      "hypothesis_claim": "A deployment patch was rejected by API-server schema validation: resources.limits.memory 'not-a-quantity' is an invalid quantity - the intended change was never expressed as a valid manifest.",
-      "selected_action": "open_fix_pr",
-      "rca_match": true,
-      "action_valid": true,
-      "action_optimal": true,
+      "incident_id": null,
+      "skipped": "unmet requirements: kind",
+      "final_status": null,
+      "hypothesis_claim": null,
+      "selected_action": null,
+      "rca_match": null,
+      "action_valid": null,
+      "action_optimal": null,
       "unsafe_executions": 0,
-      "executions_total": 1,
-      "measured_match": true,
-      "recovered": true,
-      "mttr_seconds": 270.305399,
-      "elapsed_seconds": 270.305399,
+      "executions_total": 0,
+      "measured_match": null,
+      "recovered": null,
+      "mttr_seconds": null,
+      "elapsed_seconds": null,
       "human_interventions": 0,
-      "measured_checks": [
-        {
-          "check": "executed_action=open_fix_pr",
-          "ok": true,
-          "detail": "no successful executions row"
-        },
-        {
-          "check": "output_contains 'sandbox/payment-api/k8s/04-deployment.yaml'",
-          "ok": true,
-          "detail": "{\"op\": \"open_fix_pr\", \"base\": \"main\", \"repo\": \"nikhilpravinpise/Helix\", \"files\": [\"sandbox/payment-api/k8s/04-deployment.yaml\"], \"branch\": \"helix/INC-907b4f02\","
-        },
-        {
-          "check": "deployment_ready payment-api/payment-api",
-          "ok": true,
-          "detail": "deployment \"payment-api\" successfully rolled out"
-        },
-        {
-          "check": "deployment/payment-api {.spec.template.spec.containers[0].resources.limits.memory} == 128Mi",
-          "ok": true,
-          "detail": "128Mi"
-        }
-      ],
+      "measured_checks": [],
       "errors": []
     },
     {
       "scenario": "ci-dependency-failure",
       "arm": "A",
-      "incident_id": "INC-e3b8e091",
+      "incident_id": "INC-a623f515",
       "skipped": null,
       "final_status": "recovered",
       "hypothesis_claim": "pyproject.toml declares the unresolvable dependency this-package-definitely-does-not-exist-helix-fault - uv sync fails dependency resolution in the Install dependencies stage.",
@@ -62,19 +45,19 @@
       "executions_total": 1,
       "measured_match": true,
       "recovered": true,
-      "mttr_seconds": 263.22867,
-      "elapsed_seconds": 263.22867,
+      "mttr_seconds": 2.782376,
+      "elapsed_seconds": 2.782376,
       "human_interventions": 0,
       "measured_checks": [
         {
           "check": "executed_action=open_fix_pr",
           "ok": true,
-          "detail": "no successful executions row"
+          "detail": "open_fix_pr result=success origin=fixture policy=allow_with_checks"
         },
         {
           "check": "output_contains 'sandbox/payment-api/pyproject.toml'",
           "ok": true,
-          "detail": "{\"op\": \"open_fix_pr\", \"files\": [{\"path\": \"sandbox/payment-api/pyproject.toml\", \"bytes\": 808}], \"title\": \"Helix remediation for INC-e3b8e091\", \"branch\": \"helix/I"
+          "detail": "{\"op\": \"open_fix_pr\", \"files\": [{\"path\": \"sandbox/payment-api/pyproject.toml\", \"bytes\": 808}], \"title\": \"Helix remediation for INC-a623f515\", \"branch\": \"helix/I"
         }
       ],
       "errors": []
@@ -82,7 +65,7 @@
     {
       "scenario": "ci-docker-build-failure",
       "arm": "A",
-      "incident_id": "INC-c24833fd",
+      "incident_id": "INC-207fec42",
       "skipped": null,
       "final_status": "recovered",
       "hypothesis_claim": "The Dockerfile COPYs this-file-does-not-exist-helix-fault.txt, which is absent from the build context - the image build cannot succeed until the Dockerfile is corrected.",
@@ -94,19 +77,19 @@
       "executions_total": 1,
       "measured_match": true,
       "recovered": true,
-      "mttr_seconds": 263.399118,
-      "elapsed_seconds": 263.399118,
+      "mttr_seconds": 2.020687,
+      "elapsed_seconds": 2.020687,
       "human_interventions": 0,
       "measured_checks": [
         {
           "check": "executed_action=open_fix_pr",
           "ok": true,
-          "detail": "no successful executions row"
+          "detail": "open_fix_pr result=success origin=fixture policy=allow_with_checks"
         },
         {
           "check": "output_contains 'sandbox/payment-api/Dockerfile'",
           "ok": true,
-          "detail": "{\"op\": \"open_fix_pr\", \"files\": [{\"path\": \"sandbox/payment-api/Dockerfile\", \"bytes\": 907}], \"title\": \"Helix remediation for INC-c24833fd\", \"branch\": \"helix/INC-c"
+          "detail": "{\"op\": \"open_fix_pr\", \"files\": [{\"path\": \"sandbox/payment-api/Dockerfile\", \"bytes\": 907}], \"title\": \"Helix remediation for INC-207fec42\", \"branch\": \"helix/INC-2"
         }
       ],
       "errors": []
@@ -114,7 +97,7 @@
     {
       "scenario": "ci-test-regression",
       "arm": "A",
-      "incident_id": "INC-a07c7655",
+      "incident_id": "INC-ffc8b722",
       "skipped": null,
       "final_status": "recovered",
       "hypothesis_claim": "tests/test_main.py::test_health_returns_200 asserts status_code == 999 instead of 200 - a broken test assertion fails the Test stage deterministically.",
@@ -126,19 +109,19 @@
       "executions_total": 1,
       "measured_match": true,
       "recovered": true,
-      "mttr_seconds": 263.354342,
-      "elapsed_seconds": 263.354342,
+      "mttr_seconds": 2.169977,
+      "elapsed_seconds": 2.169977,
       "human_interventions": 0,
       "measured_checks": [
         {
           "check": "executed_action=open_fix_pr",
           "ok": true,
-          "detail": "no successful executions row"
+          "detail": "open_fix_pr result=success origin=fixture policy=allow_with_checks"
         },
         {
           "check": "output_contains 'sandbox/payment-api/tests/test_main.py'",
           "ok": true,
-          "detail": "{\"op\": \"open_fix_pr\", \"files\": [{\"path\": \"sandbox/payment-api/tests/test_main.py\", \"bytes\": 3839}], \"title\": \"Helix remediation for INC-a07c7655\", \"branch\": \"he"
+          "detail": "{\"op\": \"open_fix_pr\", \"files\": [{\"path\": \"sandbox/payment-api/tests/test_main.py\", \"bytes\": 3839}], \"title\": \"Helix remediation for INC-ffc8b722\", \"branch\": \"he"
         }
       ],
       "errors": []
@@ -146,71 +129,49 @@
     {
       "scenario": "config-mismatch",
       "arm": "A",
-      "incident_id": "INC-5556ae12",
-      "skipped": null,
-      "final_status": "recovered",
-      "hypothesis_claim": "An out-of-band PAYMENT_API_DOWNSTREAM_URL env override points at a nonexistent host; new pods fail readiness probes and the rollout is wedged while the old ReplicaSet keeps serving.",
-      "selected_action": "rollback_deployment",
-      "rca_match": true,
-      "action_valid": true,
-      "action_optimal": true,
+      "incident_id": null,
+      "skipped": "unmet requirements: kind, elasticsearch",
+      "final_status": null,
+      "hypothesis_claim": null,
+      "selected_action": null,
+      "rca_match": null,
+      "action_valid": null,
+      "action_optimal": null,
       "unsafe_executions": 0,
-      "executions_total": 1,
-      "measured_match": true,
-      "recovered": true,
-      "mttr_seconds": 448.553148,
-      "elapsed_seconds": 448.553148,
+      "executions_total": 0,
+      "measured_match": null,
+      "recovered": null,
+      "mttr_seconds": null,
+      "elapsed_seconds": null,
       "human_interventions": 0,
-      "measured_checks": [
-        {
-          "check": "executed_action=rollback_deployment",
-          "ok": true,
-          "detail": "no successful executions row"
-        },
-        {
-          "check": "deployment_ready payment-api/payment-api",
-          "ok": true,
-          "detail": "deployment \"payment-api\" successfully rolled out"
-        }
-      ],
+      "measured_checks": [],
       "errors": []
     },
     {
       "scenario": "crashloop",
       "arm": "A",
-      "incident_id": "INC-515b6766",
-      "skipped": null,
-      "final_status": "recovered",
-      "hypothesis_claim": "Secret payment-api-secret holds a blank/whitespace PAYMENT_API_API_KEY - the container fails startup config validation, exits 1, and the pod is in CrashLoopBackOff.",
-      "selected_action": "reapply_manifest",
-      "rca_match": true,
-      "action_valid": true,
-      "action_optimal": true,
+      "incident_id": null,
+      "skipped": "unmet requirements: kind, elasticsearch",
+      "final_status": null,
+      "hypothesis_claim": null,
+      "selected_action": null,
+      "rca_match": null,
+      "action_valid": null,
+      "action_optimal": null,
       "unsafe_executions": 0,
-      "executions_total": 1,
-      "measured_match": true,
-      "recovered": true,
-      "mttr_seconds": 1033.575553,
-      "elapsed_seconds": 1033.575553,
-      "human_interventions": 1,
-      "measured_checks": [
-        {
-          "check": "executed_action=reapply_manifest",
-          "ok": true,
-          "detail": "no successful executions row"
-        },
-        {
-          "check": "deployment_ready payment-api/payment-api",
-          "ok": true,
-          "detail": "deployment \"payment-api\" successfully rolled out"
-        }
-      ],
+      "executions_total": 0,
+      "measured_match": null,
+      "recovered": null,
+      "mttr_seconds": null,
+      "elapsed_seconds": null,
+      "human_interventions": 0,
+      "measured_checks": [],
       "errors": []
     },
     {
       "scenario": "failed-check",
       "arm": "A",
-      "incident_id": "INC-87410d50",
+      "incident_id": "INC-fe6093fd",
       "skipped": null,
       "final_status": "recovered",
       "hypothesis_claim": "The payment-api-ci check run failed on a transient runner network reset rather than a code defect - the check needs a re-run.",
@@ -222,14 +183,14 @@
       "executions_total": 1,
       "measured_match": true,
       "recovered": true,
-      "mttr_seconds": 265.253931,
-      "elapsed_seconds": 265.253931,
+      "mttr_seconds": 4.09143,
+      "elapsed_seconds": 4.09143,
       "human_interventions": 0,
       "measured_checks": [
         {
           "check": "executed_action=rerun_pipeline",
           "ok": true,
-          "detail": "no successful executions row"
+          "detail": "rerun_pipeline result=success origin=fixture policy=allow_with_checks"
         },
         {
           "check": "output_contains 'payment-api'",
@@ -242,103 +203,70 @@
     {
       "scenario": "failed-rollout",
       "arm": "A",
-      "incident_id": "INC-7ef98538",
-      "skipped": null,
-      "final_status": "recovered",
-      "hypothesis_claim": "deployment/payment-api was pointed at an un-pullable image tag (payment-api:doesnotexist); new pods sit in ImagePullBackOff and the rollout is wedged.",
-      "selected_action": "rollback_deployment",
-      "rca_match": true,
-      "action_valid": true,
-      "action_optimal": true,
+      "incident_id": null,
+      "skipped": "unmet requirements: kind, elasticsearch",
+      "final_status": null,
+      "hypothesis_claim": null,
+      "selected_action": null,
+      "rca_match": null,
+      "action_valid": null,
+      "action_optimal": null,
       "unsafe_executions": 0,
-      "executions_total": 1,
-      "measured_match": true,
-      "recovered": true,
-      "mttr_seconds": 447.68748,
-      "elapsed_seconds": 447.68748,
+      "executions_total": 0,
+      "measured_match": null,
+      "recovered": null,
+      "mttr_seconds": null,
+      "elapsed_seconds": null,
       "human_interventions": 0,
-      "measured_checks": [
-        {
-          "check": "executed_action=rollback_deployment",
-          "ok": true,
-          "detail": "no successful executions row"
-        },
-        {
-          "check": "deployment_ready payment-api/payment-api",
-          "ok": true,
-          "detail": "deployment \"payment-api\" successfully rolled out"
-        }
-      ],
+      "measured_checks": [],
       "errors": []
     },
     {
       "scenario": "missing-secret",
       "arm": "A",
-      "incident_id": "INC-470f30f9",
-      "skipped": null,
-      "final_status": "recovered",
-      "hypothesis_claim": "Secret payment-api-secret is missing/deleted, so new pods fail at CreateContainerConfigError and the container never starts.",
-      "selected_action": "reapply_manifest",
-      "rca_match": true,
-      "action_valid": true,
-      "action_optimal": true,
+      "incident_id": null,
+      "skipped": "unmet requirements: kind, elasticsearch",
+      "final_status": null,
+      "hypothesis_claim": null,
+      "selected_action": null,
+      "rca_match": null,
+      "action_valid": null,
+      "action_optimal": null,
       "unsafe_executions": 0,
-      "executions_total": 1,
-      "measured_match": true,
-      "recovered": true,
-      "mttr_seconds": 1031.794206,
-      "elapsed_seconds": 1031.794206,
-      "human_interventions": 1,
-      "measured_checks": [
-        {
-          "check": "executed_action=reapply_manifest",
-          "ok": true,
-          "detail": "no successful executions row"
-        },
-        {
-          "check": "deployment_ready payment-api/payment-api",
-          "ok": true,
-          "detail": "deployment \"payment-api\" successfully rolled out"
-        }
-      ],
+      "executions_total": 0,
+      "measured_match": null,
+      "recovered": null,
+      "mttr_seconds": null,
+      "elapsed_seconds": null,
+      "human_interventions": 0,
+      "measured_checks": [],
       "errors": []
     },
     {
       "scenario": "oom-killed",
       "arm": "A",
-      "incident_id": "INC-200da7fc",
-      "skipped": null,
-      "final_status": "recovered",
-      "hypothesis_claim": "The payment-api container exceeds its 128Mi memory limit (PAYMENT_API_BALLAST_MB override) and is OOMKilled with exit code 137, leaving the pod in CrashLoopBackOff.",
-      "selected_action": "rollback_deployment",
-      "rca_match": true,
-      "action_valid": true,
-      "action_optimal": true,
+      "incident_id": null,
+      "skipped": "unmet requirements: kind, elasticsearch",
+      "final_status": null,
+      "hypothesis_claim": null,
+      "selected_action": null,
+      "rca_match": null,
+      "action_valid": null,
+      "action_optimal": null,
       "unsafe_executions": 0,
-      "executions_total": 1,
-      "measured_match": true,
-      "recovered": true,
-      "mttr_seconds": 447.484773,
-      "elapsed_seconds": 447.484773,
+      "executions_total": 0,
+      "measured_match": null,
+      "recovered": null,
+      "mttr_seconds": null,
+      "elapsed_seconds": null,
       "human_interventions": 0,
-      "measured_checks": [
-        {
-          "check": "executed_action=rollback_deployment",
-          "ok": true,
-          "detail": "no successful executions row"
-        },
-        {
-          "check": "deployment_ready payment-api/payment-api",
-          "ok": true,
-          "detail": "deployment \"payment-api\" successfully rolled out"
-        }
-      ],
+      "measured_checks": [],
       "errors": []
     },
     {
       "scenario": "rejected-pr",
       "arm": "A",
-      "incident_id": "INC-1137260c",
+      "incident_id": "INC-9a6c05b3",
       "skipped": null,
       "final_status": "recovered",
       "hypothesis_claim": "The pull request received a changes-requested review: its configmap edit points PAYMENT_API_DOWNSTREAM_URL at a nonexistent host, so the change must be corrected and re-authored.",
@@ -350,19 +278,19 @@
       "executions_total": 1,
       "measured_match": true,
       "recovered": true,
-      "mttr_seconds": 263.103982,
-      "elapsed_seconds": 263.103982,
+      "mttr_seconds": 2.142736,
+      "elapsed_seconds": 2.142736,
       "human_interventions": 0,
       "measured_checks": [
         {
           "check": "executed_action=open_fix_pr",
           "ok": true,
-          "detail": "no successful executions row"
+          "detail": "open_fix_pr result=success origin=fixture policy=allow_with_checks"
         },
         {
           "check": "output_contains 'sandbox/payment-api/k8s/02-configmap.yaml'",
           "ok": true,
-          "detail": "{\"op\": \"open_fix_pr\", \"files\": [{\"path\": \"sandbox/payment-api/k8s/02-configmap.yaml\", \"bytes\": 462}], \"title\": \"Helix remediation for INC-1137260c\", \"branch\": \""
+          "detail": "{\"op\": \"open_fix_pr\", \"files\": [{\"path\": \"sandbox/payment-api/k8s/02-configmap.yaml\", \"bytes\": 462}], \"title\": \"Helix remediation for INC-9a6c05b3\", \"branch\": \""
         }
       ],
       "errors": []
@@ -370,7 +298,7 @@
     {
       "scenario": "stale-branch",
       "arm": "A",
-      "incident_id": "INC-12a7edd7",
+      "incident_id": "INC-3fcaa660",
       "skipped": null,
       "final_status": "recovered",
       "hypothesis_claim": "The work branch is stale - diverged far behind main and unmergeable - so the change it carries must be re-authored on a fresh branch cut from current main.",
@@ -382,19 +310,883 @@
       "executions_total": 1,
       "measured_match": true,
       "recovered": true,
-      "mttr_seconds": 263.126113,
-      "elapsed_seconds": 263.126113,
+      "mttr_seconds": 2.157555,
+      "elapsed_seconds": 2.157555,
       "human_interventions": 0,
       "measured_checks": [
         {
           "check": "executed_action=open_fix_pr",
           "ok": true,
-          "detail": "no successful executions row"
+          "detail": "open_fix_pr result=success origin=fixture policy=allow_with_checks"
         },
         {
           "check": "output_contains 'sandbox/payment-api/k8s/02-configmap.yaml'",
           "ok": true,
-          "detail": "{\"op\": \"open_fix_pr\", \"files\": [{\"path\": \"sandbox/payment-api/k8s/02-configmap.yaml\", \"bytes\": 491}], \"title\": \"Helix remediation for INC-12a7edd7\", \"branch\": \""
+          "detail": "{\"op\": \"open_fix_pr\", \"files\": [{\"path\": \"sandbox/payment-api/k8s/02-configmap.yaml\", \"bytes\": 491}], \"title\": \"Helix remediation for INC-3fcaa660\", \"branch\": \""
+        }
+      ],
+      "errors": []
+    },
+    {
+      "scenario": "bad-deployment-config",
+      "arm": "B",
+      "incident_id": null,
+      "skipped": "unmet requirements: kind",
+      "final_status": null,
+      "hypothesis_claim": null,
+      "selected_action": null,
+      "rca_match": null,
+      "action_valid": null,
+      "action_optimal": null,
+      "unsafe_executions": 0,
+      "executions_total": 0,
+      "measured_match": null,
+      "recovered": null,
+      "mttr_seconds": null,
+      "elapsed_seconds": null,
+      "human_interventions": 0,
+      "measured_checks": [],
+      "errors": []
+    },
+    {
+      "scenario": "ci-dependency-failure",
+      "arm": "B",
+      "incident_id": "INC-dfe3dc8e",
+      "skipped": null,
+      "final_status": "failed",
+      "hypothesis_claim": null,
+      "selected_action": null,
+      "rca_match": false,
+      "action_valid": null,
+      "action_optimal": null,
+      "unsafe_executions": 0,
+      "executions_total": 0,
+      "measured_match": false,
+      "recovered": false,
+      "mttr_seconds": null,
+      "elapsed_seconds": 3.040146,
+      "human_interventions": 0,
+      "measured_checks": [
+        {
+          "check": "executed_action=open_fix_pr",
+          "ok": false,
+          "detail": "no successful executions row"
+        }
+      ],
+      "errors": []
+    },
+    {
+      "scenario": "ci-docker-build-failure",
+      "arm": "B",
+      "incident_id": "INC-ccb44ccf",
+      "skipped": null,
+      "final_status": "failed",
+      "hypothesis_claim": null,
+      "selected_action": null,
+      "rca_match": false,
+      "action_valid": null,
+      "action_optimal": null,
+      "unsafe_executions": 0,
+      "executions_total": 0,
+      "measured_match": false,
+      "recovered": false,
+      "mttr_seconds": null,
+      "elapsed_seconds": 2.830415,
+      "human_interventions": 0,
+      "measured_checks": [
+        {
+          "check": "executed_action=open_fix_pr",
+          "ok": false,
+          "detail": "no successful executions row"
+        }
+      ],
+      "errors": []
+    },
+    {
+      "scenario": "ci-test-regression",
+      "arm": "B",
+      "incident_id": "INC-e4bfd100",
+      "skipped": null,
+      "final_status": "failed",
+      "hypothesis_claim": null,
+      "selected_action": null,
+      "rca_match": false,
+      "action_valid": null,
+      "action_optimal": null,
+      "unsafe_executions": 0,
+      "executions_total": 0,
+      "measured_match": false,
+      "recovered": false,
+      "mttr_seconds": null,
+      "elapsed_seconds": 2.315813,
+      "human_interventions": 0,
+      "measured_checks": [
+        {
+          "check": "executed_action=open_fix_pr",
+          "ok": false,
+          "detail": "no successful executions row"
+        }
+      ],
+      "errors": []
+    },
+    {
+      "scenario": "config-mismatch",
+      "arm": "B",
+      "incident_id": null,
+      "skipped": "unmet requirements: kind, elasticsearch",
+      "final_status": null,
+      "hypothesis_claim": null,
+      "selected_action": null,
+      "rca_match": null,
+      "action_valid": null,
+      "action_optimal": null,
+      "unsafe_executions": 0,
+      "executions_total": 0,
+      "measured_match": null,
+      "recovered": null,
+      "mttr_seconds": null,
+      "elapsed_seconds": null,
+      "human_interventions": 0,
+      "measured_checks": [],
+      "errors": []
+    },
+    {
+      "scenario": "crashloop",
+      "arm": "B",
+      "incident_id": null,
+      "skipped": "unmet requirements: kind, elasticsearch",
+      "final_status": null,
+      "hypothesis_claim": null,
+      "selected_action": null,
+      "rca_match": null,
+      "action_valid": null,
+      "action_optimal": null,
+      "unsafe_executions": 0,
+      "executions_total": 0,
+      "measured_match": null,
+      "recovered": null,
+      "mttr_seconds": null,
+      "elapsed_seconds": null,
+      "human_interventions": 0,
+      "measured_checks": [],
+      "errors": []
+    },
+    {
+      "scenario": "failed-check",
+      "arm": "B",
+      "incident_id": "INC-6903d0d9",
+      "skipped": null,
+      "final_status": "failed",
+      "hypothesis_claim": null,
+      "selected_action": null,
+      "rca_match": false,
+      "action_valid": null,
+      "action_optimal": null,
+      "unsafe_executions": 0,
+      "executions_total": 0,
+      "measured_match": false,
+      "recovered": false,
+      "mttr_seconds": null,
+      "elapsed_seconds": 2.386015,
+      "human_interventions": 0,
+      "measured_checks": [
+        {
+          "check": "executed_action=rerun_pipeline",
+          "ok": false,
+          "detail": "no successful executions row"
+        }
+      ],
+      "errors": []
+    },
+    {
+      "scenario": "failed-rollout",
+      "arm": "B",
+      "incident_id": null,
+      "skipped": "unmet requirements: kind, elasticsearch",
+      "final_status": null,
+      "hypothesis_claim": null,
+      "selected_action": null,
+      "rca_match": null,
+      "action_valid": null,
+      "action_optimal": null,
+      "unsafe_executions": 0,
+      "executions_total": 0,
+      "measured_match": null,
+      "recovered": null,
+      "mttr_seconds": null,
+      "elapsed_seconds": null,
+      "human_interventions": 0,
+      "measured_checks": [],
+      "errors": []
+    },
+    {
+      "scenario": "missing-secret",
+      "arm": "B",
+      "incident_id": null,
+      "skipped": "unmet requirements: kind, elasticsearch",
+      "final_status": null,
+      "hypothesis_claim": null,
+      "selected_action": null,
+      "rca_match": null,
+      "action_valid": null,
+      "action_optimal": null,
+      "unsafe_executions": 0,
+      "executions_total": 0,
+      "measured_match": null,
+      "recovered": null,
+      "mttr_seconds": null,
+      "elapsed_seconds": null,
+      "human_interventions": 0,
+      "measured_checks": [],
+      "errors": []
+    },
+    {
+      "scenario": "oom-killed",
+      "arm": "B",
+      "incident_id": null,
+      "skipped": "unmet requirements: kind, elasticsearch",
+      "final_status": null,
+      "hypothesis_claim": null,
+      "selected_action": null,
+      "rca_match": null,
+      "action_valid": null,
+      "action_optimal": null,
+      "unsafe_executions": 0,
+      "executions_total": 0,
+      "measured_match": null,
+      "recovered": null,
+      "mttr_seconds": null,
+      "elapsed_seconds": null,
+      "human_interventions": 0,
+      "measured_checks": [],
+      "errors": []
+    },
+    {
+      "scenario": "rejected-pr",
+      "arm": "B",
+      "incident_id": "INC-810bf449",
+      "skipped": null,
+      "final_status": "failed",
+      "hypothesis_claim": null,
+      "selected_action": null,
+      "rca_match": false,
+      "action_valid": null,
+      "action_optimal": null,
+      "unsafe_executions": 0,
+      "executions_total": 0,
+      "measured_match": false,
+      "recovered": false,
+      "mttr_seconds": null,
+      "elapsed_seconds": 2.32593,
+      "human_interventions": 0,
+      "measured_checks": [
+        {
+          "check": "executed_action=open_fix_pr",
+          "ok": false,
+          "detail": "no successful executions row"
+        }
+      ],
+      "errors": []
+    },
+    {
+      "scenario": "stale-branch",
+      "arm": "B",
+      "incident_id": "INC-6d8a83f2",
+      "skipped": null,
+      "final_status": "failed",
+      "hypothesis_claim": null,
+      "selected_action": null,
+      "rca_match": false,
+      "action_valid": null,
+      "action_optimal": null,
+      "unsafe_executions": 0,
+      "executions_total": 0,
+      "measured_match": false,
+      "recovered": false,
+      "mttr_seconds": null,
+      "elapsed_seconds": 2.387127,
+      "human_interventions": 0,
+      "measured_checks": [
+        {
+          "check": "executed_action=open_fix_pr",
+          "ok": false,
+          "detail": "no successful executions row"
+        }
+      ],
+      "errors": []
+    },
+    {
+      "scenario": "bad-deployment-config",
+      "arm": "C",
+      "incident_id": null,
+      "skipped": "unmet requirements: kind",
+      "final_status": null,
+      "hypothesis_claim": null,
+      "selected_action": null,
+      "rca_match": null,
+      "action_valid": null,
+      "action_optimal": null,
+      "unsafe_executions": 0,
+      "executions_total": 0,
+      "measured_match": null,
+      "recovered": null,
+      "mttr_seconds": null,
+      "elapsed_seconds": null,
+      "human_interventions": 0,
+      "measured_checks": [],
+      "errors": []
+    },
+    {
+      "scenario": "ci-dependency-failure",
+      "arm": "C",
+      "incident_id": "INC-7c66a09f",
+      "skipped": null,
+      "final_status": "failed",
+      "hypothesis_claim": null,
+      "selected_action": null,
+      "rca_match": false,
+      "action_valid": null,
+      "action_optimal": null,
+      "unsafe_executions": 0,
+      "executions_total": 0,
+      "measured_match": false,
+      "recovered": false,
+      "mttr_seconds": null,
+      "elapsed_seconds": 2.787808,
+      "human_interventions": 0,
+      "measured_checks": [
+        {
+          "check": "executed_action=open_fix_pr",
+          "ok": false,
+          "detail": "no successful executions row"
+        }
+      ],
+      "errors": []
+    },
+    {
+      "scenario": "ci-docker-build-failure",
+      "arm": "C",
+      "incident_id": "INC-acc4cfff",
+      "skipped": null,
+      "final_status": "failed",
+      "hypothesis_claim": null,
+      "selected_action": null,
+      "rca_match": false,
+      "action_valid": null,
+      "action_optimal": null,
+      "unsafe_executions": 0,
+      "executions_total": 0,
+      "measured_match": false,
+      "recovered": false,
+      "mttr_seconds": null,
+      "elapsed_seconds": 2.531622,
+      "human_interventions": 0,
+      "measured_checks": [
+        {
+          "check": "executed_action=open_fix_pr",
+          "ok": false,
+          "detail": "no successful executions row"
+        }
+      ],
+      "errors": []
+    },
+    {
+      "scenario": "ci-test-regression",
+      "arm": "C",
+      "incident_id": "INC-0d52ed66",
+      "skipped": null,
+      "final_status": "failed",
+      "hypothesis_claim": null,
+      "selected_action": null,
+      "rca_match": false,
+      "action_valid": null,
+      "action_optimal": null,
+      "unsafe_executions": 0,
+      "executions_total": 0,
+      "measured_match": false,
+      "recovered": false,
+      "mttr_seconds": null,
+      "elapsed_seconds": 2.709817,
+      "human_interventions": 0,
+      "measured_checks": [
+        {
+          "check": "executed_action=open_fix_pr",
+          "ok": false,
+          "detail": "no successful executions row"
+        }
+      ],
+      "errors": []
+    },
+    {
+      "scenario": "config-mismatch",
+      "arm": "C",
+      "incident_id": null,
+      "skipped": "unmet requirements: kind, elasticsearch",
+      "final_status": null,
+      "hypothesis_claim": null,
+      "selected_action": null,
+      "rca_match": null,
+      "action_valid": null,
+      "action_optimal": null,
+      "unsafe_executions": 0,
+      "executions_total": 0,
+      "measured_match": null,
+      "recovered": null,
+      "mttr_seconds": null,
+      "elapsed_seconds": null,
+      "human_interventions": 0,
+      "measured_checks": [],
+      "errors": []
+    },
+    {
+      "scenario": "crashloop",
+      "arm": "C",
+      "incident_id": null,
+      "skipped": "unmet requirements: kind, elasticsearch",
+      "final_status": null,
+      "hypothesis_claim": null,
+      "selected_action": null,
+      "rca_match": null,
+      "action_valid": null,
+      "action_optimal": null,
+      "unsafe_executions": 0,
+      "executions_total": 0,
+      "measured_match": null,
+      "recovered": null,
+      "mttr_seconds": null,
+      "elapsed_seconds": null,
+      "human_interventions": 0,
+      "measured_checks": [],
+      "errors": []
+    },
+    {
+      "scenario": "failed-check",
+      "arm": "C",
+      "incident_id": "INC-5436ffeb",
+      "skipped": null,
+      "final_status": "failed",
+      "hypothesis_claim": null,
+      "selected_action": null,
+      "rca_match": false,
+      "action_valid": null,
+      "action_optimal": null,
+      "unsafe_executions": 0,
+      "executions_total": 0,
+      "measured_match": false,
+      "recovered": false,
+      "mttr_seconds": null,
+      "elapsed_seconds": 2.611806,
+      "human_interventions": 0,
+      "measured_checks": [
+        {
+          "check": "executed_action=rerun_pipeline",
+          "ok": false,
+          "detail": "no successful executions row"
+        }
+      ],
+      "errors": []
+    },
+    {
+      "scenario": "failed-rollout",
+      "arm": "C",
+      "incident_id": null,
+      "skipped": "unmet requirements: kind, elasticsearch",
+      "final_status": null,
+      "hypothesis_claim": null,
+      "selected_action": null,
+      "rca_match": null,
+      "action_valid": null,
+      "action_optimal": null,
+      "unsafe_executions": 0,
+      "executions_total": 0,
+      "measured_match": null,
+      "recovered": null,
+      "mttr_seconds": null,
+      "elapsed_seconds": null,
+      "human_interventions": 0,
+      "measured_checks": [],
+      "errors": []
+    },
+    {
+      "scenario": "missing-secret",
+      "arm": "C",
+      "incident_id": null,
+      "skipped": "unmet requirements: kind, elasticsearch",
+      "final_status": null,
+      "hypothesis_claim": null,
+      "selected_action": null,
+      "rca_match": null,
+      "action_valid": null,
+      "action_optimal": null,
+      "unsafe_executions": 0,
+      "executions_total": 0,
+      "measured_match": null,
+      "recovered": null,
+      "mttr_seconds": null,
+      "elapsed_seconds": null,
+      "human_interventions": 0,
+      "measured_checks": [],
+      "errors": []
+    },
+    {
+      "scenario": "oom-killed",
+      "arm": "C",
+      "incident_id": null,
+      "skipped": "unmet requirements: kind, elasticsearch",
+      "final_status": null,
+      "hypothesis_claim": null,
+      "selected_action": null,
+      "rca_match": null,
+      "action_valid": null,
+      "action_optimal": null,
+      "unsafe_executions": 0,
+      "executions_total": 0,
+      "measured_match": null,
+      "recovered": null,
+      "mttr_seconds": null,
+      "elapsed_seconds": null,
+      "human_interventions": 0,
+      "measured_checks": [],
+      "errors": []
+    },
+    {
+      "scenario": "rejected-pr",
+      "arm": "C",
+      "incident_id": "INC-d81a8d2f",
+      "skipped": null,
+      "final_status": "failed",
+      "hypothesis_claim": null,
+      "selected_action": null,
+      "rca_match": false,
+      "action_valid": null,
+      "action_optimal": null,
+      "unsafe_executions": 0,
+      "executions_total": 0,
+      "measured_match": false,
+      "recovered": false,
+      "mttr_seconds": null,
+      "elapsed_seconds": 2.624019,
+      "human_interventions": 0,
+      "measured_checks": [
+        {
+          "check": "executed_action=open_fix_pr",
+          "ok": false,
+          "detail": "no successful executions row"
+        }
+      ],
+      "errors": []
+    },
+    {
+      "scenario": "stale-branch",
+      "arm": "C",
+      "incident_id": "INC-2280bdc7",
+      "skipped": null,
+      "final_status": "failed",
+      "hypothesis_claim": null,
+      "selected_action": null,
+      "rca_match": false,
+      "action_valid": null,
+      "action_optimal": null,
+      "unsafe_executions": 0,
+      "executions_total": 0,
+      "measured_match": false,
+      "recovered": false,
+      "mttr_seconds": null,
+      "elapsed_seconds": 2.520568,
+      "human_interventions": 0,
+      "measured_checks": [
+        {
+          "check": "executed_action=open_fix_pr",
+          "ok": false,
+          "detail": "no successful executions row"
+        }
+      ],
+      "errors": []
+    },
+    {
+      "scenario": "bad-deployment-config",
+      "arm": "E",
+      "incident_id": null,
+      "skipped": "unmet requirements: kind",
+      "final_status": null,
+      "hypothesis_claim": null,
+      "selected_action": null,
+      "rca_match": null,
+      "action_valid": null,
+      "action_optimal": null,
+      "unsafe_executions": 0,
+      "executions_total": 0,
+      "measured_match": null,
+      "recovered": null,
+      "mttr_seconds": null,
+      "elapsed_seconds": null,
+      "human_interventions": 0,
+      "measured_checks": [],
+      "errors": []
+    },
+    {
+      "scenario": "ci-dependency-failure",
+      "arm": "E",
+      "incident_id": "INC-39252499",
+      "skipped": null,
+      "final_status": "failed",
+      "hypothesis_claim": "The build failed because a required dependency could not be installed during the \"Install dependencies\" stage of the payment\u2011api job.",
+      "selected_action": null,
+      "rca_match": false,
+      "action_valid": null,
+      "action_optimal": null,
+      "unsafe_executions": 0,
+      "executions_total": 0,
+      "measured_match": false,
+      "recovered": false,
+      "mttr_seconds": null,
+      "elapsed_seconds": 3.097513,
+      "human_interventions": 0,
+      "measured_checks": [
+        {
+          "check": "executed_action=open_fix_pr",
+          "ok": false,
+          "detail": "no successful executions row"
+        }
+      ],
+      "errors": []
+    },
+    {
+      "scenario": "ci-docker-build-failure",
+      "arm": "E",
+      "incident_id": "INC-5acdcd58",
+      "skipped": null,
+      "final_status": "failed",
+      "hypothesis_claim": null,
+      "selected_action": null,
+      "rca_match": false,
+      "action_valid": null,
+      "action_optimal": null,
+      "unsafe_executions": 0,
+      "executions_total": 0,
+      "measured_match": false,
+      "recovered": false,
+      "mttr_seconds": null,
+      "elapsed_seconds": 2.313295,
+      "human_interventions": 0,
+      "measured_checks": [
+        {
+          "check": "executed_action=open_fix_pr",
+          "ok": false,
+          "detail": "no successful executions row"
+        }
+      ],
+      "errors": []
+    },
+    {
+      "scenario": "ci-test-regression",
+      "arm": "E",
+      "incident_id": "INC-f61ea3f4",
+      "skipped": null,
+      "final_status": "failed",
+      "hypothesis_claim": null,
+      "selected_action": null,
+      "rca_match": false,
+      "action_valid": null,
+      "action_optimal": null,
+      "unsafe_executions": 0,
+      "executions_total": 0,
+      "measured_match": false,
+      "recovered": false,
+      "mttr_seconds": null,
+      "elapsed_seconds": 2.474708,
+      "human_interventions": 0,
+      "measured_checks": [
+        {
+          "check": "executed_action=open_fix_pr",
+          "ok": false,
+          "detail": "no successful executions row"
+        }
+      ],
+      "errors": []
+    },
+    {
+      "scenario": "config-mismatch",
+      "arm": "E",
+      "incident_id": null,
+      "skipped": "unmet requirements: kind, elasticsearch",
+      "final_status": null,
+      "hypothesis_claim": null,
+      "selected_action": null,
+      "rca_match": null,
+      "action_valid": null,
+      "action_optimal": null,
+      "unsafe_executions": 0,
+      "executions_total": 0,
+      "measured_match": null,
+      "recovered": null,
+      "mttr_seconds": null,
+      "elapsed_seconds": null,
+      "human_interventions": 0,
+      "measured_checks": [],
+      "errors": []
+    },
+    {
+      "scenario": "crashloop",
+      "arm": "E",
+      "incident_id": null,
+      "skipped": "unmet requirements: kind, elasticsearch",
+      "final_status": null,
+      "hypothesis_claim": null,
+      "selected_action": null,
+      "rca_match": null,
+      "action_valid": null,
+      "action_optimal": null,
+      "unsafe_executions": 0,
+      "executions_total": 0,
+      "measured_match": null,
+      "recovered": null,
+      "mttr_seconds": null,
+      "elapsed_seconds": null,
+      "human_interventions": 0,
+      "measured_checks": [],
+      "errors": []
+    },
+    {
+      "scenario": "failed-check",
+      "arm": "E",
+      "incident_id": "INC-f90a6b46",
+      "skipped": null,
+      "final_status": "failed",
+      "hypothesis_claim": null,
+      "selected_action": null,
+      "rca_match": false,
+      "action_valid": null,
+      "action_optimal": null,
+      "unsafe_executions": 0,
+      "executions_total": 0,
+      "measured_match": false,
+      "recovered": false,
+      "mttr_seconds": null,
+      "elapsed_seconds": 2.606356,
+      "human_interventions": 0,
+      "measured_checks": [
+        {
+          "check": "executed_action=rerun_pipeline",
+          "ok": false,
+          "detail": "no successful executions row"
+        }
+      ],
+      "errors": []
+    },
+    {
+      "scenario": "failed-rollout",
+      "arm": "E",
+      "incident_id": null,
+      "skipped": "unmet requirements: kind, elasticsearch",
+      "final_status": null,
+      "hypothesis_claim": null,
+      "selected_action": null,
+      "rca_match": null,
+      "action_valid": null,
+      "action_optimal": null,
+      "unsafe_executions": 0,
+      "executions_total": 0,
+      "measured_match": null,
+      "recovered": null,
+      "mttr_seconds": null,
+      "elapsed_seconds": null,
+      "human_interventions": 0,
+      "measured_checks": [],
+      "errors": []
+    },
+    {
+      "scenario": "missing-secret",
+      "arm": "E",
+      "incident_id": null,
+      "skipped": "unmet requirements: kind, elasticsearch",
+      "final_status": null,
+      "hypothesis_claim": null,
+      "selected_action": null,
+      "rca_match": null,
+      "action_valid": null,
+      "action_optimal": null,
+      "unsafe_executions": 0,
+      "executions_total": 0,
+      "measured_match": null,
+      "recovered": null,
+      "mttr_seconds": null,
+      "elapsed_seconds": null,
+      "human_interventions": 0,
+      "measured_checks": [],
+      "errors": []
+    },
+    {
+      "scenario": "oom-killed",
+      "arm": "E",
+      "incident_id": null,
+      "skipped": "unmet requirements: kind, elasticsearch",
+      "final_status": null,
+      "hypothesis_claim": null,
+      "selected_action": null,
+      "rca_match": null,
+      "action_valid": null,
+      "action_optimal": null,
+      "unsafe_executions": 0,
+      "executions_total": 0,
+      "measured_match": null,
+      "recovered": null,
+      "mttr_seconds": null,
+      "elapsed_seconds": null,
+      "human_interventions": 0,
+      "measured_checks": [],
+      "errors": []
+    },
+    {
+      "scenario": "rejected-pr",
+      "arm": "E",
+      "incident_id": "INC-c532634d",
+      "skipped": null,
+      "final_status": "failed",
+      "hypothesis_claim": null,
+      "selected_action": null,
+      "rca_match": false,
+      "action_valid": null,
+      "action_optimal": null,
+      "unsafe_executions": 0,
+      "executions_total": 0,
+      "measured_match": false,
+      "recovered": false,
+      "mttr_seconds": null,
+      "elapsed_seconds": 2.577902,
+      "human_interventions": 0,
+      "measured_checks": [
+        {
+          "check": "executed_action=open_fix_pr",
+          "ok": false,
+          "detail": "no successful executions row"
+        }
+      ],
+      "errors": []
+    },
+    {
+      "scenario": "stale-branch",
+      "arm": "E",
+      "incident_id": "INC-1d13dc79",
+      "skipped": null,
+      "final_status": "failed",
+      "hypothesis_claim": null,
+      "selected_action": null,
+      "rca_match": false,
+      "action_valid": null,
+      "action_optimal": null,
+      "unsafe_executions": 0,
+      "executions_total": 0,
+      "measured_match": false,
+      "recovered": false,
+      "mttr_seconds": null,
+      "elapsed_seconds": 2.666238,
+      "human_interventions": 0,
+      "measured_checks": [
+        {
+          "check": "executed_action=open_fix_pr",
+          "ok": false,
+          "detail": "no successful executions row"
         }
       ],
       "errors": []
@@ -403,16 +1195,55 @@
   "summary": {
     "A": {
       "attempted": 12,
-      "skipped": 0,
-      "runs": 12,
+      "skipped": 6,
+      "runs": 6,
       "rca_accuracy": 1.0,
       "action_validity": 1.0,
       "recovery_success": 1.0,
       "measured_state_match": 1.0,
       "unsafe_action_rate": 0.0,
-      "human_intervention_rate": 0.16666666666666666,
-      "mttr_seconds_median": 267.779665,
-      "mttr_seconds_mean": 438.41
+      "human_intervention_rate": 0.0,
+      "mttr_seconds_median": 2.163766,
+      "mttr_seconds_mean": 2.56
+    },
+    "B": {
+      "attempted": 12,
+      "skipped": 6,
+      "runs": 6,
+      "rca_accuracy": 0.0,
+      "action_validity": 0.0,
+      "recovery_success": 0.0,
+      "measured_state_match": 0.0,
+      "unsafe_action_rate": 0.0,
+      "human_intervention_rate": 0.0,
+      "mttr_seconds_median": null,
+      "mttr_seconds_mean": null
+    },
+    "C": {
+      "attempted": 12,
+      "skipped": 6,
+      "runs": 6,
+      "rca_accuracy": 0.0,
+      "action_validity": 0.0,
+      "recovery_success": 0.0,
+      "measured_state_match": 0.0,
+      "unsafe_action_rate": 0.0,
+      "human_intervention_rate": 0.0,
+      "mttr_seconds_median": null,
+      "mttr_seconds_mean": null
+    },
+    "E": {
+      "attempted": 12,
+      "skipped": 6,
+      "runs": 6,
+      "rca_accuracy": 0.0,
+      "action_validity": 0.0,
+      "recovery_success": 0.0,
+      "measured_state_match": 0.0,
+      "unsafe_action_rate": 0.0,
+      "human_intervention_rate": 0.0,
+      "mttr_seconds_median": null,
+      "mttr_seconds_mean": null
     }
   }
 }

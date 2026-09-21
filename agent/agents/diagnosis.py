@@ -32,6 +32,7 @@ from pydantic import BaseModel, Field
 from sqlalchemy import select
 
 from agent.prompts.diagnosis import diagnosis_prompt, evidence_request_prompt
+from agent.retrieval_context import prior_incident_context
 from agent.state import Hypothesis, WorkflowState
 from helix.llm import LLMError
 from helix.observability import trace_workflow_step
@@ -284,12 +285,20 @@ def _interpret(
     incident: dict[str, Any],
     evidence: list[Evidence],
     errors: list[str],
+    prior_context: str = "",
 ) -> Hypothesis | None:
-    """Structured interpretation with the one-shot bad-ref re-prompt."""
+    """Structured interpretation with the one-shot bad-ref re-prompt.
+
+    `prior_context` is retrieved prior-incident context (E6) and is empty
+    unless HELIX_RETRIEVAL_ENABLED is set, so arm E's prompt is unchanged
+    by default and retrieval's effect stays something measured rather
+    than assumed."""
     known = {e.id for e in evidence}
     view = _evidence_view(evidence)
     try:
-        hypothesis = deps.llm.complete_structured(diagnosis_prompt(incident, view), Hypothesis)
+        hypothesis = deps.llm.complete_structured(
+            diagnosis_prompt(incident, view, prior_context=prior_context), Hypothesis
+        )
     except LLMError as exc:
         errors.append(f"diagnosis interpretation failed: {exc}")
         return None
@@ -302,7 +311,8 @@ def _interpret(
     # clamped, with dangling refs dropped so every stored ref resolves.
     try:
         retry = deps.llm.complete_structured(
-            diagnosis_prompt(incident, view, invalid_refs=bad), Hypothesis
+            diagnosis_prompt(incident, view, invalid_refs=bad, prior_context=prior_context),
+            Hypothesis,
         )
         bad_retry = [ref for ref in retry.evidence_refs if ref not in known]
         if not bad_retry:
@@ -416,7 +426,15 @@ def diagnosis_node(deps: "GraphDeps"):
                         )
                     )
 
-            hypothesis = _interpret(deps, incident, collected, errors)
+            hypothesis = _interpret(
+                deps,
+                incident,
+                collected,
+                errors,
+                prior_context=prior_incident_context(
+                    deps, incident, (state.get("signal") or {}).get("signature")
+                ),
+            )
             _persist(deps, state, fresh, hypothesis)
 
             return {

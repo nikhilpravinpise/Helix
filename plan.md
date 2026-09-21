@@ -8,6 +8,63 @@ Phases follow the source documents exactly. This file adds 32 subphases, each wi
 
 ---
 
+## Current Status
+
+**Last updated: 2026-09-21.** Keep this block current - it is the one
+place that answers "how much is done" without reading the whole file.
+
+**20 of 32 subphases complete (63%). Phase 1.5 is finished.**
+
+| Phase | Subphases | Status |
+|---|---|---|
+| Phase 1 - MVP | 1.1 - 1.13 | **13/13 done.** Exit gate met: the benchmark runs unattended and reports all five metrics |
+| Phase 1.5 - Event Layer | E1 - E7 | **7/7 done.** All exit criteria met, including E7's ablation. One open defect found by it, recorded below |
+| Phase 2 - Full Helix | 2.1 - 2.11 | **0/11.** Not started, deliberately |
+| Optional | OPT-1 | Not started |
+
+**Phase 1.5's exit gate is met.** Phase 1 benchmark results reproduce
+through the event path with no regression, correlation and replay metrics
+are recorded, and ablation arm C is measured against A, B and E
+(`docs/benchmark/phase-1.5-evaluation.md`). Phase 2's entry gate is
+therefore open.
+
+**What the ablation concluded.** Retrieval earned its place - arm C beats
+arm B on every reasoning metric across six runs on two models. The full
+graph did not: arm E is the worst LLM arm and the least stable. Arm A
+scores 1.00 with zero spread across three runs, which measures the
+determinism policy rather than the architecture.
+
+**One open defect, found by the ablation and not yet fixed.** Arm B
+selected `rollback_deployment` - a Kubernetes write - in response to a
+rejected pull request and a diverged branch, and the policy gate allowed
+it unapproved, in 2 of 3 runs. `agent/policy.py` judges an action's risk
+tier in isolation and never asks whether the action is coherent with the
+evidence that produced it. Harmless only because fixture mode records
+intended writes (D10); with a live kube context it is a real rollback
+triggered by a code-review event. `benchmark/tolerance.py` fails its
+verdict on this, correctly. Arms A, C and E never did it - arm B is the
+only arm with no validation stage, which is the ablation demonstrating
+what validation is for.
+
+**Open commitments not covered by any subphase:**
+
+- **GCP / cloud deployment (D23).** DJS23OLOE501 requires it; Helix runs
+  on kind. Stubbed, not built: `infra/gcp/README.md` scopes the full
+  kind-to-GKE delta and `scripts/gcp-up.sh` is the entry point, which
+  refuses to run and prints the prerequisites. Nothing in the repo
+  depends on GCP, so this is additive work rather than a migration.
+- **Four Phase 1 gaps** carried from HANDOFF-PHASE1.md: no
+  `HELIX_GITHUB_TOKEN` (so `open_fix_pr` cannot write for real), Ansible
+  validated by syntax only, Jenkins and SonarQube torn down, and
+  `executing -> failed` does not replan within a run.
+- **Arm E hallucinates file paths** and its own verification does not
+  catch it - caught only by the benchmark's independent measurement. The
+  most important open finding in the project, and not a benchmark defect.
+
+**How to verify any of this yourself:** `docs/verifying.md`.
+
+---
+
 ## How to Read This Plan
 
 Subphase numbering avoids collision between "Phase 1 subphase 1.5" and "Phase 1.5":
@@ -67,7 +124,29 @@ Two of the three questions this plan originally left open are engineering calls,
 
 **D13. Workflow suspend/resume uses the LangGraph Postgres checkpointer** (`thread_id` = incident id), making approval suspension, crash recovery, and the single-active-run guard real instead of conventional.
 
+**D14a. The pinned model is `openai/gpt-oss-120b`.** Groq decommissioned the Llama 3.3 family, so D14's `llama-3.3-70b-versatile` pin returned `model_not_found` the first time a real key was used - the arms ran and every incident failed with "diagnosis produced no hypothesis", because an LLM error surfaced as an empty result rather than as a named provider failure. `openai/gpt-oss-120b` is the largest reasoning model the free tier now exposes and is verified to satisfy D7's structured-output contract. A pinned model is still the right call for determinism, but a pin is a dependency on someone else's deprecation schedule, and this one expired silently.
+
 **D14. The LLM provider is Groq via the OpenAI-compatible API** (`openai` SDK, `HELIX_LLM_BASE_URL|MODEL|API_KEY`). Groq's free tier supports `temperature` and `seed`, so the determinism policy in 1.1 is implemented literally - replacing the Anthropic client whose model family rejected those parameters. Provider-neutral config means the same single client also serves a local Ollama or any OpenAI-compatible endpoint; a bespoke multi-provider abstraction stays deferred.
+
+**D15. The event taxonomy is CONTEXT.md §7 plus `service.unhealthy` and `branch.diverged`; `rollout.failed` is rejected.** This settles the E1 discrepancy between CONTEXT.md §7 and the idea document. `events/schemas.py` is the single source, and its docstring carries the full reasoning. The test applied to each candidate was whether a signal Helix actually handles has no honest label without it. `rollout.failed` fails that test: `failed-rollout` reports `ImagePullBackOff` on the pod (`pod.failed`) and `config-mismatch` reports `rollout_wedged` with the old ReplicaSet still serving (`deployment.failed`). `service.unhealthy` passes it on the captured `config-mismatch` fault, whose new-ReplicaSet pod is `Running` with its container running and `Ready: False` - up and not serving, so both other labels would be false; it has no classifier rule and is emitted by the E3 Kubernetes adapter instead. (E1 first justified this with `dependency-failure`; E3 checked that fixture and found its pod is `Ready: True`, because the sandbox deployment declares no readiness probe, so a 503 from `/ready` never reaches the pod's conditions. The decision is unchanged, its evidence is corrected.) That the same fault reads as `deployment.failed` from its signal and `service.unhealthy` from its pod is not a contradiction - they describe different objects, and joining them into one incident is what E4 correlation is for. `branch.diverged` was not part of the original discrepancy and was forced by evidence: `stale-branch` signals `{type: branch_state, comparison: diverged}`, the taxonomy's git family is push and pull-request events only, and Helix recovers that scenario today. Compatibility rule: `schema_version` is `MAJOR.MINOR`, additive change is MINOR, and consumers must ignore unknown `metadata` keys and skip event types they do not handle.
+
+**D16. Intake stays total: an unclassifiable signal opens an incident with no canonical event.** Rejecting it at the front door would drop a real failure, which is the one thing an incident recovery system must not do, and it matches how the rest of Helix treats an unrecognised signature - the rules arm escalates rather than refusing. The miss is recorded in the creation transition so it appears in provenance. `events.classify.classify` itself still raises, because the E3 adapters should fail loudly rather than emit an unnamed event.
+
+**D17. The event backbone is a single-broker Kafka in KRaft mode, keyed on `correlation_id`.** `infra/kafka-compose.yml`, brought up with `scripts/kafka-up.sh`; `events/broker.py` holds the wrappers and the full reasoning. Topics are declared by the script rather than auto-created, because partition count and retention are design: `helix.events` has 3 partitions and 7-day retention, `helix.events.dlq` has 1 partition and 30-day retention, deliberately longer because a dead letter is evidence and outlives the event that caused it. The partition key is `correlation_id` falling back to `service`, which is what makes per-incident ordering true while still allowing a consumer group to scale. Delivery is at-least-once in both directions: the producer uses `acks=all` with idempotence, and the consumer disables auto-commit and commits only after the handler returns, so handlers must be idempotent. A record that does not deserialize goes to the DLQ verbatim with the reason in its headers and is then committed, since it can never succeed and would otherwise block every event behind it; a handler that raises does **not** commit, because that event is well-formed and discarding it would lose a real failure. Single broker means replication factor 1, which is correct for a sandbox and wrong for production; the acknowledgement and retention settings are the parts that carry over.
+
+**D18. Adapters own vendor knowledge, derive idempotent event ids, and redact before emitting.** `events/adapters/` holds one module per source (Kubernetes, Jenkins, GitHub, ELK). They are pure functions over already-fetched payloads - fetching stays `integrations/`' job, which is what lets every adapter be tested against a recorded fixture with no network. Adapters do not call `events.classify`: that exists to guess a type from a Phase 1 signal signature, while an adapter holds the vendor payload and knows the answer outright. Event ids come from `derive_event_id` over the payload's natural key (Kubernetes object uid plus restart count, Jenkins job plus build number, GitHub review id, Elasticsearch document id), so a redelivered webhook yields a byte-identical id; the key may contain only fields the vendor repeats verbatim. Every adapter builds events through `vendor_event`, which redacts `metadata` - the event stream is a second path into agent context, and subphase 1.3 made redaction a guarantee that has to hold on both. Console logs are clipped from the middle rather than the end, keeping both the failure detail and the build verdict.
+
+**D19. Correlation is token-based and time-bounded, and ingest never executes anything.** `events/correlation.py` extracts tokens from each event along the dimensions plan.md E4 names - service and environment, commit, PR, branch, build, pod, object - and `events/ingest.py` attaches an event to the open incident sharing any token. Linking is transitive in effect, which is what lets a GitHub check, a Jenkins build, a Kubernetes pod and an ELK log line converge without any pair sharing every token: check and build share a commit, build and pod share a service, pod and log share a pod name. Two bounds keep the service token from merging everything on a single-service sandbox: only non-terminal incidents are candidates, and correlation requires the incident's most recent event to be inside `CORRELATION_WINDOW` (30 minutes). The window is there because a stale open incident left by a killed run is a documented occurrence, and without it one would silently absorb every later event for its service while looking exactly like correlation working. Replay is a database fact rather than a convention: `event_records.event_id` is UNIQUE and ingest returns the original incident without writing. Ingest opens incidents and attaches events and never advances one past RECEIVED, so replaying any number of events cannot re-execute an action; driving the workflow stays an explicit `helix run`. Merging two already-open incidents is deliberately out of scope - it means reconciling two workflow states, two approval histories and two execution sets, which is a different problem from correlation.
+
+**D20. Helix emits lifecycle events through a transactional outbox, and replay reconstructs the lifecycle rather than every step.** The five CONTEXT.md §7 lifecycle types are derived from status transitions in `events/lifecycle.py` and written to `event_records` inside the same transaction as the `transitions` row they describe, so an event and the state change it reports can never disagree. Emission does not touch Kafka: every state change in Helix passes through `state.machine.transition`, including in unit tests, and publishing inline would make a running broker a prerequisite for all of it while a briefly-unavailable broker would either lose the event or fail the state change. `events/emit.py` drains unpublished rows afterwards (`helix emit`), marking `published_at` only after the producer flush returns, and re-draining is harmless because every id is stable. `remediation.completed` is keyed on reaching `verifying` rather than on leaving `executing`, since `executing -> failed` means no remediation completed. One store holds both consumed and emitted events, because E6 retrieval wants an incident's whole story - but Helix's own events are excluded from `correlated_sources` and from the E4 correlation window, since they record when Helix reacted rather than when anything happened outside, and counting them would let an incident hold its window open by transitioning. **Replay reconstructs the lifecycle, not every transition:** `diagnosing`, `validating`, `escalated` and `failed` have no event in the taxonomy, so `IncidentProjection` is the unit of comparison - milestones reached plus incident identity - and it is built from the incidents/transitions tables on one side and from stored envelopes on the other.
+
+**D21. Retrieval is lexical and in process, and arm C is arm B plus retrieval.** `events/retrieval.py` scores IDF-weighted token overlap between a new incident's fault signature and the flattened provenance of resolved ones. No vector store and no pgvector: plan.md asks for similarity search, not for embeddings, and adding either would mean new infrastructure for a corpus of tens of incidents. The lexical choice also buys two things that matter - it behaves identically on SQLite and Postgres so retrieval stays in the unit test tier, and `matched_terms` on every result says why two incidents were judged similar, which is the difference between a citation and an assertion. The honest limit is that it matches wording rather than meaning, and 2.8 revisits that with the graph. Only RECOVERED incidents are retrievable: one still in flight has no outcome to learn from and an escalated one has no fix to reuse, so offering either would be offering a guess as experience. Every result carries a structured `Citation` and `resolve_citation` raises rather than returning a placeholder, because a reference to a record that does not exist launders a guess into evidence. Retrieval is flag-gated (`HELIX_RETRIEVAL_ENABLED`, default off) so its effect is measured rather than assumed, and a retrieval failure is swallowed to empty context rather than failing the run - an aid that can fail a run that would otherwise have succeeded measures fragility, not usefulness. Arm C composes exactly the same nodes as arm B with retrieval on, so a C-vs-B comparison isolates what RAG buys over a bare LLM instead of confounding it with validation or verification.
+
+**D22. The graph reads a canonical event when an incident has no signal row.** E4 could open incidents from events and E5 could emit them, but nothing bridged the two: `agent/graph.py`'s intake node built its diagnosis input solely from `state.models.Signal`, which `events.ingest.ingest_event` never writes. An event-sourced incident therefore reached the graph with an empty signal and could not be diagnosed at all - a hole neither E4 nor E5 surfaced, because neither ever drove the graph from one. `_signal_from_events` closes it: when `incident.signals` is empty, the intake node reconstructs the signal view from the most recent non-Helix `EventRecord` envelope, reading `source` from the column and `signature`/`raw` from `metadata` only where present rather than defaulting absent fields to empty. It fires only when there is no signal row, so the direct path never reaches it and Phase 1 behaviour is unchanged. This was found while building the E7 event-path benchmark, where the first implementation hid it by having the harness backfill a Signal row - which made the direct-vs-event comparison a comparison of the direct path against itself.
+
+**D23. The benchmark stays on kind. A cloud deployment is deferred, not dropped, and now has a stub.** `infra/gcp/README.md` scopes the full kind-to-GKE delta and `scripts/gcp-up.sh` is its entry point - it refuses to run and prints the prerequisites, because a stub that half-creates cloud resources bills and leaves state nobody knows about. Deliberately no Terraform: an unapplied `google_container_cluster` would look like progress and prove nothing, since the first real `apply` finds every mistake in it anyway. DJS23OLOE501 carries a cloud requirement, so GCP is outstanding scope rather than a rejected option - this records it so the question does not go missing again, having sat unanswered from 1.2 through 1.5 while the work proceeded on kind regardless. Nothing in the repo depends on GCP today: the only reference is a comment in `sandbox/payment-api/k8s/06-ingress.yaml` noting that a GKE move replaces that one file. plan.md assumption 1 therefore stands unretired.
+
+Keeping the measured work local is the point. The benchmark rebuilds cluster state on every run, which is free and instant on kind and minutes of real billing on GKE; and the 1.11 tolerance criterion needs three consecutive runs inside a band, which a GKE auto-upgrade mid-series would silently turn into a measurement of GKE. When the requirement is addressed, the cheaper shape is a one-off GKE deployment of `payment-api` as a separate artifact for the report, with the benchmark staying local - the manifests are already isolated for exactly that, and it keeps the results reproducible.
 
 ### Input still needed
 

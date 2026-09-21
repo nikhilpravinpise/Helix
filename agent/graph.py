@@ -70,6 +70,7 @@ from agent.agents.verification import verification_node
 from agent.rules import rules_diagnosis_node, rules_plan_node
 from agent.state import WorkflowState
 from agent.validation import candidate_fingerprint
+from events.schemas import EventSource
 from helix.config import get_settings
 from helix.llm import LLMClient, OpenAICompatibleLLMClient
 from helix.observability import trace_workflow_step
@@ -240,17 +241,18 @@ def _selected_candidate_state(session, incident: models.Incident, arm: str = "E"
     between `helix run` invocations. Any other status starts with no
     selection.
 
-    Arm B additionally reloads at `remediation_pending` (1.11): its fused
-    `diagnose_and_plan` node produced and persisted the selection inside
-    the `diagnosing` hop, and B has no plan node to re-derive it - the
-    reload is what carries a B run from remediation_pending onward."""
+    Arm B and C additionally reload at `remediation_pending` (1.11): their
+    fused `diagnose_and_plan` node produced and persisted the selection
+    inside the `diagnosing` hop, and neither has a plan node to re-derive
+    it - the reload is what carries a B/C run from remediation_pending
+    onward."""
     statuses = {
         IncidentStatus.VALIDATING,
         IncidentStatus.AWAITING_APPROVAL,
         IncidentStatus.EXECUTING,
         IncidentStatus.VERIFYING,
     }
-    if arm == "B":
+    if arm in ("B", "C"):
         statuses.add(IncidentStatus.REMEDIATION_PENDING)
     if IncidentStatus(incident.status) not in statuses:
         return None
@@ -393,6 +395,41 @@ def _outstanding_compensation(session, incident_pk: int) -> bool:
     return outstanding_compensation(session, incident_pk)
 
 
+def _signal_from_events(incident: models.Incident) -> dict[str, Any]:
+    """Fallback `signal` view for an incident with no `state.models.Signal`
+    row (subphase E7): an incident opened by `events.ingest.ingest_event`
+    carries its trigger only as a canonical `EventRecord`, and
+    `agent/rules.py`'s `match_rule` and `agent/agents/diagnosis.py`'s
+    `_signal_context` both read the `{source, signature, raw}` shape the
+    direct intake path builds from `state.models.Signal`.
+
+    Reconstructed from the most recent non-Helix event: `signature` and
+    `raw` come straight out of that event's `metadata`, which is where
+    `state.intake.build_event` puts them for a Phase 1 signal ingested
+    through the event path, and where a vendor-adapter event's own detail
+    lives too. A key `metadata` genuinely does not carry is left out
+    rather than defaulted to `{}` - `match_rule` and `_signal_context`
+    already treat an absent key as "nothing here", so inventing one would
+    only hide what the event actually contained.
+
+    Helix's own lifecycle events (`incident.created` and the rest) are
+    excluded - they describe what Helix did, not what was reported to it,
+    the same exclusion `events.ingest.correlated_sources` and
+    `events.correlation` make.
+    """
+    events = [r for r in incident.event_records if r.source != EventSource.HELIX.value]
+    if not events:
+        return {}
+    latest = events[-1]  # `event_records` is relationship-ordered by id (state/models.py)
+    metadata = (latest.envelope or {}).get("metadata") or {}
+    signal: dict[str, Any] = {"source": latest.source}
+    if "signature" in metadata:
+        signal["signature"] = metadata["signature"]
+    if "raw" in metadata:
+        signal["raw"] = metadata["raw"]
+    return signal
+
+
 def _intake_node(deps: GraphDeps, arm: str = "E"):
     """Load the incident (and its latest signal + prior evidence rows)
     into WorkflowState. Resets run-scoped fields so a re-run cannot
@@ -430,7 +467,7 @@ def _intake_node(deps: GraphDeps, arm: str = "E"):
                             "raw": latest.raw,
                         }
                         if latest
-                        else {}
+                        else _signal_from_events(incident)
                     ),
                     "evidence": [_evidence_from_row(row) for row in incident.evidence_items],
                     "attempts": incident.attempt_count,
@@ -447,13 +484,13 @@ def _intake_node(deps: GraphDeps, arm: str = "E"):
                     # persisted selection reloads so a re-run re-validates
                     # or re-executes it; elsewhere no selection yet.
                     "selected_action": selected,
-                    # Arm B at remediation_pending: the fused node's work
+                    # Arm B/C at remediation_pending: the fused node's work
                     # is already done - with a persisted selection the run
                     # proceeds to validating; without one (the fused call
                     # escalated) plan_complete=True lets the coordinator
                     # land the escalation instead of parking forever.
                     "plan_complete": bool(
-                        arm == "B"
+                        arm in ("B", "C")
                         and IncidentStatus(incident.status) == IncidentStatus.REMEDIATION_PENDING
                     ),
                     "plan_failed": None,
@@ -508,6 +545,15 @@ _ARM_NODES: dict[str, dict[str, str]] = {
         "compensate": "1.10",
     },
     "B": {
+        "diagnose_and_plan": "1.11",
+        "execute": "1.8",
+    },
+    # C is B plus retrieval (E6). Identical composition on purpose: the
+    # only difference is that the fused node is given prior resolved
+    # incidents as context, so a C-vs-B comparison isolates what RAG buys
+    # over a bare LLM instead of confounding it with validation or
+    # verification.
+    "C": {
         "diagnose_and_plan": "1.11",
         "execute": "1.8",
     },
@@ -598,10 +644,11 @@ def build_graph(
             node = diagnosis_node(deps)
         elif arm == "E" and name == "plan":
             node = planner_node(deps)
-        elif arm == "B" and name == "diagnose_and_plan":
+        elif arm in ("B", "C") and name == "diagnose_and_plan":
             # 1.11: the fused single-call node - one complete_structured
             # produces hypothesis + selection; no validate/verify/replan.
-            node = diagnose_and_plan_node(deps)
+            # Arm C is the same node with retrieval context (E6).
+            node = diagnose_and_plan_node(deps, retrieval=arm == "C")
         elif arm == "A" and name == "rules_diagnosis":
             # 1.11: deterministic rule tables - zero LLM calls.
             node = rules_diagnosis_node(deps)

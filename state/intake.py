@@ -11,11 +11,14 @@ matching an OPEN (non-terminal) incident's fingerprint attaches as another
 a terminal incident's fingerprint starts a NEW incident - a recovered or
 failed failure surfacing again is a new occurrence, not a continuation.
 
-KNOWN LIMITATION: dedup is same-source only. One underlying failure
-surfacing as both a Jenkins and a Kubernetes signal produces two incidents;
-cross-source correlation is Phase 1.5 (E4) territory. Also, two signals
-arriving concurrently on different sessions can race past the open-incident
-lookup and create two incidents - bounded-concurrency handling is 1.10.
+KNOWN LIMITATION: dedup on THIS path is same-source only. One underlying
+failure surfacing as both a Jenkins and a Kubernetes signal produces two
+incidents. Subphase E4 lifts that, but for the event stream rather than
+here: `events.ingest` correlates across sources by shared token, and the
+signal path is left alone deliberately so Phase 1 behaviour stays
+unchanged. Also, two signals arriving concurrently on different sessions
+can race past the open-incident lookup and create two incidents -
+bounded-concurrency handling is 1.10.
 """
 
 import hashlib
@@ -28,6 +31,8 @@ from pydantic import BaseModel, Field
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from events.classify import UnclassifiedSignal, classify
+from events.schemas import EngineeringEvent, EventSource, EventType
 from state import machine, models
 from state.machine import IncidentStatus
 
@@ -61,20 +66,43 @@ class Signal(BaseModel):
 
 class IntakeResult(BaseModel):
     """What intake did with a signal: the incident it created or attached
-    to, plus the persisted signal row id."""
+    to, the persisted signal row id, and the canonical event the signal
+    was normalized into.
+
+    The event is carried here rather than stored: E1 keeps it in process
+    (this is what "pass them in process" means), E2 gives it a producer to
+    publish to, and E5 gives it a durable history store. Returning it now
+    is what lets those land without reworking intake again.
+    """
 
     incident_id: str
     created: bool
     signal_id: int
+    #: None when no rule names the signal - see intake_signal.
+    event: EngineeringEvent | None = None
 
 
 #: The signature keys that identify a fault, per source. Only these fields
 #: feed the fingerprint, so volatile fields elsewhere in `signature` (pod
 #: name suffixes, build numbers) cannot split one failure into multiple
-#: incidents. kubernetes: pod waiting reason + container name; jenkins:
-#: job + failing stage.
+#: incidents. kubernetes: pod waiting reason + container name + how the
+#: container last terminated; jenkins: job + failing stage.
+#:
+#: `terminated_reason` is load-bearing, not decoration. Without it
+#: `crashloop` and `oom-killed` are indistinguishable - both are
+#: CrashLoopBackOff on container payment-api, and only the termination
+#: reason (Error vs OOMKilled) separates them. They fingerprinted
+#: identically, so an OOM signal arriving while a crashloop incident was
+#: still open attached to it instead of opening its own, and was then
+#: diagnosed as a crashloop: reapply_manifest rather than the
+#: rollback_deployment an OOM needs. Stale open incidents from killed runs
+#: are a documented occurrence, which is exactly when this fires.
+#:
+#: Signals that carry no `terminated_reason` (ImagePullBackOff,
+#: CreateContainerConfigError) are unaffected: the projection only takes
+#: keys that are present.
 _FAULT_KEYS: dict[SignalSource, tuple[str, ...]] = {
-    SignalSource.KUBERNETES: ("waiting_reason", "container"),
+    SignalSource.KUBERNETES: ("waiting_reason", "container", "terminated_reason"),
     SignalSource.JENKINS: ("job", "stage"),
 }
 
@@ -109,6 +137,31 @@ def fingerprint(signal: Signal) -> str:
     return hashlib.sha256(material.encode()).hexdigest()
 
 
+def build_event(
+    signal: Signal, event_type: EventType, correlation_id: str | None = None
+) -> EngineeringEvent:
+    """Normalize a Phase 1 signal into the canonical envelope.
+
+    Everything source-specific goes to `metadata` - the signature, the raw
+    vendor payload, and `severity`, which the CONTEXT.md section 7
+    envelope has no field for. This is the boundary the E3 adapters will
+    take over: they will build events from vendor payloads directly, and
+    `Signal` stops being the intermediate shape.
+    """
+    return EngineeringEvent(
+        event_type=event_type,
+        source=EventSource(signal.source.value),
+        correlation_id=correlation_id,
+        service=signal.service,
+        environment=signal.environment,
+        metadata={
+            "severity": signal.severity,
+            "signature": signal.signature,
+            "raw": signal.raw,
+        },
+    )
+
+
 def _new_incident_id() -> str:
     """`INC-<8 hex>` - random rather than sequential so ids never depend on
     DB sequences (keeps SQLite test engines equal to Postgres). The unique
@@ -137,6 +190,17 @@ def intake_signal(session: Session, payload: Signal | dict[str, Any]) -> IntakeR
     atomically.
     """
     signal = payload if isinstance(payload, Signal) else Signal.model_validate(payload)
+    # An unclassifiable signal still opens an incident. Refusing it at the
+    # front door would drop a real failure on the floor, which is the one
+    # thing an incident recovery system must not do, and it matches how
+    # the rest of Helix treats a signature it does not recognise: the
+    # rules arm escalates on an unmatched signature rather than rejecting
+    # it. The miss is recorded in the creation transition instead, so it
+    # shows up in provenance rather than vanishing.
+    try:
+        event_type: EventType | None = classify(signal.source.value, signal.signature)
+    except UnclassifiedSignal:
+        event_type = None
     fp = fingerprint(signal)
     incident = find_open_incident(session, fp)
     created = incident is None
@@ -152,7 +216,12 @@ def intake_signal(session: Session, payload: Signal | dict[str, Any]) -> IntakeR
         session.add(incident)
         session.flush()  # assigns incident.id for the FK rows below
         machine.record_creation(
-            incident, cause=f"intake signal from {signal.source.value}", session=session
+            incident,
+            cause=(
+                f"intake signal from {signal.source.value} "
+                f"({event_type.value if event_type else 'unclassified'})"
+            ),
+            session=session,
         )
     row = models.Signal(
         incident_id=incident.id,
@@ -164,4 +233,13 @@ def intake_signal(session: Session, payload: Signal | dict[str, Any]) -> IntakeR
     )
     session.add(row)
     session.flush()
-    return IntakeResult(incident_id=incident.incident_id, created=created, signal_id=row.id)
+    return IntakeResult(
+        incident_id=incident.incident_id,
+        created=created,
+        signal_id=row.id,
+        event=(
+            build_event(signal, event_type, correlation_id=incident.incident_id)
+            if event_type
+            else None
+        ),
+    )
