@@ -5,6 +5,7 @@ paths - no subprocess runs. The real end-to-end (`helix intake` + `helix
 run` subprocesses against Postgres) is the integration tier.
 """
 
+from datetime import UTC, datetime
 from types import SimpleNamespace
 
 import pytest
@@ -15,6 +16,7 @@ from benchmark import catalog, harness
 from benchmark.harness import (
     HarnessConfig,
     _collect,
+    _first_observed_at,
     _ingest_via_events,
     _measure,
     check_requirements,
@@ -759,3 +761,178 @@ class TestHarnessEndToEnd:
         )
         assert any(v["outcome"] == "pass" for v in record.verifications)
         assert record.recovered_at is not None
+
+
+class TestFirstObservedAt:
+    """The MTTR clock's start (subphase E7).
+
+    `_collect` derived `signal_at` from `incident.signals[-1]`, and an
+    event-sourced incident has no signal row by design (D22), so MTTR came
+    back null on every event-path run while `benchmark.compare` still
+    reported NO REGRESSION - MTTR is not one of its gated metrics. These
+    tests existed nowhere until the claim "every fix has a regression
+    test" was checked and found false.
+    """
+
+    def _incident(self, session, **kw):
+        incident = models.Incident(
+            incident_id=kw.get("iid", "INC-clock"),
+            fingerprint="fp",
+            service="payment-api",
+            environment="sandbox",
+            severity="high",
+            status=IncidentStatus.RECEIVED,
+        )
+        session.add(incident)
+        session.flush()
+        return incident
+
+    def _event_row(self, incident_id, source, when, event_id):
+        return models.EventRecord(
+            incident_id=incident_id,
+            event_id=event_id,
+            event_type="pod.failed",
+            source=source,
+            service="payment-api",
+            environment="sandbox",
+            occurred_at=when,
+            envelope={},
+        )
+
+    def test_a_signal_row_is_the_clock_start_when_one_exists(self, tmp_path):
+        """The direct path is unchanged: it always has a signal row and
+        must never reach the event fallback."""
+        engine = create_engine(_sqlite_url(tmp_path))
+        models.Base.metadata.create_all(engine)
+        with Session(engine) as session:
+            incident = self._incident(session)
+            session.add(
+                models.Signal(
+                    incident_id=incident.id,
+                    source="kubernetes",
+                    environment="sandbox",
+                    severity="high",
+                    signature={},
+                    raw={},
+                )
+            )
+            session.flush()
+            session.refresh(incident)
+            assert _first_observed_at(incident) == incident.signals[-1].created_at.isoformat()
+
+    def test_the_earliest_vendor_event_is_the_clock_start_without_a_signal_row(self, tmp_path):
+        engine = create_engine(_sqlite_url(tmp_path))
+        models.Base.metadata.create_all(engine)
+        early = datetime(2026, 9, 21, 10, 0, tzinfo=UTC)
+        late = datetime(2026, 9, 21, 10, 5, tzinfo=UTC)
+        with Session(engine) as session:
+            incident = self._incident(session)
+            session.add(self._event_row(incident.id, "kubernetes", late, "evt_late"))
+            session.add(self._event_row(incident.id, "jenkins", early, "evt_early"))
+            session.flush()
+            session.refresh(incident)
+            observed = _first_observed_at(incident)
+        assert observed is not None
+        assert observed.startswith("2026-09-21T10:00")
+
+    def test_helix_lifecycle_events_do_not_start_the_clock(self, tmp_path):
+        """They are stamped when Helix reacted, not when the failure
+        happened - starting there would measure from the response and
+        flatter MTTR."""
+        engine = create_engine(_sqlite_url(tmp_path))
+        models.Base.metadata.create_all(engine)
+        helix_at = datetime(2026, 9, 21, 9, 0, tzinfo=UTC)
+        vendor_at = datetime(2026, 9, 21, 10, 0, tzinfo=UTC)
+        with Session(engine) as session:
+            incident = self._incident(session)
+            session.add(self._event_row(incident.id, "helix", helix_at, "evt_helix"))
+            session.add(self._event_row(incident.id, "kubernetes", vendor_at, "evt_vendor"))
+            session.flush()
+            session.refresh(incident)
+            observed = _first_observed_at(incident)
+        assert observed.startswith("2026-09-21T10:00"), "the helix event started the clock"
+
+    def test_an_incident_with_neither_has_no_clock_start(self, tmp_path):
+        engine = create_engine(_sqlite_url(tmp_path))
+        models.Base.metadata.create_all(engine)
+        with Session(engine) as session:
+            incident = self._incident(session)
+            session.refresh(incident)
+            assert _first_observed_at(incident) is None
+
+
+class TestClosePreexistingIncidents:
+    """Cross-INVOCATION isolation (subphase E7).
+
+    `_close_arm_incidents` isolates arms within one invocation. This is the
+    other half: an incident left open by an earlier benchmark run, which
+    intake dedup attaches to silently because the fingerprint is identical
+    across invocations.
+
+    It is not hypothetical. An arm-B smoke test left an incident at
+    `verifying`; the next full ablation's arm A deduped onto it, inherited
+    arm B's hypothesis and candidate, and reported the result as arm A's -
+    scoring 0.83 instead of its invariable 1.00 on reasoning it never did.
+    Caught only because arm A is the control and its number moved.
+    """
+
+    def _seed(self, url, scenario_name, status=IncidentStatus.VERIFYING):
+        """An open incident carrying the fingerprint `scenario_name` produces."""
+        from state.intake import fingerprint
+
+        engine = create_engine(url)
+        models.Base.metadata.create_all(engine)
+        signal = Signal.model_validate(SCENARIOS[scenario_name]["signal"])
+        with Session(engine) as session:
+            incident = models.Incident(
+                incident_id="INC-leftover",
+                fingerprint=fingerprint(signal),
+                service=signal.service,
+                environment=signal.environment,
+                severity=signal.severity,
+                status=status,
+            )
+            session.add(incident)
+            session.commit()
+        return engine
+
+    def test_an_incident_left_open_by_an_earlier_run_is_closed(self, tmp_path):
+        url = _sqlite_url(tmp_path)
+        engine = self._seed(url, "ci-test-regression")
+        closed = harness._close_preexisting_incidents(url, SCENARIOS)
+        assert closed == 1
+        with Session(engine) as session:
+            incident = session.scalar(select(models.Incident))
+            assert incident.status in TERMINAL_STATUSES
+
+    def test_an_already_terminal_incident_is_left_alone(self, tmp_path):
+        url = _sqlite_url(tmp_path)
+        self._seed(url, "ci-test-regression", status=IncidentStatus.RECOVERED)
+        assert harness._close_preexisting_incidents(url, SCENARIOS) == 0
+
+    def test_an_unrelated_incident_is_not_touched(self, tmp_path):
+        """Scoped to fingerprints this run will actually produce, so it
+        cannot close incidents that have nothing to do with the benchmark."""
+        url = _sqlite_url(tmp_path)
+        engine = create_engine(url)
+        models.Base.metadata.create_all(engine)
+        with Session(engine) as session:
+            session.add(
+                models.Incident(
+                    incident_id="INC-unrelated",
+                    fingerprint="a-fingerprint-no-scenario-produces",
+                    service="other-service",
+                    environment="sandbox",
+                    severity="high",
+                    status=IncidentStatus.VERIFYING,
+                )
+            )
+            session.commit()
+        assert harness._close_preexisting_incidents(url, SCENARIOS) == 0
+        with Session(engine) as session:
+            assert session.scalar(select(models.Incident)).status is IncidentStatus.VERIFYING
+
+    def test_an_empty_store_is_not_an_error(self, tmp_path):
+        url = _sqlite_url(tmp_path)
+        models.Base.metadata.create_all(create_engine(url))
+        assert harness._close_preexisting_incidents(url, SCENARIOS) == 0
