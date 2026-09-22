@@ -68,11 +68,15 @@ The older single-validation-retry rule (`validating` FAIL replans once,
 a second consecutive FAIL escalates) is unchanged - it is a
 within-the-cycle bound, not part of the attempt ledger.
 
-## Execution failure -> rediagnosis
+## Execution failure -> rediagnosis (in-run replan for refusals, 2.1)
 
-An `error`/`refused` executions row still transitions `executing ->
-failed` with the fingerprint excluded. A later `helix run` on a `failed`
-incident takes `failed -> diagnosing` (budget permitting): hypothesis and
+A `refused` executions row (the executor's own gate said no before any
+transport call - a candidate-level refusal) transitions `executing ->
+remediation_pending` and replans in run for arms with a planner (E, A),
+bounded by the exclusion list as the budget. An `error` result (transport
+failure) still transitions `executing -> failed` with the fingerprint
+excluded; a later `helix run` on a `failed` incident takes `failed ->
+diagnosing` (budget permitting): hypothesis and
 run-scoped outputs are cleared, `attempt_count` bumps, and the planner's
 exclusion list keeps the failed fingerprint from being re-selected.
 

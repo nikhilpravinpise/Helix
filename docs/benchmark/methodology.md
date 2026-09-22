@@ -1,8 +1,10 @@
-# Benchmark methodology (subphase 1.11)
+# Benchmark methodology (subphase 1.11, expanded in 2.11)
 
 The controlled benchmark measures the recovery loop
 (`diagnosis -> plan -> validate -> policy/approve -> execute -> verify`)
-against the 12-scenario catalog in `benchmark/scenarios/`. Everything the
+and, for `flow: change` scenarios (2.11), the change-review lifecycle
+(`triaged -> owner_assigned -> review_pending -> approved/rejected ->
+fix_required -> deploying -> recovered`), against the 19-scenario catalog in `benchmark/scenarios/`. Everything the
 harness scores is produced by real node executions through the real CLI
 code paths (`helix intake`, `helix run`) against durable Postgres state -
 there is no in-harness shortcut, and the harness never fabricates a
@@ -92,7 +94,7 @@ not a failed run, and it can never inflate a pass rate. On this host the
 live scenarios are skipped (`kind`/ES absent); they become runnable on a
 host with the sandbox stack.
 
-## Approvals (D2)
+## Approvals (D2) and change-flow reviews (2.11)
 
 When a run suspends at `awaiting_approval`, the scripted approver
 (`benchmark/approver.py`, actor `benchmark-approver`) decides the pending
@@ -102,6 +104,14 @@ declares `approval_gated: true` and the pending action is the scenario's
 `optimal_action`; anything else pending is rejected (which exercises the
 real rejection -> replan/escalate path). Approving non-optimal gated
 actions would silently bless arm mistakes, so it never happens.
+
+When a change-flow run parks at `review_pending`, the scripted reviewer
+(`benchmark/reviewer.py`) decides the pending review row through
+`state.reviews.record_decision` - the same path `helix review` and the
+API use - from the scenario's `review_decision` field (per-round
+approve/reject, or `timeout` for no answer). Change scenarios carry
+ordered canonical `events` (not a single `signal`); see
+`benchmark/catalog.py` for the required fields.
 
 ## Verification and fixture evidence
 

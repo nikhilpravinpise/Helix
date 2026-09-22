@@ -21,9 +21,14 @@ make test
 
 ## Quickstart - the Phase 1 surface
 
-The full environment bring-up (clean-machine instructions, Terraform and
-script paths, hosts file, teardown, memory notes) lives in
-[docs/bring-up.md](docs/bring-up.md). The short version:
+Phase 2 (change-review lifecycle, Slack approvals/reviews, Jira/Linear/
+Trello work items, Notion pages, Neo4j graph) is implemented - see
+[plan.md](plan.md) Current Status, [docs/bring-up.md](docs/bring-up.md)
+§6.5 for its variables, and [docs/runbooks/operator.md](docs/runbooks/operator.md)
+for `helix review` / `helix sync` / `helix graph-sync`. Full bring-up
+(clean-machine instructions, Terraform and script paths, hosts file,
+teardown, memory notes) lives in [docs/bring-up.md](docs/bring-up.md).
+The short version:
 
 ```bash
 # Incident-state Postgres (host container, 127.0.0.1:5432)
@@ -52,7 +57,7 @@ including the SonarQube quality-gate stages), SonarQube
 (`infra/sonarqube-compose.yml`).
 
 ```bash
-# Controlled benchmark (subphase 1.11): fixture scenarios by default;
+# Controlled benchmark (1.11/2.11): fixture + change-flow scenarios by default;
 # live scenarios need the sandbox stack. Reports: benchmark/reports/
 bash scripts/benchmark.sh
 ```

@@ -1,4 +1,4 @@
-# Bring-up - Phase 1 environment from scratch (subphase 1.13)
+# Bring-up - environment from scratch (subphase 1.13, Phase 2 in §6.5)
 
 Everything needed to rebuild the whole environment on a clean machine,
 using only committed code and this document. Written for Windows +

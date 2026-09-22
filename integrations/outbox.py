@@ -402,7 +402,7 @@ def drain_outbox(
     # it, and clobber the mirror's status back to `open`.
     slack_client = slack if slack is not None else _resolve_slack()
     notion_client = notion if notion is not None else _resolve_notion()
-    work_providers: dict[str, "WorkManagementProvider"] = {}
+    work_providers: dict[str, WorkManagementProvider] = {}
     injected_name = getattr(work, "name", "") if work is not None else ""
 
     def _work_for(kind: str) -> "WorkManagementProvider | None":

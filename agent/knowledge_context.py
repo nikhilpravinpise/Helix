@@ -72,7 +72,9 @@ def _graph_context(service: str | None, incident_id: str | None) -> str:
         sections: list[str] = []
         owners = owners_of(store, service)
         if owners:
-            sections.append("Service ownership (graph): " + ", ".join(owners) + f" - owns -> {service}")
+            sections.append(
+                "Service ownership (graph): " + ", ".join(owners) + f" - owns -> {service}"
+            )
         dependencies = services_depended_on_by(store, service)
         if dependencies:
             sections.append(
@@ -82,10 +84,14 @@ def _graph_context(service: str | None, incident_id: str | None) -> str:
             )
         linked = [i for i in incidents_linked_to(store, service) if i != incident_id]
         if linked:
-            sections.append("Incidents that touched this service (graph): " + ", ".join(linked[:10]))
+            sections.append(
+                "Incidents that touched this service (graph): " + ", ".join(linked[:10])
+            )
             resolvers = resolvers_of_similar_incidents(store, linked[:10])
             if resolvers:
-                sections.append("People who resolved those incidents (graph): " + ", ".join(resolvers))
+                sections.append(
+                    "People who resolved those incidents (graph): " + ", ".join(resolvers)
+                )
         if not sections:
             return ""
         return "Relationship graph context:\n" + "\n".join(f"- {s}" for s in sections)

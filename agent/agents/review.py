@@ -51,9 +51,7 @@ def _graph_reviewer(
 
     store = get_graph_store()
     try:
-        candidates = [
-            c for c in reviewers_for(store, service, author=author) if c not in exclude
-        ]
+        candidates = [c for c in reviewers_for(store, service, author=author) if c not in exclude]
     finally:
         close = getattr(store, "close", None)
         if callable(close):

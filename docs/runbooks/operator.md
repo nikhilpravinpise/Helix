@@ -102,6 +102,39 @@ decided and when.
 If `HELIX_INTAKE_TOKEN` is set, decision POSTs are gated too: the page
 shows an Intake token field and the browser sends it as a Bearer header.
 
+## Change reviews (Phase 2)
+
+`change` incidents (PR/push events) park at `review_pending` with a
+pending review row instead of an approvals row:
+
+```bash
+uv run helix reviews                        # pending review requests
+uv run helix review INC-83bbd83e approve --actor alice --note "lgtm"
+uv run helix review INC-83bbd83e reject --note "needs test"
+```
+
+Approve sends the change to `deploying`; reject drives
+`rejected -> fix_required`, and the author's fix returns to
+`review_pending`. Review buttons on the Slack review request and
+`POST /reviews/{id}/approve|reject` take the same path.
+
+## Integration drain and drift (Phase 2)
+
+Every transition's external side effects commit as `integration_outbox`
+rows in the same transaction as the status change; delivery happens
+after, in the drain:
+
+```bash
+uv run helix sync          # deliver Slack/work-item/Notion ops, reconcile drift, re-derive the graph
+uv run helix graph-sync    # re-derive the Neo4j graph only (needs HELIX_GRAPH_ENABLED=true)
+```
+
+Unconfigured integrations record `skipped`, never a failure -
+PostgreSQL stays the source of truth. `helix sync` also recreates
+drifted remotes (deleted Jira issues / Notion pages) and refreshes
+work-item status. Phase 2 bring-up (Slack/Jira/Notion/Neo4j variables)
+lives in [docs/bring-up.md](../bring-up.md) §6.5.
+
 ## Reading state without the UI
 
 ```bash

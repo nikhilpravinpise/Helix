@@ -28,6 +28,7 @@ from state.machine import TERMINAL_STATUSES
 if TYPE_CHECKING:
     from agent.graph import GraphDeps
 
+
 def _blast_radius(files: list[str]) -> str:
     """A coarse, deterministic impact estimate from the changed paths -
     real signal (touching the Secret manifest is categorically riskier

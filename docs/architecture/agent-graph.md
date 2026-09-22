@@ -56,7 +56,8 @@ coordinator, which alone decides the next status. The decision table
 | `awaiting_approval` | approvals row still pending | none | END (suspended) |
 | `executing` | no executions row in state yet | none | `execute` |
 | `executing` | executions row `success` | `executing -> verifying` | `verify` |
-| `executing` | executions row `error` / `refused` | `executing -> failed` (fingerprint excluded) | END |
+| `executing` | executions row `refused` | `executing -> remediation_pending` (in-run replan, 2.1; arms with a planner) | `plan` (replan) |
+| `executing` | executions row `error` | `executing -> failed` (fingerprint excluded) | END |
 | `verifying` | no verification in state yet | none | `verify` |
 | `verifying` | verification `pass` | `verifying -> recovered` | END |
 | `verifying` | verification `fail`, irreversible action | `verifying -> escalated` | END |
@@ -78,6 +79,16 @@ an uncheckable one. The policy gate rows are the 1.8 access table - see
 [safety-policy.md](safety-policy.md) for the verdict rules and the
 executor-side second enforcement layer; [unhappy-paths.md](unhappy-paths.md)
 for the 1.10 bounds (compensation, budgets, timeouts, idempotency).
+
+## Phase 2 change lifecycle (2.1/2.5/2.6/2.9)
+
+`change` incidents (`Incident.kind=change`, PR/push events) do not enter
+the recovery nodes above: the coordinator drives `received -> triaged ->
+owner_assigned -> review_pending -> approved/rejected -> fix_required ->
+deploying -> recovered` through the Triage and Review agents, with a
+failed deploy handing off to the Ops loop at `diagnosing`. The edge map
+lives in [state-machine.md](state-machine.md); this document does not
+duplicate it.
 
 ## Diagnosis evidence flow
 
@@ -104,13 +115,15 @@ incident on its content-hash `evidence_id`) and each hypothesis in
 `hypotheses` - "the full evidence chain is reconstructable from stored
 state" is a DB query.
 
-## Ablation arms (D8)
+## Ablation arms (D8, extended in E6/2.8/2.11)
 
-`HELIX_ARM` (`A|B|E`, default `E`) selects graph composition at build
+`HELIX_ARM` (`A|B|C|D|E`, default `E`) selects graph composition at build
 time - `build_graph(deps, arm=...)` registers different node sets, not
 code forks:
 
-- **E** (full): `diagnosis` + `plan`/`validate`/`execute`/`verify` slots.
+- **E** (full): `diagnosis` + `plan`/`validate`/`execute`/`verify` slots (Phase 2: the Ops Agent boundary owns this loop; change incidents route through triage/review instead).
+- **D** (event + graph context, 2.8): `diagnose_and_plan` fed the composed knowledge context (E6 retrieval + event timeline + graph neighborhood) + `execute`.
+- **C** (retrieval, E6): `diagnose_and_plan` with retrieval context + `execute` - same fused node as B, fed retrieved evidence.
 - **B** (single-call): `diagnose_and_plan` fuses diagnosis+planning into
   one LLM call; `execute` stays; validate/verify/replan are absent.
 - **A** (rules): `rules_diagnosis`/`rules_plan` deterministic variants
