@@ -76,6 +76,14 @@ def _resolve_work() -> "WorkManagementProvider | None":
     return get_work_provider()
 
 
+def _resolve_work_for(kind: str) -> "WorkManagementProvider | None":
+    if kind == get_settings().work_provider:
+        return _resolve_work()
+    from integrations.work import get_work_provider_for
+
+    return get_work_provider_for(kind)
+
+
 def _resolve_notion() -> "NotionClient | None":
     from integrations.notion import get_notion_client
 
@@ -386,15 +394,28 @@ def drain_outbox(
     )
     summary = {"sent": 0, "skipped": 0, "failed": 0, "pending": 0}
     log = get_logger()
-    # Resolve each client once for the whole pass. A provider whose state
-    # is per-instance - the memory provider is exactly that - must see the
-    # item an earlier row in THIS drain created; resolving per row gave
-    # every op a fresh, empty provider, so a comment op after a
-    # transition would miss the remote, recreate it, and clobber the
-    # mirror's status back to `open`.
+    # Resolve each client once per distinct integration for the whole
+    # pass. A provider whose state is per-instance - the memory provider
+    # is exactly that - must see the item an earlier row in THIS drain
+    # created; resolving per row gave every op a fresh, empty provider,
+    # so a comment op after a transition would miss the remote, recreate
+    # it, and clobber the mirror's status back to `open`.
     slack_client = slack if slack is not None else _resolve_slack()
     notion_client = notion if notion is not None else _resolve_notion()
-    work_provider = work if work is not None else _resolve_work()
+    work_providers: dict[str, "WorkManagementProvider"] = {}
+    injected_name = getattr(work, "name", "") if work is not None else ""
+
+    def _work_for(kind: str) -> "WorkManagementProvider | None":
+        provider = work_providers.get(kind)
+        if provider is None:
+            if work is not None and (not injected_name or kind == injected_name):
+                provider = work
+            else:
+                provider = _resolve_work_for(kind)
+            if provider is not None:
+                work_providers[kind] = provider
+        return provider
+
     for row in rows:
         incident = row.incident
         try:
@@ -413,6 +434,7 @@ def drain_outbox(
                     continue
                 _send_notion(session, row, incident, notion_client)
             elif row.integration in _WORK_INTEGRATIONS:
+                work_provider = _work_for(row.integration)
                 if work_provider is None:
                     row.status = OutboxStatus.SKIPPED
                     row.last_error = "work provider not configured"

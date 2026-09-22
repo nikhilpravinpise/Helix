@@ -36,19 +36,12 @@ __all__ = [
     "WorkItemSpec",
     "WorkManagementProvider",
     "get_work_provider",
+    "get_work_provider_for",
 ]
 
 
-def get_work_provider() -> WorkManagementProvider | None:
-    """Resolve HELIX_WORK_PROVIDER into a provider instance.
-
-    `memory` always resolves; a live provider is built only when its
-    credentials are configured - missing credentials return None so the
-    outbox drain records its rows `skipped` rather than crashing (the
-    same resolver contract the Slack/Notion clients follow).
-    """
+def get_work_provider_for(kind: str) -> WorkManagementProvider | None:
     settings = get_settings()
-    kind = settings.work_provider
     if kind == "memory":
         return MemoryWorkProvider()
     if kind == "jira" and settings.jira_api_token:
@@ -70,3 +63,14 @@ def get_work_provider() -> WorkManagementProvider | None:
             settings.trello_api_key, settings.trello_api_token, settings.trello_board_id
         )
     return None
+
+
+def get_work_provider() -> WorkManagementProvider | None:
+    """Resolve HELIX_WORK_PROVIDER into a provider instance.
+
+    `memory` always resolves; a live provider is built only when its
+    credentials are configured - missing credentials return None so the
+    outbox drain records its rows `skipped` rather than crashing (the
+    same resolver contract the Slack/Notion clients follow).
+    """
+    return get_work_provider_for(get_settings().work_provider)

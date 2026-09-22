@@ -28,20 +28,13 @@ from state.machine import TERMINAL_STATUSES
 if TYPE_CHECKING:
     from agent.graph import GraphDeps
 
-#: Manifest directory prefix whose files are the highest-blast-radius
-#: change surface Helix knows about (mirrors the action catalogue's own
-#: k8s allowlist reasoning, applied here to impact analysis rather than
-#: execution safety).
-_K8S_DIR = "sandbox/payment-api/k8s/"
-
-
 def _blast_radius(files: list[str]) -> str:
     """A coarse, deterministic impact estimate from the changed paths -
     real signal (touching the Secret manifest is categorically riskier
     than touching a test file), not a guess."""
     if any(f in SECRET_MANIFEST_PATHS for f in files):
         return "high"
-    if any(f.startswith(_K8S_DIR) for f in files) or len(files) > 3:
+    if any("/k8s/" in f.replace("\\", "/") for f in files) or len(files) > 3:
         return "medium"
     return "low"
 
@@ -82,7 +75,13 @@ def _graph_owner(service: str) -> tuple[str | None, str] | None:
     from graph import get_graph_store
     from graph.queries import owners_of
 
-    owners = owners_of(get_graph_store(), service)
+    store = get_graph_store()
+    try:
+        owners = owners_of(store, service)
+    finally:
+        close = getattr(store, "close", None)
+        if callable(close):
+            close()
     return (owners[0], "graph") if owners else None
 
 

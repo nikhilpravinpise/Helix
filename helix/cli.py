@@ -671,8 +671,9 @@ def _cmd_sync(args: argparse.Namespace) -> int:
                 from graph import get_graph_store
                 from graph.ingest import sync_graph
 
+                store = get_graph_store()
                 try:
-                    ingested = sync_graph(session, get_graph_store())
+                    ingested = sync_graph(session, store)
                     print(f"graph synced: {ingested} incident(s) ingested")
                 except Exception as exc:  # noqa: BLE001 - advisory projection
                     print(
@@ -680,6 +681,10 @@ def _cmd_sync(args: argparse.Namespace) -> int:
                         "(is Neo4j up? see docs/bring-up.md)",
                         file=sys.stderr,
                     )
+                finally:
+                    close = getattr(store, "close", None)
+                    if callable(close):
+                        close()
     except SQLAlchemyError as exc:
         print(
             f"helix sync: database error (is Postgres up? see scripts/db-up.sh): {exc}",
@@ -719,7 +724,13 @@ def _cmd_graph_sync() -> int:
     try:
         engine = create_engine(settings.database_url)
         with session_scope(engine) as session:
-            count = sync_graph(session, get_graph_store())
+            store = get_graph_store()
+            try:
+                count = sync_graph(session, store)
+            finally:
+                close = getattr(store, "close", None)
+                if callable(close):
+                    close()
     except SQLAlchemyError as exc:
         print(
             f"helix graph-sync: database error (is Postgres up? see scripts/db-up.sh): {exc}",

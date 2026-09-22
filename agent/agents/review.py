@@ -49,9 +49,15 @@ def _graph_reviewer(
     from graph import get_graph_store
     from graph.queries import reviewers_for
 
-    candidates = [
-        c for c in reviewers_for(get_graph_store(), service, author=author) if c not in exclude
-    ]
+    store = get_graph_store()
+    try:
+        candidates = [
+            c for c in reviewers_for(store, service, author=author) if c not in exclude
+        ]
+    finally:
+        close = getattr(store, "close", None)
+        if callable(close):
+            close()
     return (candidates[0], "graph") if candidates else None
 
 
