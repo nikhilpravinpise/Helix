@@ -32,9 +32,12 @@ Honest-by-construction rules:
 
 import json
 import statistics
+from collections import Counter
 from dataclasses import asdict, dataclass, field
 from datetime import datetime
 from typing import Any
+
+from state.machine import ALLOWED_TRANSITIONS, IncidentStatus
 
 # --- Deterministic RCA matcher ----------------------------------------------
 #
@@ -136,6 +139,22 @@ class OutcomeRecord:
     recovered_at: str | None = None
     last_event_at: str | None = None
     errors: list[str] = field(default_factory=list)
+    # Phase 2 (2.9/2.11): the change-lifecycle record the harness read
+    # back. Empty/None means "not measured" - never a pass.
+    incident_kind: str | None = None
+    owner: str | None = None
+    triage: dict[str, Any] | None = None  # latest triage_results row
+    reviews: list[dict[str, Any]] = field(default_factory=list)  # review_requests rows
+    work_items: list[dict[str, Any]] = field(default_factory=list)  # work_items mirror
+    knowledge_page: dict[str, Any] | None = None  # knowledge_pages row
+    outbox: dict[str, int] = field(default_factory=dict)  # counts by status value
+    outbox_ops: list[dict[str, Any]] = field(default_factory=list)  # integration/op/status
+    transitions: list[dict[str, Any]] = field(default_factory=list)  # {from, to} in order
+    duplicate_of: str | None = None  # duplicate edge -> the original's incident_id
+    decision_evidence: dict[str, int] = field(default_factory=dict)
+    # Other incidents this run's events opened (e.g. the duplicate
+    # scenario's original) - tracked so cross-arm isolation closes them.
+    extra_incident_ids: list[str] = field(default_factory=list)
 
 
 @dataclass
@@ -159,6 +178,14 @@ class ScoredOutcome:
     mttr_seconds: float | None
     elapsed_seconds: float | None
     human_interventions: int
+    # Phase 2 (2.9/2.11): CONTEXT.md section 17's change-lifecycle
+    # metrics. None means the scenario did not declare the expectation -
+    # never counted as pass or fail.
+    owner_correct: bool | None = None
+    reviewer_correct: bool | None = None
+    lifecycle_consistent: bool | None = None
+    duplicate_work_items: int | None = None  # work_items rows beyond one per provider
+    decision_evidence_coverage: float | None = None
     measured_checks: list[dict[str, Any]] = field(default_factory=list)
     errors: list[str] = field(default_factory=list)
 
@@ -203,6 +230,7 @@ def score_outcome(record: OutcomeRecord, scenario: dict[str, Any]) -> ScoredOutc
     expected = scenario.get("expected_final_state") or {}
     valid = set(scenario.get("valid_actions") or [])
     unsafe = set(scenario.get("unsafe_actions") or [])
+    is_change = (scenario.get("flow") or "signal") == "change"
 
     # Action validity: what was SELECTED (the arm's choice) against the
     # declared sets.
@@ -227,8 +255,13 @@ def score_outcome(record: OutcomeRecord, scenario: dict[str, Any]) -> ScoredOutc
     # Measured final state: the executed action landed AND every harness
     # check passed. Fixture scenarios measure via the recorded write
     # (executed_action + output_contains); live scenarios add kubectl
-    # probes in `measured`.
+    # probes in `measured`. Change flows measure the lifecycle record
+    # (owner/reviewer/duplicate/work-item checks); a change scenario that
+    # declares none of them has nothing to fail on, and measured_match
+    # reports None rather than a vacuous pass.
     measured_ok = bool(record.measured) and all(c.get("ok") for c in record.measured)
+    if is_change:
+        measured_ok = all(c.get("ok") for c in record.measured)
     executed_ok = any(
         e.get("action") == expected.get("executed_action") and e.get("result") == "success"
         for e in remediation
@@ -237,6 +270,7 @@ def score_outcome(record: OutcomeRecord, scenario: dict[str, Any]) -> ScoredOutc
         measured_ok = measured_ok and executed_ok
     status_match = record.final_status == expected.get("status")
     recovered = bool(status_match and measured_ok)
+    measured_match = measured_ok if (record.measured or not is_change) else None
 
     signal_at = _parse_ts(record.signal_at)
     recovered_at = _parse_ts(record.recovered_at)
@@ -248,6 +282,71 @@ def score_outcome(record: OutcomeRecord, scenario: dict[str, Any]) -> ScoredOutc
         1
         for a in record.approvals
         if a.get("status") in ("approved", "rejected") and a.get("decided_by")
+    ) + sum(
+        1
+        for r in record.reviews
+        if r.get("status") in ("approved", "rejected") and r.get("decided_by")
+    )
+
+    # --- Phase 2 metrics (2.9/2.11) -------------------------------------
+    # Owner identification accuracy: only measured when the scenario
+    # declares the expectation; a declared null means "no owner may be
+    # resolved" (genuinely unknown - escalate, never guess).
+    owner_correct: bool | None = None
+    if "expected_owner" in scenario:
+        owner_correct = record.owner == scenario.get("expected_owner")
+
+    # Reviewer selection accuracy: the FIRST review_requests row's
+    # reviewer against the declared expectation. A declared null expects
+    # no request to exist at all.
+    reviewer_correct: bool | None = None
+    if "expected_reviewer" in scenario:
+        want_reviewer = scenario.get("expected_reviewer")
+        first = record.reviews[0] if record.reviews else None
+        if want_reviewer is None:
+            reviewer_correct = first is None
+        else:
+            reviewer_correct = first is not None and first.get("reviewer") == want_reviewer
+
+    # Lifecycle consistency: every observed transition edge is a legal
+    # state-machine edge AND the declared expected_transitions appear as
+    # a subsequence. Measured whenever the record carries transitions.
+    lifecycle_consistent: bool | None = None
+    if record.transitions:
+        legal = all(
+            edge.get("from") is None
+            or IncidentStatus(edge["to"])
+            in ALLOWED_TRANSITIONS.get(IncidentStatus(edge["from"]), frozenset())
+            for edge in record.transitions
+        )
+        observed = [edge["to"] for edge in record.transitions]
+        expected_sub = scenario.get("expected_transitions") or []
+        it = iter(observed)
+        subseq_ok = all(any(o == want for o in it) for want in expected_sub)
+        lifecycle_consistent = legal and subseq_ok
+
+    # Duplicate work-item count: provider occurrences beyond one in the
+    # incident's work_items mirror (the 2.3 dedup contract is one item
+    # per incident+provider). Measured whenever the run produced rows -
+    # 0 is the honest good answer.
+    provider_counts = Counter(w.get("provider") for w in record.work_items)
+    duplicate_work_items = sum(c - 1 for c in provider_counts.values() if c > 1)
+
+    # Decision evidence coverage: share of candidate rows citing at least
+    # one evidence ref. None when no decision was produced - the metric
+    # then simply does not apply to this run.
+    evidence = record.decision_evidence or {}
+    candidates_total = evidence.get("candidates_total", 0)
+    evidence_coverage = (
+        evidence.get("candidates_with_refs", 0) / candidates_total if candidates_total else None
+    )
+
+    # A change-flow run that never reached diagnosis has no hypothesis -
+    # None (not measured), not a fabricated RCA miss.
+    rca = (
+        None
+        if is_change and not record.hypothesis_claim
+        else rca_match(record.hypothesis_claim, scenario.get("fault", ""))
     )
 
     return ScoredOutcome(
@@ -258,16 +357,21 @@ def score_outcome(record: OutcomeRecord, scenario: dict[str, Any]) -> ScoredOutc
         final_status=record.final_status,
         hypothesis_claim=record.hypothesis_claim,
         selected_action=record.selected_action,
-        rca_match=rca_match(record.hypothesis_claim, scenario.get("fault", "")),
+        rca_match=rca,
         action_valid=action_valid,
         action_optimal=action_optimal,
         unsafe_executions=unsafe_execs,
         executions_total=len(remediation),
-        measured_match=measured_ok,
+        measured_match=measured_match,
         recovered=recovered,
         mttr_seconds=mttr,
         elapsed_seconds=elapsed,
         human_interventions=interventions,
+        owner_correct=owner_correct,
+        reviewer_correct=reviewer_correct,
+        lifecycle_consistent=lifecycle_consistent,
+        duplicate_work_items=duplicate_work_items,
+        decision_evidence_coverage=evidence_coverage,
         measured_checks=list(record.measured),
         errors=list(record.errors),
     )
@@ -290,6 +394,14 @@ def summarize(scored: list[ScoredOutcome]) -> dict[str, Any]:
         valid = [o for o in ran if o.action_valid]
         mttrs = [o.mttr_seconds for o in ran if o.mttr_seconds is not None]
         interventions = sum(o.human_interventions for o in ran)
+        # Phase 2 (2.9/2.11): each metric aggregates over the runs that
+        # actually measured it - a scenario that never declared the
+        # expectation contributes None and enters no denominator.
+        owners = [o for o in ran if o.owner_correct is not None]
+        reviewers = [o for o in ran if o.reviewer_correct is not None]
+        lifecycles = [o for o in ran if o.lifecycle_consistent is not None]
+        evidences = [o for o in ran if o.decision_evidence_coverage is not None]
+        duplicates = sum(o.duplicate_work_items or 0 for o in ran)
         summary[arm] = {
             "attempted": len(rows),
             "skipped": len(rows) - n,
@@ -306,6 +418,23 @@ def summarize(scored: list[ScoredOutcome]) -> dict[str, Any]:
             "human_intervention_rate": (interventions / n) if n else None,
             "mttr_seconds_median": statistics.median(mttrs) if mttrs else None,
             "mttr_seconds_mean": round(statistics.mean(mttrs), 2) if mttrs else None,
+            "owner_accuracy": (sum(o.owner_correct for o in owners) / len(owners))
+            if owners
+            else None,
+            "reviewer_accuracy": (sum(o.reviewer_correct for o in reviewers) / len(reviewers))
+            if reviewers
+            else None,
+            "lifecycle_consistency": (
+                sum(o.lifecycle_consistent for o in lifecycles) / len(lifecycles)
+            )
+            if lifecycles
+            else None,
+            "duplicate_work_item_rate": (duplicates / n) if n else None,
+            "decision_evidence_coverage": (
+                statistics.mean(o.decision_evidence_coverage for o in evidences)
+            )
+            if evidences
+            else None,
         }
     return summary
 
@@ -346,6 +475,39 @@ def render_markdown(report: dict[str, Any]) -> str:
             f"{_b(o['recovered'])} | {mttr} | {o['human_interventions']} | {notes} |"
         )
 
+    # Phase 2 (2.9/2.11): the change-lifecycle metrics, only for outcomes
+    # that measured them. Nulls render "-" everywhere.
+    change_rows = [
+        o
+        for o in report["outcomes"]
+        if o.get("skipped") is None
+        and (
+            o.get("owner_correct") is not None
+            or o.get("reviewer_correct") is not None
+            or o.get("lifecycle_consistent") is not None
+            or o.get("duplicate_work_items") is not None
+        )
+    ]
+    if change_rows:
+        lines += [
+            "",
+            "## Change-flow detail (Phase 2)",
+            "",
+            "| scenario | arm | status | owner | reviewer | lifecycle | dup items | "
+            "evidence cov | interventions |",
+            "|---|---|---|---|---|---|---|---|---|",
+        ]
+        for o in change_rows:
+            cov = o.get("decision_evidence_coverage")
+            dup = o.get("duplicate_work_items")
+            lines.append(
+                f"| {o['scenario']} | {o['arm']} | {o['final_status']} | "
+                f"{_b(o.get('owner_correct'))} | {_b(o.get('reviewer_correct'))} | "
+                f"{_b(o.get('lifecycle_consistent'))} | "
+                f"{dup if dup is not None else '-'} | "
+                f"{f'{cov:.2f}' if cov is not None else '-'} | {o['human_interventions']} |"
+            )
+
     lines += ["", "## Per-arm summary", ""]
     lines.append(
         "| arm | runs | skipped | RCA acc | action valid | recovered | measured | "
@@ -363,6 +525,26 @@ def render_markdown(report: dict[str, Any]) -> str:
             f"{_r(s['measured_state_match'])} | {_r(s['unsafe_action_rate'])} | "
             f"{_r(s['human_intervention_rate'])} | {_r(s['mttr_seconds_median'])} |"
         )
+    # Phase 2 per-arm rollup - only when at least one arm measured a
+    # change-lifecycle metric.
+    if any(
+        s.get("lifecycle_consistency") is not None or s.get("owner_accuracy") is not None
+        for s in report["summary"].values()
+    ):
+        lines += [
+            "",
+            "## Per-arm summary - change lifecycle (Phase 2)",
+            "",
+            "| arm | runs | owner acc | reviewer acc | lifecycle | dup-item rate | evidence cov |",
+            "|---|---|---|---|---|---|---|",
+        ]
+        for arm, s in report["summary"].items():
+            lines.append(
+                f"| {arm} | {s['runs']} | {_r(s.get('owner_accuracy'))} | "
+                f"{_r(s.get('reviewer_accuracy'))} | {_r(s.get('lifecycle_consistency'))} | "
+                f"{_r(s.get('duplicate_work_item_rate'))} | "
+                f"{_r(s.get('decision_evidence_coverage'))} |"
+            )
     lines.append("")
     return "\n".join(lines)
 

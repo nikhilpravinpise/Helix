@@ -69,3 +69,15 @@ class WorkflowState(TypedDict, total=False):
     # crashed node set; the coordinator turns it into a FAILED transition
     attempts: int  # incident.attempt_count mirrored for hypothesis rows
     errors: list[str]  # node-level failure notes; coordinator consumes them
+
+    # Phase 2 (2.1/2.5/2.6) - the change-review lifecycle. `kind` mirrors
+    # Incident.kind ("recovery" | "change") so the coordinator can branch
+    # on it without a fresh query. The rest are the Triage/Review agents'
+    # reports plus the coordinator's own reads of newer-event facts -
+    # see agent/agents/coordinator.py's `_decide` docstring.
+    kind: str  # "recovery" | "change"
+    triage: dict[str, Any]  # 2.5 - TriageResult report
+    triage_complete: bool  # triage node ran this pass (drives routing)
+    review: dict[str, Any]  # 2.6 - reviewer resolution report
+    review_complete: bool  # review node ran this pass (drives routing)
+    fix_pushed: bool  # 2.6 - a newer pr.updated event exists at fix_required

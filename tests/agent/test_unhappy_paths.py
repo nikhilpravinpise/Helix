@@ -27,7 +27,7 @@ from agent.runner import RunConflictError, run_incident
 from agent.state import Hypothesis
 from agent.validation import candidate_fingerprint
 from integrations.fakes import FakeKubernetesWrite
-from integrations.writes import WriteError
+from integrations.writes import WriteError, WriteRefusedError
 from state import models
 from state.approvals import (
     ApprovalDecidedError,
@@ -664,6 +664,68 @@ class TestRetryBudget:
         assert len(hypotheses) == 2  # the failed -> diagnosing re-entry rediagnosed
         pairs = _transitions(sqlite_sessions, incident_id)
         assert ("failed", "diagnosing") in pairs
+
+    def test_execution_refusal_replans_in_run(self, sqlite_sessions, store):
+        """REFUSED is a candidate-level verdict - the call was never made,
+        so a different candidate can succeed in the SAME run (the 1.5 gap
+        closed): the refused fingerprint joins the exclusion list and the
+        planner re-selects, no failed -> diagnosing round-trip needed."""
+
+        class RefuseScaleTwo(FakeKubernetesWrite):
+            def scale(self, deployment, namespace, replicas):
+                if replicas == 2:
+                    raise WriteRefusedError("replicas=2 revoked by admission policy")
+                return super().scale(deployment, namespace, replicas)
+
+        llm = _llm([_scale_plan(2), _scale_plan(3)], claim=_CAPACITY_CLAIM)
+        deps, _caps = make_deps(sqlite_sessions, llm, _broken_doc(), store)
+        deps = replace(deps, kubernetes_write=Recording(RefuseScaleTwo()))
+        incident_id = _make_incident(sqlite_sessions, K8S_SIGNAL)
+
+        run_incident(incident_id, deps=deps)
+
+        # One run, two execution attempts: the refused call excluded, the
+        # fallback dispatched - the in-run replan is the thing under test;
+        # where the fallback's own verification lands is fixture business
+        # (recovery, a verifying replan, or escalate are all honest
+        # outcomes). What must NOT appear is a failed -> diagnosing
+        # round-trip: the refusal replanned without it.
+        rows = _executions(sqlite_sessions, incident_id)
+        remediations = [r for r in rows if r.compensates_id is None]
+        assert len(remediations) == 2
+        assert remediations[0].result == models.ExecutionResult.REFUSED
+        assert remediations[0].params["replicas"] == 2
+        assert remediations[1].params["replicas"] == 3
+        pairs = _transitions(sqlite_sessions, incident_id)
+        # The replan hop is visible, and there is no failed detour.
+        assert ("executing", "remediation_pending") in pairs
+        assert not any(t[0] == "failed" for t in pairs)
+
+    def test_execution_refusal_replan_is_bounded(self, sqlite_sessions, store):
+        """The in-run replan is bounded by HELIX_MAX_ATTEMPTS worth of
+        exclusions - a selection that keeps getting refused escalates
+        rather than cycling the planner forever."""
+
+        class RefuseAllScales(FakeKubernetesWrite):
+            def scale(self, deployment, namespace, replicas):
+                raise WriteRefusedError(f"scale to {replicas} refused by admission policy")
+
+        llm = _llm([_scale_plan(2), _scale_plan(3), _scale_plan(4)], claim=_CAPACITY_CLAIM)
+        deps, _caps = make_deps(sqlite_sessions, llm, _broken_doc(), store)
+        deps = replace(
+            deps,
+            kubernetes_write=Recording(RefuseAllScales()),
+            max_attempts=2,
+        )
+        incident_id = _make_incident(sqlite_sessions, K8S_SIGNAL)
+
+        result = run_incident(incident_id, deps=deps)
+
+        # The exclusion bound fired: refused candidates accumulated until
+        # the budget spent, then the run escalated rather than looping.
+        assert result.status == IncidentStatus.ESCALATED
+        causes = _transition_causes(sqlite_sessions, incident_id)
+        assert any("replan budget" in c for c in causes)
 
 
 class TestApprovalTimeout:

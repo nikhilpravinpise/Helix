@@ -47,6 +47,7 @@ from agent.actions.catalogue import (
 from agent.prompts.planning import planning_prompt
 from agent.state import Hypothesis, WorkflowState
 from agent.validation import candidate_fingerprint
+from helix.config import get_settings
 from helix.llm import LLMError
 from helix.observability import trace_workflow_step
 from integrations.evidence import Evidence
@@ -503,11 +504,27 @@ def planner_node(deps: "GraphDeps"):
                 return outcome
 
             evidence = [Evidence.model_validate(e) for e in state.get("evidence", [])]
+            # 2.8: the Knowledge Agent's organizational context (event
+            # timeline + graph neighborhood) is advisory context for the
+            # proposal call when the graph layer is on; off, the prompt is
+            # byte-identical to the pre-2.8 baseline.
+            knowledge = ""
+            if get_settings().graph_enabled:
+                from agent.knowledge_context import knowledge_context
+
+                incident_view = _incident_view(state)
+                knowledge = knowledge_context(
+                    deps,
+                    incident_view,
+                    (state.get("signal") or {}).get("signature"),
+                    include_retrieval=False,
+                )
             prompt = planning_prompt(
                 _incident_view(state),
                 hypothesis.model_dump(mode="json"),
                 _evidence_view(evidence),
                 catalogue_view(),
+                prior_context=f"{knowledge}\n\n" if knowledge else "",
             )
             try:
                 proposal = deps.llm.complete_structured(prompt, CandidateList)

@@ -73,7 +73,7 @@ class Settings(BaseSettings):
     # resolved incidents as context, so the ablation isolates what RAG
     # buys over a bare LLM rather than confounding it with verification.
     max_evidence_rounds: int = 3
-    arm: Literal["A", "B", "C", "E"] = "E"
+    arm: Literal["A", "B", "C", "D", "E"] = "E"
 
     # Retrieval over incident history (subphase E6). OFF by default: the
     # point of the flag is that retrieval's effect on diagnosis is
@@ -139,6 +139,48 @@ class Settings(BaseSettings):
     # by default: comfortably above step_timeout, since a genuinely
     # running incident can occupy several graph nodes in sequence.
     stale_run_timeout: float = 3600.0
+
+    # Relationship graph (subphase 2.7). Off by default so Triage/Review's
+    # pre-graph heuristics stay the exit criterion's comparison baseline
+    # until deliberately turned on; graph_enabled=true with no reachable
+    # Neo4j instance is handled by the same "advisory, never fails a
+    # workflow" contract retrieval already follows (E6).
+    graph_enabled: bool = False
+    neo4j_uri: str = "bolt://127.0.0.1:7687"
+    neo4j_user: str = "neo4j"
+    neo4j_password: str = Field(default="neo4j-sandbox-placeholder", repr=False)
+    neo4j_database: str = "neo4j"
+
+    # Slack (subphase 2.2). bot_token authenticates outbound calls
+    # (chat.postMessage, etc.); signing_secret verifies inbound
+    # interaction payloads are genuinely from Slack (D-equivalent of C6
+    # for a webhook instead of a log). Both unset means Slack notify/
+    # approve is a no-op the outbox records as skipped, never a crash.
+    slack_bot_token: str | None = Field(default=None, repr=False)
+    slack_signing_secret: str | None = Field(default=None, repr=False)
+    slack_default_channel: str = "#helix-incidents"
+    # How long an interactive Slack approval may sit undecided before the
+    # same escalate-on-timeout contract 1.8's approval_timeout uses
+    # applies (0 disables; falls back to approval_timeout when unset).
+    slack_approval_timeout: float | None = None
+
+    # Work management (subphase 2.3). provider selects the
+    # WorkManagementProvider (2.10 adds linear/trello behind the same
+    # contract); jira_* configure the first live implementation.
+    work_provider: Literal["jira", "linear", "trello", "memory"] = "memory"
+    jira_base_url: str = "https://example.atlassian.net"
+    jira_email: str = "helix-bot@example.com"
+    jira_api_token: str | None = Field(default=None, repr=False)
+    jira_project_key: str = "HELIX"
+    linear_api_key: str | None = Field(default=None, repr=False)
+    linear_team_id: str = ""
+    trello_api_key: str | None = Field(default=None, repr=False)
+    trello_api_token: str | None = Field(default=None, repr=False)
+    trello_board_id: str = ""
+
+    # Notion (subphase 2.4).
+    notion_api_key: str | None = Field(default=None, repr=False)
+    notion_parent_page_id: str = ""
 
     def allowed_kube_context_set(self) -> frozenset[str]:
         """HELIX_ALLOWED_KUBE_CONTEXTS parsed into a set of context names."""

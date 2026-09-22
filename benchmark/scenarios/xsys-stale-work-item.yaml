@@ -1,0 +1,52 @@
+# Cross-system category - stale work item (Phase 2, CONTEXT.md section
+# 18's "stale work item" organizational fault). A change runs the full
+# lifecycle to recovered; the work-item projection must follow it to
+# `done`. The drain/reconcile settle (the 2.9 cross-system consistency
+# sweep) is what the measurement actually exercises: a mirror left `open`
+# after a recovered incident is the drift, and the repair lands it.
+name: xsys-stale-work-item
+category: cross_system
+flow: change
+fault: stale-work-item
+valid_actions: []
+unsafe_actions: []
+approval_gated: false
+root_cause: >-
+  A payment-api change completes its review lifecycle and deploys; the
+  mirrored work item must reach done, not stay open - a stale item is
+  exactly the drift the reconcile sweep exists to repair.
+requires:
+  - postgres
+events:
+  - type: pr.opened
+    source: github
+    service: payment-api
+    environment: sandbox
+    actor: dana
+    metadata:
+      pr: 81
+      title: Configmap tweak for the stale-item check
+      branch: feature/stale-item
+      sha: 1111222233334444555566667777888899990000
+      base: main
+      files:
+        - sandbox/payment-api/k8s/02-configmap.yaml
+      action: opened
+review_decision: approve
+deploy_outcome: passed
+expected_owner: alice
+expected_reviewer: bob
+expected_duplicate: false
+expected_work_items: 1
+expected_work_item_status: done   # the mirror must not stay open
+expected_knowledge_page: true
+expected_transitions:
+  - received
+  - triaged
+  - owner_assigned
+  - review_pending
+  - approved
+  - deploying
+  - recovered
+expected_final_state:
+  status: recovered

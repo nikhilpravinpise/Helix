@@ -87,7 +87,7 @@ def _persist_selection(
         return row.id
 
 
-def diagnose_and_plan_node(deps: "GraphDeps", retrieval: bool = False):
+def diagnose_and_plan_node(deps: "GraphDeps", retrieval: bool = False, knowledge: bool = False):
     """The fused node: preselect evidence -> one structured call -> persist
     hypothesis + selected candidate. An LLM/provider failure is a run
     failure (plan_failed), matching diagnosis/planner's treatment.
@@ -95,7 +95,9 @@ def diagnose_and_plan_node(deps: "GraphDeps", retrieval: bool = False):
     `retrieval` is what separates ablation arm C from arm B (E6): the same
     single call, given prior resolved incidents as context. With it False
     the prompt is byte-identical to arm B's, so the comparison isolates
-    retrieval."""
+    retrieval. `knowledge` is arm D (2.8): the composed GraphRAG context -
+    retrieval PLUS the event timeline and relationship-graph neighborhood
+    - so a B->C->D comparison isolates exactly what each layer buys."""
 
     def _diagnose_and_plan(state: WorkflowState) -> dict:
         with trace_workflow_step("diagnose_and_plan"):
@@ -114,17 +116,30 @@ def diagnose_and_plan_node(deps: "GraphDeps", retrieval: bool = False):
             }
             try:
                 incident_view = _incident_view(state)
+                if knowledge:
+                    # Arm D (2.8): the composed GraphRAG context already
+                    # includes the E6 retrieval block - passing
+                    # prior_incident_context too would duplicate it.
+                    from agent.knowledge_context import knowledge_context
+
+                    prior = knowledge_context(
+                        deps,
+                        incident_view,
+                        (state.get("signal") or {}).get("signature"),
+                    )
+                else:
+                    prior = prior_incident_context(
+                        deps,
+                        incident_view,
+                        (state.get("signal") or {}).get("signature"),
+                        enabled=retrieval,
+                    )
                 answer = deps.llm.complete_structured(
                     fused_prompt(
                         incident_view,
                         evidence_view,
                         catalogue_view(),
-                        prior_incident_context(
-                            deps,
-                            incident_view,
-                            (state.get("signal") or {}).get("signature"),
-                            enabled=retrieval,
-                        ),
+                        prior,
                     ),
                     FusedDiagnosisPlan,
                 )
@@ -164,7 +179,7 @@ def diagnose_and_plan_node(deps: "GraphDeps", retrieval: bool = False):
             normalized = validated.model_dump(mode="json")
             tier = spec.risk_tier(validated).value
 
-            arm_label = "C" if retrieval else "B"
+            arm_label = "D" if knowledge else ("C" if retrieval else "B")
             candidate_id = _persist_selection(deps, state, answer, normalized, tier, arm_label)
             selected = {
                 "rank": 1,

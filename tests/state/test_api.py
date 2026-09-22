@@ -291,6 +291,111 @@ class TestApprovalEndpoints:
         assert response.status_code == 401
 
 
+class TestReviewEndpoints:
+    """The 2.6 review-gate surface: list review requests, record the
+    reviewer's decision durably, then resume - same shape as approvals."""
+
+    def _seed_review(self, sqlite_engine, incident_id: str) -> int:
+        """A pending review_requests row as the review node parked it."""
+        with session_scope(sqlite_engine) as session:
+            incident = session.scalar(
+                select(models.Incident).where(models.Incident.incident_id == incident_id)
+            )
+            row = models.ReviewRequest(
+                incident_id=incident.id,
+                reviewer="bob",
+                rationale="owner for payment-api",
+                status=models.ApprovalStatus.PENDING,
+            )
+            session.add(row)
+            session.flush()
+            return row.id
+
+    def test_list_reviews(self, client, sqlite_engine):
+        incident_id = client.post("/intake/kubernetes", json=K8S_SIGNAL).json()["incident_id"]
+        review_id = self._seed_review(sqlite_engine, incident_id)
+        response = client.get("/reviews")
+        assert response.status_code == 200
+        rows = response.json()
+        assert len(rows) == 1
+        assert rows[0]["id"] == review_id
+        assert rows[0]["incident_id"] == incident_id
+        assert rows[0]["reviewer"] == "bob"
+        assert rows[0]["status"] == "pending"
+
+    def test_list_reviews_filters(self, client, sqlite_engine):
+        incident_id = client.post("/intake/kubernetes", json=K8S_SIGNAL).json()["incident_id"]
+        self._seed_review(sqlite_engine, incident_id)
+        assert client.get("/reviews", params={"status": "pending"}).json()
+        assert client.get("/reviews", params={"status": "approved"}).json() == []
+        assert client.get("/reviews", params={"incident_id": "INC-nope"}).json() == []
+
+    def test_approve_decides_and_resumes(self, client, sqlite_engine, monkeypatch):
+        from agent.runner import RunResult
+
+        incident_id = client.post("/intake/kubernetes", json=K8S_SIGNAL).json()["incident_id"]
+        review_id = self._seed_review(sqlite_engine, incident_id)
+        calls = []
+
+        def fake_run(iid, **kw):
+            calls.append(iid)
+            return RunResult(
+                incident_id=iid,
+                status="approved",
+                run_status=models.RunStatus.TERMINAL,
+            )
+
+        monkeypatch.setattr("agent.runner.run_incident", fake_run)
+        response = client.post(f"/reviews/{review_id}/approve", json={"actor": "bob"})
+        assert response.status_code == 200
+        body = response.json()
+        assert body["review"]["status"] == "approved"
+        assert body["review"]["decided_by"] == "bob"
+        assert body["resumed"] is True
+        assert calls == [incident_id]
+
+    def test_reject_decides_and_resumes(self, client, sqlite_engine, monkeypatch):
+        from agent.runner import RunResult
+
+        incident_id = client.post("/intake/kubernetes", json=K8S_SIGNAL).json()["incident_id"]
+        review_id = self._seed_review(sqlite_engine, incident_id)
+        monkeypatch.setattr(
+            "agent.runner.run_incident",
+            lambda iid, **kw: RunResult(
+                incident_id=iid,
+                status="fix_required",
+                run_status=models.RunStatus.TERMINAL,
+            ),
+        )
+        response = client.post(
+            f"/reviews/{review_id}/reject",
+            json={"actor": "bob", "note": "changes requested"},
+        )
+        body = response.json()
+        assert response.status_code == 200
+        assert body["review"]["status"] == "rejected"
+        assert body["review"]["note"] == "changes requested"
+
+    def test_unknown_review_404(self, client):
+        assert client.post("/reviews/9999/approve", json={"actor": "x"}).status_code == 404
+
+    def test_already_decided_409(self, client, sqlite_engine, monkeypatch):
+        from agent.runner import RunResult
+
+        incident_id = client.post("/intake/kubernetes", json=K8S_SIGNAL).json()["incident_id"]
+        review_id = self._seed_review(sqlite_engine, incident_id)
+        monkeypatch.setattr(
+            "agent.runner.run_incident",
+            lambda iid, **kw: RunResult(
+                incident_id=iid,
+                status="approved",
+                run_status=models.RunStatus.TERMINAL,
+            ),
+        )
+        assert client.post(f"/reviews/{review_id}/approve", json={"actor": "b"}).status_code == 200
+        assert client.post(f"/reviews/{review_id}/reject", json={"actor": "c"}).status_code == 409
+
+
 @pytest.mark.integration
 def test_intake_endpoint_against_real_postgres(pg):
     """The unmodified app (no dependency override) writes through the real

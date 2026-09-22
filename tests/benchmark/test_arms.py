@@ -422,6 +422,65 @@ class TestArmBFused:
         assert _status(sqlite_sessions, iid) == "escalated"
 
 
+def _drive_d(incident_id, deps, hops=8):
+    """Arm D shares B/C's fused-node composition (2.8: same node, fed the
+    composed event+graph knowledge context) - same multi-hop shape."""
+    last = None
+    for _ in range(hops):
+        res = run_incident(incident_id, deps=deps, arm="D")
+        if res.error:
+            return res
+        if str(res.status) == str(last):
+            break
+        last = res.status
+    return res
+
+
+class TestArmDKnowledge:
+    """2.8: arm D is the fused node fed the composed GraphRAG context.
+    The harness CLI accepts `--arm D`; this proves the graph side works
+    end to end on the shared in-process deps."""
+
+    def test_arm_d_executes_through_the_shared_gate(self, sqlite_sessions, store):
+        answer = FusedDiagnosisPlan(
+            claim="transient check failure",
+            confidence=0.9,
+            action="rerun_pipeline",
+            params={"job": "payment-api"},
+        )
+        deps, caps = make_deps(sqlite_sessions, FakeLLM([answer]), "github/failed-check", store)
+        iid = _intake(sqlite_sessions, GITHUB_CHECK_SIGNAL)
+
+        res = _drive_d(iid, deps)
+
+        assert res.error is None
+        assert _status(sqlite_sessions, iid) == "verifying"  # parked like B/C
+        assert caps["jenkins_write"].methods() == ["trigger_build"]
+        assert [c for c in deps.llm.calls if c[0] == "structured"] == [
+            ("structured", FusedDiagnosisPlan)
+        ]
+
+    def test_fused_provenance_records_arm_d(self, sqlite_sessions, store):
+        answer = FusedDiagnosisPlan(
+            claim="transient check failure",
+            confidence=0.9,
+            action="rerun_pipeline",
+            params={"job": "payment-api"},
+        )
+        deps, _caps = make_deps(sqlite_sessions, FakeLLM([answer]), "github/failed-check", store)
+        iid = _intake(sqlite_sessions, GITHUB_CHECK_SIGNAL)
+
+        run_incident(iid, deps=deps, arm="D")
+
+        with sqlite_sessions() as session:
+            incident = session.scalar(
+                select(models.Incident).where(models.Incident.incident_id == iid)
+            )
+            selected = [c for c in incident.candidates if c.selected]
+            assert len(selected) == 1
+            assert selected[0].components["arm"] == "D"
+
+
 class TestArmBParks:
     def test_verifying_is_stable_end_state(self, sqlite_sessions, store):
         """Once arm B parks at verifying, further `helix run` calls leave it

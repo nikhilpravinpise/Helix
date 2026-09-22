@@ -1,0 +1,40 @@
+# Service registry (subphase 2.1): the provider-neutral ownership
+# primitive CONTEXT.md section 11 and plan.md 2.5 need - "ownership
+# resolution from code ownership, commit history, and the service
+# registry". `path_owners` is Helix's own code-ownership signal: patterns
+# checked most-specific-match-wins, the same semantics a GitHub CODEOWNERS
+# file uses, sourced here rather than by adding a live GitHub
+# file-content capability the rest of the evidence layer does not
+# otherwise need (agent/ops/registry.py has the matching code).
+#
+# One entry exists today because one service exists in the sandbox
+# (sandbox/payment-api). A second service is a second entry, not a schema
+# change.
+services:
+  payment-api:
+    team: payments
+    repo: nikhilpravinpise/Helix
+    default_owner: alice
+    owners:
+      - alice
+      - bob
+    default_reviewers:
+      - bob
+      - carol
+    # Ordered broadest-to-narrowest, git CODEOWNERS style: the LAST
+    # matching pattern wins, so a later, more specific rule overrides an
+    # earlier catch-all - not the other way around. fnmatch's `*` matches
+    # `/` too, so "sandbox/payment-api/*" matches every path under the
+    # service, including k8s/ ones; it must come FIRST for the k8s- and
+    # Secret-specific rules below to actually override it.
+    path_owners:
+      - pattern: "sandbox/payment-api/*"
+        owners:
+          - bob
+      - pattern: "sandbox/payment-api/k8s/*"
+        owners:
+          - alice
+          - bob
+      - pattern: "sandbox/payment-api/k8s/03-secret.yaml"
+        owners:
+          - alice

@@ -50,6 +50,32 @@ class PolicyDecision(StrEnum):
 #: and anything unexpected both fail safe into REQUIRE_APPROVAL.
 NON_PROD_ENVIRONMENTS: frozenset[str] = frozenset({"sandbox", "staging"})
 
+#: Action executors that mutate a running system - the cluster or the CI
+#: pipeline - rather than code/config. `github` is deliberately absent:
+#: a fix PR is the legitimate remediation shape for evidence from ANY
+#: domain (a code review can fix a k8s manifest).
+RUNTIME_EXECUTORS: frozenset[str] = frozenset({"kubernetes", "jenkins"})
+
+#: Canonical event types that count as runtime evidence - something
+#: actually observed the running system or the pipeline misbehave. The
+#: type, not the vendor source, carries the meaning: a `build.failed`
+#: surfaced through GitHub's check-run webhook is still CI evidence,
+#: while a `pr.rejected` from Jenkins's own feed is still only a code
+#: signal. Source control types (push/pr/branch) are deliberately absent:
+#: a rejected PR cannot honestly authorize a cluster rollback.
+RUNTIME_EVIDENCE_TYPES: frozenset[str] = frozenset(
+    {
+        "build.started",
+        "build.passed",
+        "build.failed",
+        "deployment.started",
+        "deployment.failed",
+        "deployment.succeeded",
+        "pod.failed",
+        "service.unhealthy",
+    }
+)
+
 
 @dataclass(frozen=True)
 class PolicyVerdict:
@@ -79,13 +105,31 @@ class PolicyVerdict:
         }
 
 
-def decide(action: str, params: dict[str, Any] | None, environment: str) -> PolicyVerdict:
+def decide(
+    action: str,
+    params: dict[str, Any] | None,
+    environment: str,
+    evidence_types: "frozenset[str] | None" = None,
+) -> PolicyVerdict:
     """Map (action, params, environment) onto the access-table verdict.
 
     Pure: catalogue lookup + params re-validation + the tier/environment
     rules. Callers: the coordinator (routing - which edge out of
     `validating`) and the executor's own gate (enforcement - refuses DENY
     outright and REQUIRE_APPROVAL without a granted approvals row).
+
+    `evidence_types` is the set of canonical event types the incident's
+    evidence actually classifies as (signals via events.classify, event
+    records directly). When given, a runtime-mutating action
+    (kubernetes/jenkins executor) proposed on evidence that never
+    observed a runtime system - a code-review-only incident, say - is
+    escalated to REQUIRE_APPROVAL: a human must deliberately authorize a
+    cluster write that no runtime signal justifies, which is the
+    coherence check the 1.5 evaluation found missing (arm B rolled back
+    a deployment over a rejected PR). `None` means the caller cannot
+    supply types - the check is skipped, which the enforcement gate
+    relies on: it re-decides a row the coordinator already judged, and
+    the coherence verdict was part of that first decision.
     """
     raw_params = dict(params or {})
     spec = get_action(action)
@@ -115,6 +159,30 @@ def decide(action: str, params: dict[str, Any] | None, environment: str) -> Poli
     normalized = validated.model_dump(mode="json")
     fingerprint = candidate_fingerprint(spec.name, normalized)
     tier = spec.risk_tier(validated)
+
+    if (
+        evidence_types is not None
+        and spec.executor in RUNTIME_EXECUTORS
+        and not (evidence_types & RUNTIME_EVIDENCE_TYPES)
+    ):
+        # Evidence coherence (the 1.5 ablation's defect): a code-review
+        # event cannot, on its own, justify mutating a running cluster or
+        # pipeline. Escalate to the human gate rather than deny outright -
+        # the action may still be right, but only a person may say so.
+        kinds = ",".join(sorted(evidence_types)) or "none"
+        return PolicyVerdict(
+            decision=PolicyDecision.REQUIRE_APPROVAL,
+            action=spec.name,
+            risk_tier=tier.value,
+            reason=(
+                f"{spec.executor} write proposed on evidence of only [{kinds}]: "
+                "a runtime-mutating action needs runtime evidence or a human's "
+                "explicit approval"
+            ),
+            verification_required=True,
+            params=normalized,
+            fingerprint=fingerprint,
+        )
 
     if environment not in NON_PROD_ENVIRONMENTS:
         label = "production" if environment == "production" else f"unknown ({environment!r})"

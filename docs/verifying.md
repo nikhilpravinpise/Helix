@@ -48,12 +48,12 @@ Arm A is a deterministic rule table keyed on fault signature
 control, not a result: if it ever reads anything other than 1.00, the
 harness is contaminated, not improved.
 
-### The ablation, all four arms
+### The ablation, all five arms
 
 Needs `HELIX_LLM_API_KEY` in `.env`. Costs real tokens.
 
 ```bash
-bash scripts/benchmark.sh --arm A --arm B --arm C --arm E
+bash scripts/benchmark.sh --arm A --arm B --arm C --arm D --arm E
 ```
 
 Read `benchmark/reports/latest.md`. Check arm A first - if it is not

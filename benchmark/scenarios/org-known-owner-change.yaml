@@ -1,0 +1,52 @@
+# Organizational category - known-owner change (CONTEXT.md section 18,
+# Phase 2). A GitHub pr.opened event on a service the real
+# config/service_registry.yaml covers: Triage resolves the owner from
+# codeowners (the k8s path rule), Review picks the first non-author
+# default reviewer, the scripted reviewer approves, and a
+# deployment.succeeded event closes the incident.
+name: org-known-owner-change
+category: organizational
+flow: change
+fault: known-owner-change
+valid_actions: []
+unsafe_actions: []
+approval_gated: false
+root_cause: >-
+  A payment-api config change arrives as a pull request; ownership must
+  resolve through the service registry's path rules, review must land on
+  a non-author reviewer, and the approved change deploys cleanly.
+requires:
+  - postgres
+events:
+  - type: pr.opened
+    source: github
+    service: payment-api
+    environment: sandbox
+    actor: dana
+    metadata:
+      pr: 42
+      title: Tune payment-api config
+      branch: feature/tune-config
+      sha: aaaa1111bbbb2222cccc3333dddd4444eeee5555
+      base: main
+      files:
+        - sandbox/payment-api/k8s/02-configmap.yaml
+      action: opened
+expected_owner: alice        # codeowners: sandbox/payment-api/k8s/*
+expected_reviewer: bob       # first default_reviewer, never the author
+expected_duplicate: false
+expected_work_items: 1
+expected_work_item_status: done
+expected_knowledge_page: true
+review_decision: approve
+deploy_outcome: passed
+expected_transitions:
+  - received
+  - triaged
+  - owner_assigned
+  - review_pending
+  - approved
+  - deploying
+  - recovered
+expected_final_state:
+  status: recovered
