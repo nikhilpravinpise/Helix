@@ -128,11 +128,13 @@ def sync_graph(session: Any, store: GraphStore, *, repo: str = "") -> int:
     of incidents/events (`helix graph-sync`). Returns the incident count
     ingested.
 
-    The store is cleared first: a projection that only upserts keeps
-    facts Postgres already deleted (a work-item mirror reconcile
-    removed, a page replaced) as phantom edges forever. Derive means
-    replace - the rebuild below carries every current fact, so a cleared
-    store converges to exactly today's truth."""
+    The registry is loaded and the incident rows are read first, then
+    the store is cleared and the rebuild is written: a projection that
+    only upserts keeps facts Postgres already deleted (a work-item
+    mirror reconcile removed, a page replaced) as phantom edges forever,
+    but a failure before the clear leaves the current projection intact.
+    Derive means replace - the rebuild below carries every current fact,
+    so a cleared store converges to exactly today's truth."""
     from sqlalchemy import select
 
     from agent.ops.registry import load_registry

@@ -10,12 +10,14 @@ The exit criterion is that incident state rebuilt purely from replayed
 history matches the state produced by live processing. That has to be
 stated precisely, because the taxonomy does not carry every workflow step.
 
-Helix emits five lifecycle events. The intermediate statuses -
-`diagnosing`, `validating`, `escalated`, `failed` - have no event in
-CONTEXT.md section 7, and inventing some would be expanding the taxonomy
-without a workflow that needs it. So an event log describes an incident's
-**lifecycle**, not its every transition, and replay reconstructs exactly
-that: the milestones reached, in order, plus the incident's identity.
+Helix emits thirteen lifecycle events: the five Phase 1 milestones
+plus the eight Phase 2 change-review milestones in LIFECYCLE_STATUS.
+The intermediate statuses - `diagnosing`, `validating`, `escalated`,
+`failed` - have no event in CONTEXT.md section 7, and inventing some
+would be expanding the taxonomy without a workflow that needs it. So an
+event log describes an incident's **lifecycle**, not its every
+transition, and replay reconstructs exactly that: the milestones
+reached, in order, plus the incident's identity.
 
 `IncidentProjection` is therefore the unit of comparison, and it is built
 two ways from genuinely different data:
@@ -75,8 +77,11 @@ class IncidentProjection:
     #: Furthest lifecycle milestone reached, as a status.
     lifecycle_status: IncidentStatus
     #: Milestones in the order they were reached, deduplicated: re-entering
-    #: `remediation_pending` on a replan is the same milestone again, and
-    #: the event log records it once because the id derives from it.
+    #: `remediation_pending` on a replan is the same milestone again.
+    #: The event log records one row per durable transition (the id keys
+    #: on the transition row, so a retry lands once while a genuinely
+    #: repeated edge emits each time); the projection still dedups them
+    #: because it tracks furthest-milestone status, not transition count.
     milestones: tuple[EventType, ...] = field(default_factory=tuple)
 
 
