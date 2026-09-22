@@ -21,6 +21,12 @@ services:
     default_reviewers:
       - bob
       - carol
+    # What payment-api actually depends on at runtime (its Postgres
+    # backing store) - the graph turns each name into a DEPENDS_ON edge
+    # so "a failure here may originate there" is a real answer, not an
+    # empty section.
+    depends_on:
+      - postgres
     # Ordered broadest-to-narrowest, git CODEOWNERS style: the LAST
     # matching pattern wins, so a later, more specific rule overrides an
     # earlier catch-all - not the other way around. fnmatch's `*` matches

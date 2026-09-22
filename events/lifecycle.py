@@ -117,12 +117,17 @@ def build_lifecycle_event(
     cause: str,
     from_status: IncidentStatus | None,
     to_status: IncidentStatus,
+    transition_id: int,
 ) -> EngineeringEvent:
     """The canonical event for one lifecycle milestone.
 
-    The id is derived from the incident and the milestone, so re-deriving
-    an incident's events - during a replay, or after a crash mid-flush -
-    produces the same ids rather than a second set.
+    The id is derived from the incident, the milestone, AND the durable
+    transition row's id: re-deriving an incident's events - during a
+    replay, or after a crash mid-flush - produces the same ids for the
+    same transitions, while a genuinely repeated edge (a rejected review
+    re-requested after a new commit) emits a second event rather than
+    silently collapsing into the first. Two real transitions are two
+    events; the milestone alone is not their identity.
     """
     metadata: dict[str, Any] = {
         "incident": incident.incident_id,
@@ -130,9 +135,15 @@ def build_lifecycle_event(
         "to_status": to_status.value,
         "cause": cause,
         "severity": incident.severity,
+        # The durable transition row's id - monotonic with real order, so
+        # a replay can break same-timestamp ties deterministically rather
+        # than inheriting whatever order storage returned.
+        "transition_id": transition_id,
     }
     return EngineeringEvent(
-        event_id=derive_event_id("helix", incident.incident_id, event_type.value, to_status.value),
+        event_id=derive_event_id(
+            "helix", incident.incident_id, event_type.value, to_status.value, transition_id
+        ),
         event_type=event_type,
         source=EventSource.HELIX,
         # The incident this is about, which for Helix's own events is
@@ -152,13 +163,14 @@ def emit_for_transition(
     to_status: IncidentStatus,
     cause: str,
     session: "Session",
+    transition_id: int,
 ) -> EngineeringEvent | None:
     """Record the lifecycle event for a transition, if it has one.
 
     Returns the event, or None when the transition is not a lifecycle
-    milestone. Never raises on a duplicate: re-entering a status - a
-    replan returning to `remediation_pending`, say - derives the same id,
-    and the first record stands.
+    milestone. Never raises on a duplicate: the id keys on the durable
+    transition row, so a retry of the SAME row (crash mid-flush, replay)
+    lands once while a legitimately repeated edge emits each time.
     """
     from sqlalchemy import select
 
@@ -168,7 +180,9 @@ def emit_for_transition(
     if event_type is None:
         return None
 
-    event = build_lifecycle_event(incident, event_type, cause, from_status, to_status)
+    event = build_lifecycle_event(
+        incident, event_type, cause, from_status, to_status, transition_id
+    )
     existing = session.scalar(select(EventRecord).where(EventRecord.event_id == event.event_id))
     if existing is not None:
         return event

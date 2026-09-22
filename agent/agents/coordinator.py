@@ -662,15 +662,13 @@ def _newer_event_type(
     """The type of the newest EventRecord among `event_types` for this
     incident ingested after `since`, or None.
 
-    The comparison is `created_at` vs `created_at` - both are the same
-    `func.now()` server clock, same storage precision. `occurred_at` is
-    the event's claimed wall-clock time: a different precision entirely
-    (microsecond + tz-aware vs second-resolution server timestamps), and
-    cross-precision string comparison fires false positives whenever an
-    event and a transition land in the same second. Worse, `occurred_at`
-    semantics are wrong for this question anyway: what matters is when
-    Helix LEARNED of the event, not when the vendor says it happened - a
-    delayed or replayed fix notification must still count as new.
+    The comparison is `created_at` vs `created_at` - both stamped by the
+    same app-side `datetime.now(UTC)` default at microsecond precision
+    (state/models.py), so the ordering is exact. `occurred_at` is the
+    event's claimed wall-clock time: a different precision entirely, and
+    the wrong semantics anyway - what matters is when Helix LEARNED of
+    the event, not when the vendor says it happened. A delayed or
+    replayed fix notification must still count as new.
 
     `since=None` (the incident has not yet transitioned into the status
     being checked) never fires - there is nothing to compare against.
@@ -764,10 +762,19 @@ def coordinator_node(deps: "GraphDeps", arm: str = "E"):
                 deploy_outcome: str | None = None
                 if incident.status == IncidentStatus.DEPLOYING:
                     since = _status_entered_at(session, incident.id, IncidentStatus.DEPLOYING)
-                    if _newer_event_type(session, incident.id, _DEPLOY_PASSED, since) is not None:
-                        deploy_outcome = "passed"
-                    elif _newer_event_type(session, incident.id, _DEPLOY_FAILED, since) is not None:
-                        deploy_outcome = "failed"
+                    # The NEWEST deploy outcome decides: a build.passed
+                    # followed by a deployment.failed (a post-deploy
+                    # smoke failing, a rollout wedging after the gate
+                    # reported green) is a failure, not a recovery -
+                    # checking "any passed first" would let the earlier
+                    # event mask the newer one.
+                    newest = _newer_event_type(
+                        session, incident.id, _DEPLOY_PASSED | _DEPLOY_FAILED, since
+                    )
+                    if newest is not None:
+                        deploy_outcome = (
+                            "passed" if EventType(newest) in _DEPLOY_PASSED else "failed"
+                        )
                 # The canonical kinds this incident's evidence actually
                 # is - signals classified to event types plus non-Helix
                 # event records' types. The policy gate's coherence check

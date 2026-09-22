@@ -229,6 +229,7 @@ def transition(
     )
     incident.status = to_status
     session.add(row)
+    session.flush()  # the event id keys on the durable transition row
     # Helix's own lifecycle event, written in this same transaction so the
     # event and the state change it describes can never disagree (E5).
     # Imported here rather than at module scope: events.lifecycle needs
@@ -241,6 +242,7 @@ def transition(
         to_status=to_status,
         cause=cause,
         session=session,
+        transition_id=row.id,
     )
     session.flush()
     return row
@@ -259,6 +261,7 @@ def record_creation(incident: "Incident", *, cause: str, session: Session) -> "T
         cause=cause,
     )
     session.add(row)
+    session.flush()  # the event id keys on the durable transition row
     from events.lifecycle import emit_for_transition
 
     emit_for_transition(
@@ -267,6 +270,7 @@ def record_creation(incident: "Incident", *, cause: str, session: Session) -> "T
         to_status=IncidentStatus(incident.status),
         cause=cause,
         session=session,
+        transition_id=row.id,
     )
     session.flush()
     return row

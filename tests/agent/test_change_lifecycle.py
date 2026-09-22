@@ -224,6 +224,104 @@ class TestChangeLifecycleRejectionLoop:
             assert pending.reviewer != first_reviewer
 
 
+class TestReviewTimeout:
+    def test_stale_pending_review_escalates_and_projects(self, sqlite_sessions, store) -> None:
+        """A reviewer who never answers escalates the incident - and the
+        escalation is as observable as any other transition: the sweep's
+        enqueue lands the slack notify, the work-item `blocked`
+        transition, the terminal comment, and the page sync in the same
+        transaction as the state change. (The gap this guards: the sweep
+        transitioned directly, bypassing enqueue_for_transition, so a
+        timeout produced an invisible escalation.)"""
+        from dataclasses import replace
+
+        deps, _ = make_deps(sqlite_sessions, FakeLLM(), "cluster/crashloop", store)
+        deps = replace(deps, approval_timeout=3600.0)
+        incident_id = _open_pr(sqlite_sessions)
+        result = _drive(deps, incident_id)
+        assert result.status == IncidentStatus.REVIEW_PENDING
+
+        # Age the pending review past the timeout window.
+        with sqlite_sessions() as session:
+            incident = session.scalar(
+                select(models.Incident).where(models.Incident.incident_id == incident_id)
+            )
+            pending = pending_for_incident(session, incident.id)
+            pending.created_at = datetime.now(UTC) - timedelta(seconds=7200)
+            session.commit()
+
+        result = run_incident(incident_id, deps=deps, arm="A")
+        assert result.status == IncidentStatus.ESCALATED
+
+        with sqlite_sessions() as session:
+            incident = session.scalar(
+                select(models.Incident).where(models.Incident.incident_id == incident_id)
+            )
+            review = pending_for_incident(session, incident.id)
+            assert review is None  # decided (rejected by timeout), no longer pending
+            latest = session.scalar(
+                select(models.ReviewRequest).order_by(models.ReviewRequest.id.desc()).limit(1)
+            )
+            assert latest.status == models.ApprovalStatus.REJECTED
+            assert latest.decided_by == "helix"
+            assert "timeout" in (latest.note or "")
+
+            rows = session.scalars(
+                select(models.IntegrationOutbox)
+                .where(models.IntegrationOutbox.incident_id == incident.id)
+                .order_by(models.IntegrationOutbox.id)
+            ).all()
+            ops = [(r.integration, r.op) for r in rows]
+            # The escalation carries the full projection set.
+            assert ("slack", "notify") in ops
+            assert ("notion", "sync_page") in ops
+            assert ("memory", "transition_work_item") in ops
+            assert ("memory", "comment_work_item") in ops
+            # And the notify row actually says it is the escalation.
+            escalation_notify = [
+                r
+                for r in rows
+                if r.integration == "slack"
+                and r.op == "notify"
+                and "escalated" in str(r.payload.get("text"))
+            ]
+            assert escalation_notify, "no slack notify mentions the escalation"
+
+    def test_second_run_on_escalated_incident_does_not_renotify(
+        self, sqlite_sessions, store
+    ) -> None:
+        """A `helix run` against an already-escalated incident must not
+        emit the escalation's projection set a second time."""
+        from dataclasses import replace
+
+        deps, _ = make_deps(sqlite_sessions, FakeLLM(), "cluster/crashloop", store)
+        deps = replace(deps, approval_timeout=3600.0)
+        incident_id = _open_pr(sqlite_sessions)
+        _drive(deps, incident_id)
+        with sqlite_sessions() as session:
+            incident = session.scalar(
+                select(models.Incident).where(models.Incident.incident_id == incident_id)
+            )
+            pending = pending_for_incident(session, incident.id)
+            pending.created_at = datetime.now(UTC) - timedelta(seconds=7200)
+            session.commit()
+        run_incident(incident_id, deps=deps, arm="A")
+
+        def _count() -> int:
+            with sqlite_sessions() as session:
+                return len(
+                    session.scalars(
+                        select(models.IntegrationOutbox)
+                        .join(models.Incident)
+                        .where(models.Incident.incident_id == incident_id)
+                    ).all()
+                )
+
+        count_before = _count()
+        run_incident(incident_id, deps=deps, arm="A")
+        assert _count() == count_before
+
+
 class TestChangeLifecycleDuplicateDetection:
     def test_second_incident_same_branch_is_flagged_duplicate_and_escalates(
         self, sqlite_sessions, store

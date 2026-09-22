@@ -73,17 +73,51 @@ def reconcile_work_items(
                     )
                 )
             found["missing_remote"] += 1
+            # A terminal incident whose remote vanished converges in one
+            # pass, not two: enqueue the closing transition behind the
+            # recreate so the drain lands both (create first - its id is
+            # lower, and a still-pending create defers the dependent
+            # op without burning attempts).
+            from state.machine import IncidentStatus
+
+            if incident.status in (
+                IncidentStatus.RECOVERED,
+                IncidentStatus.ESCALATED,
+                IncidentStatus.FAILED,
+            ):
+                neutral = {"recovered": "done"}.get(incident.status, "blocked")
+                if not _has_pending(session, incident.id, name, "transition_work_item"):
+                    session.add(
+                        models.IntegrationOutbox(
+                            incident_id=incident.id,
+                            integration=name,
+                            op="transition_work_item",
+                            payload={
+                                "status": neutral,
+                                "cause": f"reconcile: incident {incident.status} remote recreated",
+                            },
+                        )
+                    )
             continue
         if remote.status != item.status:
             item.status = remote.status  # the provider's word refreshes the mirror
             found["status_drift"] += 1
         # A terminal incident whose item is still open is drift the other
-        # direction: enqueue the closing transition it should have had.
+        # direction: enqueue the transition it should have had - `done`
+        # for a recovered incident, `blocked` for one escalated or failed
+        # (the work is stuck on a human, not finished).
         from state.machine import IncidentStatus
 
+        _TERMINAL_TARGET = {
+            IncidentStatus.RECOVERED.value: "done",
+            IncidentStatus.ESCALATED.value: "blocked",
+            IncidentStatus.FAILED.value: "blocked",
+        }
+        want = _TERMINAL_TARGET.get(str(incident.status))
+        already = remote.status == want or (want == "done" and remote.status == "closed")
         if (
-            incident.status == IncidentStatus.RECOVERED
-            and remote.status not in ("done", "closed")
+            want is not None
+            and not already
             and not _has_pending(session, incident.id, name, "transition_work_item")
         ):
             session.add(
@@ -91,7 +125,7 @@ def reconcile_work_items(
                     incident_id=incident.id,
                     integration=name,
                     op="transition_work_item",
-                    payload={"status": "done", "cause": "reconcile: incident recovered"},
+                    payload={"status": want, "cause": f"reconcile: incident {incident.status}"},
                 )
             )
             found["missing_terminal"] += 1

@@ -157,7 +157,7 @@ class TestBlockActions:
         body = response.json()
         assert body["ok"] is True
         assert body["decisions"] == [
-            {"approval_id": approval_id, "decision": "approved", "resumed": True}
+            {"approval_id": approval_id, "decision": "approved", "resumed": "scheduled"}
         ]
         assert calls == [incident_id]
         row = _get_approval(sqlite_engine, approval_id)
@@ -245,7 +245,10 @@ class TestBlockActions:
         incident_id = _seed_incident(client)
         approval_id = _seed_pending(sqlite_engine, incident_id)
 
+        calls: list[str] = []
+
         def boom(iid, **kw):
+            calls.append(iid)
             raise RuntimeError("graph blew up")
 
         monkeypatch.setattr("agent.runner.run_incident", boom)
@@ -254,8 +257,13 @@ class TestBlockActions:
         assert response.status_code == 200
         decision = response.json()["decisions"][0]
         assert decision["decision"] == "approved"
-        assert decision["resumed"] is False
-        assert "graph blew up" in decision["run_error"]
+        # The resume is a background task now - the ack never waits on a
+        # run, and a run failure lands in the log, not this response.
+        # TestClient still executes the task (the wrapper swallows the
+        # error), so the fake ran but the response only ever says
+        # "scheduled".
+        assert decision["resumed"] == "scheduled"
+        assert calls == [incident_id]
         assert _get_approval(sqlite_engine, approval_id).status == (models.ApprovalStatus.APPROVED)
 
 
@@ -358,7 +366,7 @@ class TestReviewBlockActions:
         assert response.status_code == 200
         body = response.json()
         assert body["decisions"] == [
-            {"review_id": review_id, "decision": "approved", "resumed": True}
+            {"review_id": review_id, "decision": "approved", "resumed": "scheduled"}
         ]
         assert calls == [incident_id]
         row = _get_review(sqlite_engine, review_id)

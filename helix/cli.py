@@ -655,7 +655,13 @@ def _cmd_sync(args: argparse.Namespace) -> int:
                     {f"work_{k}": v for k, v in reconcile_work_items(session, work).items()}
                 )
             notion = get_notion_client()
-            if notion is not None:
+            # Same rule as the work provider above: the memory client's
+            # store is process-local, so a fresh process sees "every page
+            # missing" and would churn recreates. Live drift needs a
+            # live provider.
+            from integrations.notion.memory import MemoryNotionClient
+
+            if notion is not None and not isinstance(notion, MemoryNotionClient):
                 drift.update(reconcile_knowledge_pages(session, notion))
             repairs = sum(drift.values())
             if repairs:

@@ -130,7 +130,15 @@ def project_from_events(events: Sequence[EngineeringEvent]) -> IncidentProjectio
     ]
     if not lifecycle:
         return None
-    lifecycle.sort(key=lambda e: e.timestamp)
+    lifecycle.sort(
+        # timestamp alone is not a total order: two lifecycle events
+        # emitted in the same clock tick compare equal, and a stable
+        # sort then inherits input order - reversed input replays to a
+        # different incident. The transition id in the envelope is
+        # monotonic with the real transition order, so equal timestamps
+        # resolve deterministically.
+        key=lambda e: (e.timestamp, int((e.metadata or {}).get("transition_id") or 0))
+    )
     first = lifecycle[0]
     metadata = first.metadata or {}
     return _project(

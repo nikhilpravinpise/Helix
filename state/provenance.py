@@ -52,6 +52,15 @@ def _incident_block(incident: models.Incident) -> dict[str, Any]:
         "fingerprint": incident.fingerprint,
         "linked_pr": incident.linked_pr,
         "linked_deployment": incident.linked_deployment,
+        # Phase 2 (2.1/2.5): which lifecycle this incident follows and the
+        # ownership/dedup facts Triage wrote onto it - a change incident's
+        # provenance without them reads as if triage never ran.
+        "kind": incident.kind.value,
+        "owner": incident.owner,
+        "priority": incident.priority,
+        "duplicate_of": (
+            incident.duplicate_of.incident_id if incident.duplicate_of is not None else None
+        ),
         "created_at": _ts(incident.created_at),
         "updated_at": _ts(incident.updated_at),
     }
@@ -264,6 +273,78 @@ def _transitions(rows: list[models.Transition]) -> list[dict[str, Any]]:
     ]
 
 
+def _triage(rows: list[models.TriageResult]) -> list[dict[str, Any]]:
+    """The Triage Agent's findings (2.5): impact, ownership, duplicates."""
+    return [
+        {
+            "id": row.id,
+            "attempt": row.attempt,
+            "affected_service": row.affected_service,
+            "blast_radius": row.blast_radius,
+            "duplicate_of": (
+                row.duplicate_of.incident_id if row.duplicate_of is not None else None
+            ),
+            "owner": row.owner,
+            "owner_source": row.owner_source,
+            "rationale": row.rationale,
+            "created_at": _ts(row.created_at),
+        }
+        for row in rows
+    ]
+
+
+def _reviews(rows: list[models.ReviewRequest]) -> list[dict[str, Any]]:
+    """The Review Agent's request/decision trail (2.6)."""
+    return [
+        {
+            "id": row.id,
+            "attempt": row.attempt,
+            "reviewer": row.reviewer,
+            "rationale": row.rationale,
+            "status": row.status.value,
+            "decided_by": row.decided_by,
+            "decided_at": _ts(row.decided_at),
+            "note": row.note,
+            "created_at": _ts(row.created_at),
+        }
+        for row in rows
+    ]
+
+
+def _work_items(rows: list[models.WorkItem]) -> list[dict[str, Any]]:
+    """The provider mirror rows (2.3): what the external tracker shows."""
+    return [
+        {
+            "id": row.id,
+            "provider": row.provider,
+            "external_id": row.external_id,
+            "external_key": row.external_key,
+            "external_url": row.external_url,
+            "title": row.title,
+            "status": row.status,
+            "assignee": row.assignee,
+            "created_at": _ts(row.created_at),
+            "updated_at": _ts(row.updated_at),
+        }
+        for row in rows
+    ]
+
+
+def _knowledge_page(page: models.KnowledgePage | None) -> dict[str, Any] | None:
+    """The provenance page's own projection (2.4) - where it landed."""
+    if page is None:
+        return None
+    return {
+        "id": page.id,
+        "provider": page.provider,
+        "external_id": page.external_id,
+        "external_url": page.external_url,
+        "title": page.title,
+        "created_at": _ts(page.created_at),
+        "updated_at": _ts(page.updated_at),
+    }
+
+
 def assemble_provenance(session: Session, incident_id: str) -> dict[str, Any] | None:
     """The ordered provenance record for `incident_id`, or None when no
     such incident exists. Pure over its inputs: reads only, returns a
@@ -288,6 +369,13 @@ def assemble_provenance(session: Session, incident_id: str) -> dict[str, Any] | 
             "approval": _approvals(list(incident.approvals)),
             "execution": _executions(list(incident.executions)),
             "verification": _verifications(list(incident.verifications)),
+            # Phase 2 (2.5/2.6/2.3/2.4): the change-lifecycle's own
+            # evidence - triage findings, the review gate's trail, the
+            # tracker mirror, and where the knowledge page landed.
+            "triage": _triage(list(incident.triage_results)),
+            "reviews": _reviews(list(incident.review_requests)),
+            "work_items": _work_items(list(incident.work_items)),
+            "knowledge_page": _knowledge_page(incident.knowledge_page),
         },
         "transitions": _transitions(list(incident.transitions)),
     }
@@ -310,6 +398,14 @@ def render_markdown(record: dict[str, Any]) -> str:
     if incident.get("escalation_cause"):
         # 1.10: a first-class outcome gets a first-class line.
         lines.append(f"- escalation cause: {incident['escalation_cause']}")
+    if incident.get("kind") == "change":
+        # 2.1: the lifecycle this incident follows, and who Triage put
+        # on it - a change incident's headline facts.
+        lines.append(f"- lifecycle: change | owner: {incident.get('owner') or 'unresolved'}")
+        if incident.get("priority"):
+            lines.append(f"- priority: {incident['priority']}")
+        if incident.get("duplicate_of"):
+            lines.append(f"- duplicate of: {incident['duplicate_of']}")
     if incident.get("linked_pr"):
         lines.append(f"- linked PR: {incident['linked_pr']}")
     if incident.get("linked_deployment"):
@@ -324,6 +420,27 @@ def render_markdown(record: dict[str, Any]) -> str:
             )
     else:
         lines.append("- none recorded")
+
+    if stages.get("triage"):
+        lines += ["", "## Triage"]
+        for t in stages["triage"]:
+            lines.append(
+                f"- #{t['id']} (attempt {t['attempt']}) {t['affected_service']}: "
+                f"blast_radius={t['blast_radius']}, owner={t['owner'] or 'unresolved'} "
+                f"({t['owner_source']})"
+                + (f", duplicate of {t['duplicate_of']}" if t.get("duplicate_of") else "")
+                + f" at {t['created_at']}: {t['rationale']}"
+            )
+
+    if stages.get("reviews"):
+        lines += ["", "## Reviews"]
+        for r in stages["reviews"]:
+            lines.append(
+                f"- #{r['id']} {r['reviewer']}: {r['status']}"
+                + (f" by {r['decided_by']} at {r['decided_at']}" if r["decided_by"] else "")
+                + (f" - {r['note']}" if r.get("note") else "")
+                + f" (requested {r['created_at']}: {r['rationale']})"
+            )
 
     lines += ["", "## Evidence"]
     if stages["evidence"]:
@@ -430,6 +547,21 @@ def render_markdown(record: dict[str, Any]) -> str:
                 lines.append(f"  - {c['name']}: {c['status']} - {c['detail']}")
     else:
         lines.append("- none recorded")
+
+    if stages.get("work_items") or stages.get("knowledge_page"):
+        lines += ["", "## Tracking"]
+        for w in stages.get("work_items") or []:
+            lines.append(
+                f"- {w['provider']} {w['external_key'] or w['external_id']}: {w['status']}"
+                + (f" assignee={w['assignee']}" if w.get("assignee") else "")
+                + (f" - {w['external_url']}" if w.get("external_url") else "")
+            )
+        if stages.get("knowledge_page"):
+            kp = stages["knowledge_page"]
+            lines.append(
+                f"- knowledge page ({kp['provider']}): {kp['title']}"
+                + (f" - {kp['external_url']}" if kp.get("external_url") else "")
+            )
 
     lines += ["", "## Transitions"]
     for t in record["transitions"]:

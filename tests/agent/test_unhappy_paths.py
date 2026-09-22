@@ -775,6 +775,20 @@ class TestApprovalTimeout:
             # A timed-out row can never execute: a late decision is refused.
             with pytest.raises(ApprovalDecidedError):
                 record_decision(session, approval, True, "alice")
+            # The sweep's escalation carries the same projection ops as
+            # any other transition - a timeout is never an invisible one.
+            rows = session.scalars(
+                select(models.IntegrationOutbox)
+                .where(models.IntegrationOutbox.incident_id == approval.incident_id)
+                .order_by(models.IntegrationOutbox.id)
+            ).all()
+            ops = [(r.integration, r.op) for r in rows]
+            assert ("slack", "notify") in ops
+            assert ("notion", "sync_page") in ops
+            assert any(
+                r.op == "transition_work_item" and r.payload.get("status") == "blocked"
+                for r in rows
+            )
         assert caps["kube_write"].calls == []
 
     def test_pending_approval_within_timeout_is_undisturbed(self, sqlite_sessions, store):

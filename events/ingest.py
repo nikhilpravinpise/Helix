@@ -195,6 +195,17 @@ def ingest_event(session: Session, event: EngineeringEvent) -> IngestResult:
             cause=f"event {event.event_type.value} from {event.source.value}",
             session=session,
         )
+        # 2.2: the incident's Slack thread starts at creation, not at the
+        # first coordinator hop - same transaction, same outbox contract
+        # as every later transition.
+        from integrations.lifecycle_sync import enqueue_for_transition
+
+        enqueue_for_transition(
+            session,
+            incident,
+            IncidentStatus.RECEIVED,
+            cause=f"new {incident.kind} incident",
+        )
 
     _record_tokens(session, incident, tokens)
     record = models.EventRecord(

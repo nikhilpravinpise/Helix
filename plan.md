@@ -49,6 +49,27 @@ budget), and `validate_fix_content` rejects file paths whose parent
 directory does not exist - the hallucinated-directory-tree signature
 arm E's self-certification missed.
 
+**Post-implementation audit findings, fixed before merge.** The
+exhaustive review loop over the landed Phase 2 code caught and repaired
+ten real defects: the timeout sweeps transitioned without enqueueing
+integration ops (an invisible escalation - now `run_incident` enqueues
+in the same transaction); incident creation never posted the Slack
+thread anchor; at `deploying`, a `build.passed` could mask a newer
+`deployment.failed` (newest outcome now wins); lifecycle event ids keyed
+on the milestone alone, so a second `review.requested` dedup-dropped
+(ids now key on the durable transition row, and replay breaks
+same-timestamp ties deterministically); the Slack interaction endpoint
+held its ack hostage to a synchronous `run_incident` (resumes are now
+background tasks - Slack's 3s contract holds); the GitHub PR adapter
+read a nonexistent `payload.user` so every real webhook emitted
+`actor="system"` and self-review exclusion silently stopped applying;
+drift reconcile needed two passes to close a terminal incident's
+recreated item (one pass now); `sync_graph` upserted without deleting
+phantom edges (full re-derivation now, scoped to Helix's own labels);
+the memory Notion client fed live drift reconciliation like the memory
+work provider's known trap; and provenance/UI omitted the change
+lifecycle's own stages (triage, reviews, work items, knowledge page).
+
 **Open commitments not covered by any subphase:**
 
 - **GCP / cloud deployment (D23).** DJS23OLOE501 requires it; Helix runs

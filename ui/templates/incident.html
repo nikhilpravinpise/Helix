@@ -14,6 +14,12 @@
       <div><dt>environment</dt><dd>{{ i.environment }}</dd></div>
       <div><dt>severity</dt><dd><span class="badge sev-{{ i.severity }}">{{ i.severity }}</span></dd></div>
       <div><dt>attempts</dt><dd class="num">{{ i.attempt_count }}</dd></div>
+      {% if i.kind == "change" %}
+      <div><dt>lifecycle</dt><dd><span class="badge">change</span></dd></div>
+      {% if i.owner %}<div><dt>owner</dt><dd class="mono">{{ i.owner }}</dd></div>{% endif %}
+      {% if i.priority %}<div><dt>priority</dt><dd class="mono">{{ i.priority }}</dd></div>{% endif %}
+      {% if i.duplicate_of %}<div><dt>duplicate of</dt><dd class="mono"><a href="/ui/incidents/{{ i.duplicate_of }}">{{ i.duplicate_of }}</a></dd></div>{% endif %}
+      {% endif %}
       <div><dt>linked PR</dt><dd class="mono">{{ i.linked_pr or "-" }}</dd></div>
       <div><dt>linked deploy</dt><dd class="mono">{{ i.linked_deployment or "-" }}</dd></div>
       <div><dt>opened</dt><dd class="mono">{{ i.created_at|dt }}</dd></div>
@@ -48,6 +54,44 @@
         {% endfor %}
       {% else %}<p class="none">none recorded</p>{% endif %}
     </li>
+
+    {% if i.kind == "change" %}
+    <li class="stage">
+      <h3><span class="stage-dot"></span>Triage</h3>
+      {% if stages.triage %}
+        {% for t in stages.triage %}
+        <div class="record">
+          <div class="record-head">
+            <span class="mono strong">#{{ t.id }} - {{ t.affected_service }}</span>
+            <span class="badge sev-{{ t.blast_radius }}">{{ t.blast_radius }}</span>
+            {% if t.owner %}<span class="muted">owner {{ t.owner }} ({{ t.owner_source }})</span>{% endif %}
+            {% if t.duplicate_of %}<span class="badge st-escalated">dup of {{ t.duplicate_of }}</span>{% endif %}
+            <span class="mono muted ts">{{ t.created_at|dt }}</span>
+          </div>
+          <p class="record-body">{{ t.rationale }}</p>
+        </div>
+        {% endfor %}
+      {% else %}<p class="none">none recorded</p>{% endif %}
+    </li>
+
+    <li class="stage">
+      <h3><span class="stage-dot"></span>Review</h3>
+      {% if stages.reviews %}
+        {% for r in stages.reviews %}
+        <div class="record">
+          <div class="record-head">
+            <span class="mono strong">#{{ r.id }} - {{ r.reviewer }}</span>
+            <span class="badge ap-{{ r.status }}">{{ r.status }}</span>
+            {% if r.decided_by %}<span class="muted">by {{ r.decided_by }} at <span class="mono">{{ r.decided_at|dt }}</span></span>{% endif %}
+            <span class="mono muted ts">{{ r.created_at|dt }}</span>
+          </div>
+          <p class="record-body">{{ r.rationale }}</p>
+          {% if r.note %}<p class="record-body">{{ r.note }}</p>{% endif %}
+        </div>
+        {% endfor %}
+      {% else %}<p class="none">none recorded</p>{% endif %}
+    </li>
+    {% endif %}
 
     <li class="stage">
       <h3><span class="stage-dot"></span>Evidence</h3>
@@ -247,6 +291,34 @@
         {% endfor %}
       {% else %}<p class="none">none recorded</p>{% endif %}
     </li>
+
+    {% if stages.work_items or stages.knowledge_page %}
+    <li class="stage">
+      <h3><span class="stage-dot"></span>Tracking</h3>
+      {% for w in stages.work_items %}
+      <div class="record">
+        <div class="record-head">
+          <span class="mono strong">{{ w.external_key or w.external_id }}</span>
+          <span class="badge">{{ w.provider }}</span>
+          <span class="badge">{{ w.status }}</span>
+          {% if w.assignee %}<span class="muted">{{ w.assignee }}</span>{% endif %}
+          {% if w.external_url %}<a class="mono small" href="{{ w.external_url }}">open</a>{% endif %}
+        </div>
+        <p class="record-body">{{ w.title }}</p>
+      </div>
+      {% endfor %}
+      {% if stages.knowledge_page %}
+      <div class="record">
+        <div class="record-head">
+          <span class="mono strong">knowledge page</span>
+          <span class="badge">{{ stages.knowledge_page.provider }}</span>
+          {% if stages.knowledge_page.external_url %}<a class="mono small" href="{{ stages.knowledge_page.external_url }}">open</a>{% endif %}
+        </div>
+        <p class="record-body">{{ stages.knowledge_page.title }}</p>
+      </div>
+      {% endif %}
+    </li>
+    {% endif %}
 
   </ol>
 

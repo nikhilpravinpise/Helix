@@ -86,12 +86,18 @@ An incident suspended at `awaiting_approval` forever is a hang, so a
 pending `approvals` row older than `HELIX_APPROVAL_TIMEOUT` (default
 24h, `0` disables) is handled two ways:
 
-- **The sweep** (`state/approvals.sweep_approval_timeout`) runs inside
-  `run_incident` while holding the incident row lock, before any resume:
-  the row is recorded `rejected` (`decided_by="helix"`, the note carries
-  the pending age) and the incident transitions
-  `awaiting_approval -> escalated` with the timeout cause - all in the
-  run's first transaction.
+- **The sweep** (`state/approvals.sweep_approval_timeout`, and its 2.6
+  twin `state/reviews.sweep_review_timeout` for a parked
+  `review_pending`) runs inside `run_incident` while holding the
+  incident row lock, before any resume: the row is recorded `rejected`
+  (`decided_by="helix"`, the note carries the pending age) and the
+  incident transitions `awaiting_approval -> escalated` (or
+  `review_pending -> escalated`) with the timeout cause - all in the
+  run's first transaction. When either sweep fires, `run_incident` calls
+  `enqueue_for_transition` for the escalation in that same transaction,
+  so a timeout projects like any other escalation (Slack notify, work
+  item `-> blocked`, terminal comment, page refresh) - never an
+  invisible state change.
 - **The decision-side guard**: `record_decision` refuses a decision on a
   pending row that has already outlived the window
   (`ApprovalDecidedError` -> CLI error / API 409). It writes nothing -

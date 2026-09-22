@@ -58,6 +58,11 @@ class ServiceEntry(BaseModel):
     owners: list[str] = Field(default_factory=list)
     default_reviewers: list[str] = Field(default_factory=list)
     path_owners: list[PathOwnerRule] = Field(default_factory=list)
+    # What this service depends on - databases, queues, other services.
+    # The graph projection turns each name into a DEPENDS_ON edge so the
+    # Knowledge Agent's neighborhood answer (graph.queries.
+    # services_depended_on_by) is real rather than permanently empty.
+    depends_on: list[str] = Field(default_factory=list)
 
 
 @dataclass(frozen=True)

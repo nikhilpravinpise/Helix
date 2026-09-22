@@ -41,7 +41,7 @@ from datetime import datetime
 from typing import Annotated
 from urllib.parse import parse_qsl
 
-from fastapi import Depends, FastAPI, Header, HTTPException, Request
+from fastapi import BackgroundTasks, Depends, FastAPI, Header, HTTPException, Request
 from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy import select
 from sqlalchemy.orm import Session
@@ -373,8 +373,10 @@ def reject_approval(
     return _decide_approval(approval_id, False, body, session)
 
 
-def _slack_action(actor: str, action: dict, session: Session, timeout_s: float) -> dict:
-    """One button press -> one approval decision plus a best-effort resume.
+def _slack_action(
+    actor: str, action: dict, session: Session, timeout_s: float, background: BackgroundTasks
+) -> dict:
+    """One button press -> one approval decision plus a scheduled resume.
 
     Mirrors _decide_approval but never raises HTTPException: Slack needs a
     fast 200 ack, and a stale button or a retried delivery must be an
@@ -431,30 +433,44 @@ def _slack_action(actor: str, action: dict, session: Session, timeout_s: float) 
         id_key: row_id,
         "decision": (approval.status if id_key == "approval_id" else review.status).value,
     }
+    # The resume runs after the ack - Slack's interaction deadline is 3s
+    # and a full run (verify windows, replan hops) can take minutes.
+    # Holding the HTTP response for it made Slack retry and mark the
+    # click failed while the work still happened; the decision is
+    # already durable, so scheduling the run is strictly honest.
     from agent.runner import run_incident
 
-    try:
-        run_incident(incident_id)
-        result["resumed"] = True
-    except Exception as exc:  # the decision is durable; the run is retryable
-        result["resumed"] = False
-        result["run_error"] = f"{type(exc).__name__}: {exc}"
-        get_logger().warning(
-            "slack decision resume failed", incident_id=incident_id, error=result["run_error"]
-        )
+    background.add_task(_resume_logged, run_incident, incident_id)
+    result["resumed"] = "scheduled"
     return result
 
 
+def _resume_logged(run_incident, incident_id: str) -> None:  # type: ignore[no-untyped-def]
+    """Background-task wrapper: a resume failure lands in the log, never
+    in a response Slack already got."""
+    try:
+        run_incident(incident_id)
+    except Exception as exc:  # the decision is durable; the run is retryable
+        get_logger().warning(
+            "slack decision resume failed",
+            incident_id=incident_id,
+            error=f"{type(exc).__name__}: {exc}",
+        )
+
+
 @app.post("/slack/interactions")
-async def slack_interactions(request: Request, session: DbSession) -> dict:
+async def slack_interactions(
+    request: Request, session: DbSession, background: BackgroundTasks
+) -> dict:
     """Slack's interactive webhook (subphase 2.2).
 
     Slack signs every POST with HELIX_SLACK_SIGNING_SECRET; the signature
     is the whole authentication (Slack cannot carry the intake bearer
     token), so an unset secret closes the surface - 503, secure by
     default. Slack requires the ack inside 3s: the decision commits
-    first, the run resume is best-effort, and retries/stale buttons come
-    back as 200-with-note rather than errors."""
+    first, the run resume is scheduled as a background task (a full run
+    can take minutes), and retries/stale buttons come back as
+    200-with-note rather than errors."""
     settings = get_settings()
     if not settings.slack_signing_secret:
         raise HTTPException(status_code=503, detail="slack signing secret not configured")
@@ -488,7 +504,9 @@ async def slack_interactions(request: Request, session: DbSession) -> dict:
     timeout = settings.slack_approval_timeout
     if timeout is None:
         timeout = settings.approval_timeout
-    decisions = [_slack_action(actor, a, session, timeout) for a in payload.get("actions") or []]
+    decisions = [
+        _slack_action(actor, a, session, timeout, background) for a in payload.get("actions") or []
+    ]
     return {"ok": True, "decisions": decisions}
 
 

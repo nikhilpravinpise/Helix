@@ -113,11 +113,15 @@ def test_neighbors_invalid_direction_raises() -> None:
         store.neighbors("x", direction="sideways")
 
 
-def test_clear_deletes_everything() -> None:
+def test_clear_deletes_only_helix_nodes() -> None:
+    """clear() must not wipe a shared database - only nodes carrying
+    Helix's own labels go."""
     store, driver = _store()
     store.clear()
-    query, _ = driver.queries[-1]
-    assert query == "MATCH (n) DETACH DELETE n"
+    query, params = driver.queries[-1]
+    assert "DETACH DELETE" in query
+    assert "labels(n) IN $labels" in query or "l IN $labels" in query
+    assert set(params["labels"]) == {t.value for t in NodeType}
 
 
 def test_ensure_constraints_runs_one_per_node_type() -> None:

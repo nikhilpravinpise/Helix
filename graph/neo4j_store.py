@@ -115,5 +115,13 @@ class Neo4jGraphStore:
             return out
 
     def clear(self) -> None:
+        # Scope the wipe to Helix's own vocabulary: the configured
+        # database may be shared, and `MATCH (n) DETACH DELETE n` would
+        # delete subgraphs that are not ours to delete. Nodes carrying
+        # none of our NodeType labels are left untouched.
+        labels = [t.value for t in NodeType]
         with self._driver.session(database=self._database) as session:
-            session.run("MATCH (n) DETACH DELETE n")
+            session.run(
+                "MATCH (n) WHERE any(l IN labels(n) WHERE l IN $labels) DETACH DELETE n",
+                labels=labels,
+            )

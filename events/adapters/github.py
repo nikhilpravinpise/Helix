@@ -140,6 +140,17 @@ def pull_request_events(
     number = payload.get("number")
     head = payload.get("head") or {}
     base = payload.get("base") or {}
+    # The PR's author: `pull_request.user.login` in GitHub's schema (the
+    # human whose change is under review - Review's self-review exclusion
+    # keys on it). `sender.login` is who triggered the action, which for
+    # synchronize can differ; author is the safer reading, with sender as
+    # the fallback for payload shapes that only carry the trigger. A
+    # top-level `user` never existed in this webhook - reading it meant
+    # every real PR emitted actor="system", and self-review exclusion
+    # silently stopped applying.
+    pr_user = (payload.get("pull_request") or {}).get("user") or {}
+    sender = payload.get("sender") or {}
+    author = pr_user.get("login") or sender.get("login") or payload.get("user") or "system"
     return [
         vendor_event(
             # A PR's identity plus its head sha: re-synchronizing to a
@@ -149,7 +160,7 @@ def pull_request_events(
             source=EventSource.GITHUB,
             service=service,
             environment=environment,
-            actor=str(payload.get("user") or "system"),
+            actor=str(author),
             metadata={
                 "pr": number,
                 "title": payload.get("title"),

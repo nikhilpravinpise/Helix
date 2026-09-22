@@ -47,6 +47,12 @@ def ingest_registry(store: GraphStore, registry) -> None:
         for reviewer in entry.default_reviewers:
             store.upsert_node(Node(type=NodeType.DEVELOPER, id=reviewer))
             store.upsert_edge(Edge(type=EdgeType.REVIEWS, source=reviewer, target=service))
+        for dep in entry.depends_on:
+            # The dependency may be a database or queue rather than a
+            # registered service - a bare node keyed by name keeps the
+            # edge honest either way.
+            store.upsert_node(Node(type=NodeType.SERVICE, id=dep))
+            store.upsert_edge(Edge(type=EdgeType.DEPENDS_ON, source=service, target=dep))
 
 
 def _pr_node_id(repo: str, pr_ref: str) -> str:
@@ -120,11 +126,18 @@ def sync_graph(session: Any, store: GraphStore, *, repo: str = "") -> int:
     """Re-derive the graph from every incident currently in Postgres plus
     the service registry. Idempotent - safe to call after every new batch
     of incidents/events (`helix graph-sync`). Returns the incident count
-    ingested."""
+    ingested.
+
+    The store is cleared first: a projection that only upserts keeps
+    facts Postgres already deleted (a work-item mirror reconcile
+    removed, a page replaced) as phantom edges forever. Derive means
+    replace - the rebuild below carries every current fact, so a cleared
+    store converges to exactly today's truth."""
     from sqlalchemy import select
 
     from agent.ops.registry import load_registry
 
+    store.clear()
     ingest_registry(store, load_registry())
     incidents = session.scalars(select(models.Incident)).all()
     for incident in incidents:

@@ -291,14 +291,30 @@ def run_incident(
         # Approval-timeout sweep (1.10): an incident parked at
         # awaiting_approval past HELIX_APPROVAL_TIMEOUT is rejected and
         # escalated here, under the incident lock, before any resume.
-        sweep_approval_timeout(session, incident, deps.approval_timeout)
+        approval_timed_out = sweep_approval_timeout(session, incident, deps.approval_timeout)
         # 2.6: a pending review request past the same timeout budget is
         # rejected-by-timeout and escalates - the identical fail-safe the
         # approval gate applies, so a reviewer who never answers never
         # strands the change.
         from state.reviews import sweep_review_timeout
 
-        sweep_review_timeout(session, incident, deps.approval_timeout)
+        review_timed_out = sweep_review_timeout(session, incident, deps.approval_timeout)
+        # A sweep that fired already transitioned the incident (to
+        # ESCALATED) inside this transaction - commit the projection
+        # ops with it, same contract the coordinator keeps for its own
+        # transitions, so a timeout escalation is as visible as any
+        # other (slack notify, work item -> blocked, page refresh). Only
+        # when a sweep actually fired this call - a `helix run` on an
+        # already-escalated incident must not re-notify.
+        if approval_timed_out is not None or review_timed_out is not None:
+            from integrations.lifecycle_sync import enqueue_for_transition
+
+            enqueue_for_transition(
+                session,
+                incident,
+                IncidentStatus.ESCALATED,
+                cause="gate timeout",
+            )
         suspended = session.scalar(
             select(models.WorkflowRun)
             .where(models.WorkflowRun.incident_id == incident.id)
