@@ -242,6 +242,24 @@ class TestIngestViaEvents:
         assert "invalid signal" in skip
 
 
+def test_change_flow_skips_on_unmet_requirements_before_ingesting():
+    """Change scenarios get the same honest requirements gate - no events
+    are ingested against a dead database."""
+    cfg = HarnessConfig(arms=["A"], database_url=BAD_URL)
+    record = run_scenario("org-known-owner-change", SCENARIOS["org-known-owner-change"], "A", cfg)
+    assert record.skipped is not None
+    assert "postgres" in record.skipped
+
+
+def test_change_flow_arm_d_needs_the_llm_key(monkeypatch):
+    """Arm D reasons through the LLM like B/C/E - no key is an honest
+    skip, not a failed run."""
+    monkeypatch.setattr(harness, "get_settings", lambda: SimpleNamespace(llm_api_key=None))
+    cfg = HarnessConfig(arms=["D"], database_url=BAD_URL)
+    record = run_scenario("org-known-owner-change", SCENARIOS["org-known-owner-change"], "D", cfg)
+    assert record.skipped.startswith("arm D requires HELIX_LLM_API_KEY")
+
+
 def test_run_scenario_event_path_skips_on_unmet_requirements_before_ingesting():
     """The requirements gate runs before intake, whichever path is
     configured - an event-path run with no Postgres must skip exactly like
@@ -367,6 +385,332 @@ class TestCrossArmIsolation:
             )
             # Untouched: still parked at verifying, not force-closed.
             assert IncidentStatus(incident.status) == IncidentStatus.VERIFYING
+
+
+# --- Change flow (subphase 2.9/2.11) ------------------------------------------
+
+
+def _file_db(tmp_path) -> tuple[str, "object"]:
+    """A file-backed SQLite URL + engine - the harness's subprocesses
+    and this test's own read-back each open their own engine, and only a
+    real file gives them the same database."""
+    url = f"sqlite:///{tmp_path / 'change.db'}"
+    engine = create_engine(url)
+    models.Base.metadata.create_all(engine)
+    return url, engine
+
+
+class TestIngestDeclaredEvents:
+    """Unit tier for change-flow intake: real `events.ingest.ingest_event`
+    against file SQLite, no subprocess."""
+
+    def test_single_pr_event_opens_a_change_incident(self, tmp_path):
+        db_url, engine = _file_db(tmp_path)
+        results, error = harness._ingest_declared_events(
+            SCENARIOS["org-known-owner-change"], db_url
+        )
+        assert error is None
+        assert len(results) == 1 and results[0]["created"] is True
+        with Session(engine) as session:
+            incident = session.scalar(select(models.Incident))
+            assert incident.kind == models.IncidentKind.CHANGE
+            assert incident.status == IncidentStatus.RECEIVED
+            assert {r.event_type for r in incident.event_records} == {
+                "pr.opened",
+                "incident.created",
+            }
+
+    def test_duplicate_events_open_two_incidents(self, tmp_path):
+        """The second pr.opened lands outside the correlation window via
+        offset_seconds and must get its own incident - the duplicate
+        scenario's whole premise."""
+        db_url, engine = _file_db(tmp_path)
+        results, error = harness._ingest_declared_events(SCENARIOS["org-duplicate-change"], db_url)
+        assert error is None
+        assert len(results) == 2
+        assert results[0]["created"] and results[1]["created"]
+        assert results[0]["incident_id"] != results[1]["incident_id"]
+        with Session(engine) as session:
+            assert session.scalars(select(models.Incident)).all().__len__() == 2
+
+    def test_invalid_event_type_is_an_honest_error(self, tmp_path):
+        db_url, _ = _file_db(tmp_path)
+        scenario = {
+            "events": [
+                {
+                    "type": "pr.nuked",
+                    "source": "github",
+                    "service": "payment-api",
+                    "environment": "sandbox",
+                }
+            ]
+        }
+        results, error = harness._ingest_declared_events(scenario, db_url)
+        assert error is not None
+        assert "ingest" in error
+
+
+class TestChangeDriveInProcess:
+    """`_drive_change` with `harness._helix` faked to call the real
+    `run_incident` graph in-process - the coordinator's transitions, the
+    scripted reviewer, the event injections and the integration settle
+    are all real; only the subprocess boundary is skipped."""
+
+    def _fake_helix(self, deps):
+        from agent.runner import run_incident
+
+        def _fake(args, env, stdin_text=None):
+            assert args[0] == "run"
+            run_incident(args[1], deps=deps, arm="A")
+            return SimpleNamespace(returncode=0, stderr="", stdout="")
+
+        return _fake
+
+    def test_known_owner_change_reaches_recovered(self, tmp_path, monkeypatch, store):
+        import functools
+
+        from fakes import FakeLLM, make_deps
+
+        db_url, engine = _file_db(tmp_path)
+        sessions = functools.partial(session_scope, engine)
+        deps, _ = make_deps(sessions, FakeLLM(), "cluster/crashloop", store, database_url=db_url)
+        monkeypatch.setattr(harness, "_helix", self._fake_helix(deps))
+
+        scenario = SCENARIOS["org-known-owner-change"]
+        record = run_scenario(
+            "org-known-owner-change",
+            scenario,
+            "A",
+            HarnessConfig(arms=["A"], database_url=db_url),
+        )
+        assert record.skipped is None
+        assert record.errors == []
+        assert record.final_status == "recovered"
+        assert record.owner == "alice"
+        assert record.reviews[0]["reviewer"] == "bob"
+        assert record.reviews[0]["status"] == "approved"
+        to = [t["to"] for t in record.transitions]
+        assert to == [
+            "received",
+            "triaged",
+            "owner_assigned",
+            "review_pending",
+            "approved",
+            "deploying",
+            "recovered",
+        ]
+        assert record.work_items[0]["status"] == "done"
+        assert all(c["ok"] for c in record.measured)
+
+    def test_reject_then_rereview_uses_a_different_reviewer(self, tmp_path, monkeypatch, store):
+        import functools
+
+        from fakes import FakeLLM, make_deps
+
+        db_url, engine = _file_db(tmp_path)
+        sessions = functools.partial(session_scope, engine)
+        deps, _ = make_deps(sessions, FakeLLM(), "cluster/crashloop", store, database_url=db_url)
+        monkeypatch.setattr(harness, "_helix", self._fake_helix(deps))
+
+        scenario = SCENARIOS["org-reject-rereview"]
+        record = run_scenario(
+            "org-reject-rereview",
+            scenario,
+            "A",
+            HarnessConfig(arms=["A"], database_url=db_url),
+        )
+        assert record.skipped is None
+        assert record.errors == []
+        assert record.final_status == "recovered"
+        assert [r["reviewer"] for r in record.reviews] == ["bob", "carol"]
+        assert [r["status"] for r in record.reviews] == ["rejected", "approved"]
+        to = [t["to"] for t in record.transitions]
+        assert to == [
+            "received",
+            "triaged",
+            "owner_assigned",
+            "review_pending",
+            "rejected",
+            "fix_required",
+            "review_pending",
+            "approved",
+            "deploying",
+            "recovered",
+        ]
+
+    def test_missing_owner_escalates_without_guessing(self, tmp_path, monkeypatch, store):
+        import functools
+
+        from fakes import FakeLLM, make_deps
+
+        db_url, engine = _file_db(tmp_path)
+        sessions = functools.partial(session_scope, engine)
+        deps, _ = make_deps(sessions, FakeLLM(), "cluster/crashloop", store, database_url=db_url)
+        monkeypatch.setattr(harness, "_helix", self._fake_helix(deps))
+
+        scenario = SCENARIOS["org-missing-owner"]
+        record = run_scenario(
+            "org-missing-owner",
+            scenario,
+            "A",
+            HarnessConfig(arms=["A"], database_url=db_url),
+        )
+        assert record.final_status == "escalated"
+        assert record.owner is None
+        assert [t["to"] for t in record.transitions] == ["received", "escalated"]
+        # The escalation is tracked work - one blocked item, not zero.
+        assert [w["status"] for w in record.work_items] == ["blocked"]
+
+    def test_duplicate_change_escalates_with_duplicate_edge(self, tmp_path, monkeypatch, store):
+        import functools
+
+        from fakes import FakeLLM, make_deps
+
+        db_url, engine = _file_db(tmp_path)
+        sessions = functools.partial(session_scope, engine)
+        deps, _ = make_deps(sessions, FakeLLM(), "cluster/crashloop", store, database_url=db_url)
+        monkeypatch.setattr(harness, "_helix", self._fake_helix(deps))
+
+        scenario = SCENARIOS["org-duplicate-change"]
+        record = run_scenario(
+            "org-duplicate-change",
+            scenario,
+            "A",
+            HarnessConfig(arms=["A"], database_url=db_url),
+        )
+        assert record.final_status == "escalated"
+        assert record.extra_incident_ids, "the first event's incident is tracked"
+        assert record.duplicate_of == record.extra_incident_ids[0]
+
+    def test_deploy_failure_hands_off_to_the_recovery_loop(self, tmp_path, monkeypatch, store):
+        """The cross-system path end to end: change lifecycle through
+        `deploying`, then the injected deployment.failed event hands the
+        SAME incident to the Ops loop, which diagnoses the fixture's
+        docker-build-failure signature and remediates via open_fix_pr."""
+        import functools
+
+        from fakes import FakeLLM, make_deps
+
+        db_url, engine = _file_db(tmp_path)
+        sessions = functools.partial(session_scope, engine)
+        deps, _ = make_deps(
+            sessions,
+            FakeLLM(),
+            "ci/docker-build-failure",
+            store,
+            database_url=db_url,
+        )
+        monkeypatch.setattr(harness, "_helix", self._fake_helix(deps))
+
+        scenario = SCENARIOS["xsys-pr-deploy-failure"]
+        record = run_scenario(
+            "xsys-pr-deploy-failure",
+            scenario,
+            "A",
+            HarnessConfig(arms=["A"], database_url=db_url),
+        )
+        assert record.skipped is None
+        assert record.errors == []
+        assert record.final_status == "recovered"
+        assert record.owner == "bob"
+        assert record.reviews[0]["reviewer"] == "carol"  # bob authored the PR
+        assert record.selected_action == "open_fix_pr"
+        assert record.decision_evidence["candidates_total"] >= 1
+        to = [t["to"] for t in record.transitions]
+        assert to == [
+            "received",
+            "triaged",
+            "owner_assigned",
+            "review_pending",
+            "approved",
+            "deploying",
+            "diagnosing",
+            "remediation_pending",
+            "validating",
+            "executing",
+            "verifying",
+            "recovered",
+        ]
+
+    def test_review_timeout_parks_honestly(self, tmp_path, monkeypatch, store):
+        """A scripted `timeout` never decides - the incident stays at
+        review_pending and the drive reports it parked, not failed."""
+        import functools
+
+        from fakes import FakeLLM, make_deps
+
+        db_url, engine = _file_db(tmp_path)
+        sessions = functools.partial(session_scope, engine)
+        deps, _ = make_deps(sessions, FakeLLM(), "cluster/crashloop", store, database_url=db_url)
+        monkeypatch.setattr(harness, "_helix", self._fake_helix(deps))
+
+        scenario = dict(SCENARIOS["org-known-owner-change"])
+        scenario["name"] = "timeout-test"  # validation binds name to file stem
+        scenario["review_decision"] = "timeout"
+        scenario["expected_work_item_status"] = "in_progress"
+        scenario["expected_transitions"] = [
+            "received",
+            "triaged",
+            "owner_assigned",
+            "review_pending",
+        ]
+        scenario["expected_final_state"] = {"status": "review_pending"}
+        record = run_scenario(
+            "timeout-test",
+            scenario,
+            "A",
+            HarnessConfig(arms=["A"], database_url=db_url),
+        )
+        assert record.final_status == "review_pending"
+        assert record.reviews[0]["status"] == "pending"
+        assert record.reviews[0]["decided_by"] is None
+
+
+class TestChangeFlowEndToEnd:
+    """Real `uv run helix` subprocesses against file-backed SQLite - the
+    change lifecycle driven exactly as the operator CLI drives it. Not
+    marked `integration`: nothing here needs live infrastructure (the DB
+    is a local file, the work provider is memory), so these run in the
+    default suite - a benchmark claim without a running E2E is not
+    evidence."""
+
+    def test_known_owner_change_recovers_via_real_cli(self, tmp_path):
+        db_url, engine = _file_db(tmp_path)
+        scenario = SCENARIOS["org-known-owner-change"]
+        record = run_scenario(
+            "org-known-owner-change",
+            scenario,
+            "A",
+            HarnessConfig(arms=["A"], database_url=db_url),
+        )
+        assert record.skipped is None
+        assert record.errors == []
+        assert record.final_status == "recovered"
+        assert record.owner == "alice"
+        assert record.reviews[0]["reviewer"] == "bob"
+        assert record.work_items[0]["status"] == "done"
+        assert all(c["ok"] for c in record.measured)
+        # The durable rows are readable straight off the SQLite file.
+        with Session(engine) as session:
+            incident = session.scalar(
+                select(models.Incident).where(models.Incident.incident_id == record.incident_id)
+            )
+            assert incident is not None
+            assert incident.owner == "alice"
+            assert incident.review_requests[0].status == models.ApprovalStatus.APPROVED
+
+    def test_missing_owner_escalates_via_real_cli(self, tmp_path):
+        db_url, _ = _file_db(tmp_path)
+        scenario = SCENARIOS["org-missing-owner"]
+        record = run_scenario(
+            "org-missing-owner",
+            scenario,
+            "A",
+            HarnessConfig(arms=["A"], database_url=db_url),
+        )
+        assert record.skipped is None
+        assert record.final_status == "escalated"
+        assert record.owner is None
 
 
 @pytest.mark.integration

@@ -17,6 +17,13 @@ ARM_A_DIRECT = {
     "recovery_success": 1.0,
     "measured_state_match": 1.0,
     "unsafe_action_rate": 0.0,
+    # Phase 2 (2.9/2.11): change-lifecycle metrics - a real report's
+    # summary emits every one of these keys, so the fixture must too.
+    "owner_accuracy": 1.0,
+    "reviewer_accuracy": 1.0,
+    "lifecycle_consistency": 1.0,
+    "duplicate_work_item_rate": 0.0,
+    "decision_evidence_coverage": 1.0,
 }
 
 

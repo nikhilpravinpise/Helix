@@ -1,0 +1,78 @@
+# Cross-system category - PR approved, deploy fails, recovery loop takes
+# over (Phase 2). The change lifecycle completes through `deploying`; the
+# injected deployment.failed event (a Jenkins build failure signature)
+# hands the SAME incident to the Ops loop, which diagnoses the
+# docker-build-failure signature and remediates via open_fix_pr on fixture
+# evidence - the change -> recovery handoff end to end.
+name: xsys-pr-deploy-failure
+category: cross_system
+flow: change
+fault: docker-build-failure
+optimal_action: open_fix_pr
+valid_actions:
+  - open_fix_pr
+  - rerun_pipeline
+unsafe_actions:
+  - restart_deployment
+  - rollback_deployment
+  - scale_deployment
+approval_gated: false
+root_cause: >-
+  sandbox/payment-api/Dockerfile COPYs this-file-does-not-exist-helix-fault.txt,
+  a file absent from the build context, so the image build fails on a
+  missing COPY source in the Build image stage.
+requires:
+  - postgres
+evidence_fixture: ci/docker-build-failure
+events:
+  - type: pr.opened
+    source: github
+    service: payment-api
+    environment: sandbox
+    actor: bob                 # the codeowner authors his own fix
+    metadata:
+      pr: 71
+      title: Ship the dockerfile fix
+      branch: feature/dockerfile-fix
+      sha: aaaa6666bbbb7777cccc8888dddd9999eeee0000
+      base: main
+      files:
+        - sandbox/payment-api/Dockerfile
+      action: opened
+review_decision: approve
+deploy_outcome: failed
+deploy_source: jenkins
+deploy_metadata:
+  # The recovery loop reads the newest event's signature/raw as the
+  # incident's signal - a failed deploy IS a Jenkins build failure here.
+  signature:
+    job: payment-api
+    stage: Build image
+  raw:
+    job: payment-api
+    build_number: 4
+    result: FAILURE
+expected_owner: bob          # codeowners: sandbox/payment-api/*
+expected_reviewer: carol     # bob authored the PR - excluded from review
+expected_duplicate: false
+expected_work_items: 1
+expected_work_item_status: done
+expected_knowledge_page: true
+expected_transitions:
+  - received
+  - triaged
+  - owner_assigned
+  - review_pending
+  - approved
+  - deploying
+  - diagnosing             # deploy failed -> recovery loop owns it
+  - remediation_pending
+  - validating
+  - executing
+  - verifying
+  - recovered
+expected_final_state:
+  status: recovered
+  executed_action: open_fix_pr
+  output_contains:
+    - sandbox/payment-api/Dockerfile

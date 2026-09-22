@@ -242,6 +242,45 @@ class TestGitHubAdapter:
             e.event_id for e in github.review_events(payload)
         ]
 
+    def test_pr_opened_actor_is_the_author_not_the_sender(self):
+        """GitHub's pull_request webhook carries the author at
+        `pull_request.user.login` and the trigger at `sender.login`; the
+        event's actor must be the author - Review's self-review exclusion
+        keys on it. A bare `payload.user` never existed in this schema."""
+        payload = {
+            "action": "opened",
+            "number": 7,
+            "pull_request": {"user": {"login": "dana"}},
+            "sender": {"login": "webhook-bot"},
+            "head": {"ref": "feature/x", "sha": "abc123"},
+            "base": {"ref": "main"},
+        }
+        events = github.pull_request_events(payload)
+        assert [e.event_type for e in events] == [EventType.PR_OPENED]
+        assert events[0].actor == "dana"
+
+    def test_pr_actor_falls_back_to_sender_when_no_pr_block(self):
+        """Webhook shapes that flatten `pull_request` (the benchmark's own
+        event dicts, some proxy payloads) still carry a real actor via
+        sender - never silently "system"."""
+        payload = {
+            "action": "synchronize",
+            "number": 7,
+            "sender": {"login": "dana"},
+            "head": {"ref": "feature/x", "sha": "def456"},
+            "base": {"ref": "main"},
+        }
+        assert github.pull_request_events(payload)[0].actor == "dana"
+
+    def test_pr_updated_redelivery_with_new_sha_is_a_new_event(self):
+        """A synchronize to a new head sha is a distinct update, not a
+        duplicate - the derived id keys on it."""
+        base = {"action": "synchronize", "number": 7, "sender": {"login": "d"}}
+        e1 = github.pull_request_events({**base, "head": {"sha": "aaa"}})
+        e2 = github.pull_request_events({**base, "head": {"sha": "bbb"}})
+        assert e1[0].event_type is EventType.PR_UPDATED
+        assert e1[0].event_id != e2[0].event_id
+
 
 class TestElkAdapter:
     """Built against the `_search` response shape `integrations.elk` queries

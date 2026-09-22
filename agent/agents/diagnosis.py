@@ -34,6 +34,7 @@ from sqlalchemy import select
 from agent.prompts.diagnosis import diagnosis_prompt, evidence_request_prompt
 from agent.retrieval_context import prior_incident_context
 from agent.state import Hypothesis, WorkflowState
+from helix.config import get_settings
 from helix.llm import LLMError
 from helix.observability import trace_workflow_step
 from integrations.evidence import (
@@ -426,14 +427,30 @@ def diagnosis_node(deps: "GraphDeps"):
                         )
                     )
 
+            prior = prior_incident_context(
+                deps, incident, (state.get("signal") or {}).get("signature")
+            )
+            if get_settings().graph_enabled:
+                # 2.8: knowledge context (event timeline + graph
+                # neighborhood) augments retrieval when the graph layer is
+                # on; include_retrieval=False avoids duplicating the E6
+                # block already in `prior`.
+                from agent.knowledge_context import knowledge_context
+
+                extra = knowledge_context(
+                    deps,
+                    incident,
+                    (state.get("signal") or {}).get("signature"),
+                    include_retrieval=False,
+                )
+                if extra:
+                    prior = f"{prior}\n\n{extra}" if prior else extra
             hypothesis = _interpret(
                 deps,
                 incident,
                 collected,
                 errors,
-                prior_context=prior_incident_context(
-                    deps, incident, (state.get("signal") or {}).get("signature")
-                ),
+                prior_context=prior,
             )
             _persist(deps, state, fresh, hypothesis)
 

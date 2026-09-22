@@ -153,6 +153,54 @@ def build_parser() -> argparse.ArgumentParser:
         help="maximum events to publish in one drain (default: 500)",
     )
 
+    sync = subparsers.add_parser(
+        "sync",
+        help="drain the integration outbox to Slack/work-management/Notion "
+        "(subphases 2.2/2.3/2.4). Rows were committed with the state changes "
+        "that caused them, so this only delivers what is already durable; "
+        "re-running is safe - sent rows are never re-sent, and failed rows "
+        "retry until their attempt budget is spent",
+    )
+    sync.add_argument(
+        "--limit",
+        type=int,
+        default=200,
+        help="maximum outbox rows to deliver in one drain (default: 200)",
+    )
+
+    reviews = subparsers.add_parser(
+        "reviews",
+        help="list review requests (pending by default; --all includes decided)",
+    )
+    reviews.add_argument(
+        "--all", action="store_true", help="include decided rows, not just pending"
+    )
+    reviews.add_argument("--incident", metavar="INC_ID", default=None, help="only this incident")
+
+    review = subparsers.add_parser(
+        "review",
+        help="record a reviewer's decision on an incident's pending review "
+        "request and resume the suspended run (subphase 2.6)",
+    )
+    review.add_argument("incident_id", metavar="INC_ID", help="the incident id (INC-*)")
+    review.add_argument(
+        "decision",
+        choices=["approve", "reject"],
+        help="approve sends the change to DEPLOYING; reject drives REJECTED -> FIX_REQUIRED",
+    )
+    review.add_argument(
+        "--actor",
+        default=None,
+        help="reviewer identity recorded on the row (default: HELIX_OPERATOR)",
+    )
+    review.add_argument("--note", default="", help="optional decision note")
+
+    subparsers.add_parser(
+        "graph-sync",
+        help="re-derive the relationship graph from Postgres state + the "
+        "service registry (idempotent; needs HELIX_GRAPH_ENABLED=true)",
+    )
+
     return parser
 
 
@@ -568,6 +616,267 @@ def _cmd_provenance(args: argparse.Namespace) -> int:
     return 0
 
 
+def _cmd_sync(args: argparse.Namespace) -> int:
+    """Drain the integration outbox (2.2/2.3/2.4): pending Slack notifies
+    and approval requests, work-item ops, and Notion page syncs are
+    delivered to the configured providers. Same guarantee as `helix
+    emit`: only what is already durable is delivered, and re-running is
+    safe - sent rows never re-send."""
+    from sqlalchemy import create_engine
+    from sqlalchemy.exc import SQLAlchemyError
+
+    from helix.config import get_settings
+    from integrations.outbox import drain_outbox
+    from state.db import session_scope
+
+    try:
+        engine = create_engine(get_settings().database_url)
+        with session_scope(engine) as session:
+            summary = drain_outbox(session, limit=args.limit)
+            # 2.9: drift reconciliation - compare each work_items/
+            # knowledge_pages mirror against its provider and enqueue the
+            # repair ops, then drain once more so the repairs land in the
+            # same call. Unconfigured integrations skip cleanly.
+            from integrations.notion import get_notion_client
+            from integrations.reconcile import (
+                reconcile_knowledge_pages,
+                reconcile_work_items,
+            )
+            from integrations.work import get_work_provider
+
+            drift: dict[str, int] = {}
+            work = get_work_provider()
+            # `memory` is the dev provider - its remote IS the local
+            # mirror, so there is no independent store to drift from; in a
+            # fresh process it would look "all missing" and wrongly
+            # enqueue recreates. Reconcile is a live-provider operation.
+            if work is not None and work.name != "memory":
+                drift.update(
+                    {f"work_{k}": v for k, v in reconcile_work_items(session, work).items()}
+                )
+            notion = get_notion_client()
+            # Same rule as the work provider above: the memory client's
+            # store is process-local, so a fresh process sees "every page
+            # missing" and would churn recreates. Live drift needs a
+            # live provider.
+            from integrations.notion.memory import MemoryNotionClient
+
+            if notion is not None and not isinstance(notion, MemoryNotionClient):
+                drift.update(reconcile_knowledge_pages(session, notion))
+            repairs = sum(drift.values())
+            if repairs:
+                repair_summary = drain_outbox(session, limit=args.limit)
+                for key in summary:
+                    summary[key] += repair_summary[key]
+            # 2.7: the graph is a projection of this same state - when the
+            # graph layer is enabled, sync re-derives it so new incidents,
+            # work items, and pages land in the graph without a separate
+            # operator step. A Neo4j outage degrades to a warning, never a
+            # failed sync - the outbox drain above already committed.
+            if get_settings().graph_enabled:
+                from graph import get_graph_store
+                from graph.ingest import sync_graph
+
+                store = get_graph_store()
+                try:
+                    ingested = sync_graph(session, store)
+                    print(f"graph synced: {ingested} incident(s) ingested")
+                except Exception as exc:  # noqa: BLE001 - advisory projection
+                    print(
+                        f"graph sync skipped: {type(exc).__name__}: {exc} "
+                        "(is Neo4j up? see docs/bring-up.md)",
+                        file=sys.stderr,
+                    )
+                finally:
+                    close = getattr(store, "close", None)
+                    if callable(close):
+                        close()
+    except SQLAlchemyError as exc:
+        print(
+            f"helix sync: database error (is Postgres up? see scripts/db-up.sh): {exc}",
+            file=sys.stderr,
+        )
+        return 1
+    print(
+        f"outbox drain: {summary['sent']} sent, {summary['skipped']} skipped "
+        f"(unconfigured), {summary['failed']} failed, {summary['pending']} still pending"
+    )
+    if drift:
+        detail = ", ".join(f"{k}={v}" for k, v in drift.items() if v)
+        print(f"drift reconciliation: {detail or 'none'}")
+    return 0
+
+
+def _cmd_graph_sync() -> int:
+    """Re-derive the relationship graph from durable state (2.7). The
+    store is a projection - Postgres is the source of truth - so this is
+    idempotent and safe to run after any batch of incidents/events."""
+    from sqlalchemy import create_engine
+    from sqlalchemy.exc import SQLAlchemyError
+
+    from graph import get_graph_store
+    from graph.ingest import sync_graph
+    from helix.config import get_settings
+    from state.db import session_scope
+
+    settings = get_settings()
+    if not settings.graph_enabled:
+        print(
+            "helix graph-sync: HELIX_GRAPH_ENABLED is false - the graph "
+            "layer is off (set it true and configure HELIX_NEO4J_*)",
+            file=sys.stderr,
+        )
+        return 2
+    try:
+        engine = create_engine(settings.database_url)
+        with session_scope(engine) as session:
+            store = get_graph_store()
+            try:
+                count = sync_graph(session, store)
+            finally:
+                close = getattr(store, "close", None)
+                if callable(close):
+                    close()
+    except SQLAlchemyError as exc:
+        print(
+            f"helix graph-sync: database error (is Postgres up? see scripts/db-up.sh): {exc}",
+            file=sys.stderr,
+        )
+        return 1
+    except Exception as exc:
+        print(
+            f"helix graph-sync: graph store unreachable (is Neo4j up?): {exc}",
+            file=sys.stderr,
+        )
+        return 1
+    print(f"graph synced: {count} incident(s) ingested")
+    return 0
+
+
+def _cmd_reviews(args: argparse.Namespace) -> int:
+    """List review_requests rows - pending by default, `--all` includes
+    decided (2.6)."""
+    from sqlalchemy import select
+    from sqlalchemy.exc import SQLAlchemyError
+
+    from state import models
+    from state.db import session_scope
+
+    try:
+        with session_scope() as session:
+            query = select(models.ReviewRequest).order_by(models.ReviewRequest.id.desc())
+            if not args.all:
+                query = query.where(models.ReviewRequest.status == models.ApprovalStatus.PENDING)
+            if args.incident:
+                query = query.join(models.Incident).where(
+                    models.Incident.incident_id == args.incident
+                )
+            rows = [
+                (
+                    row.id,
+                    row.incident.incident_id,
+                    row.reviewer,
+                    row.status.value,
+                    row.decided_by,
+                    row.rationale,
+                )
+                for row in session.scalars(query).all()
+            ]
+    except SQLAlchemyError as exc:
+        print(
+            f"helix reviews: database error (is Postgres up? see scripts/db-up.sh): {exc}",
+            file=sys.stderr,
+        )
+        return 1
+    if not rows:
+        print("no review requests pending" if not args.all else "no review requests")
+        return 0
+    for row_id, incident_id, reviewer, status, decided_by, rationale in rows:
+        decided = f" by {decided_by}" if decided_by else ""
+        print(f"#{row_id}  {incident_id}  {reviewer:<16} {status:<9}{decided}  {rationale}")
+    return 0
+
+
+def _cmd_review(args: argparse.Namespace) -> int:
+    """Record a reviewer's decision on the pending review_requests row
+    and resume the suspended run (2.6). Same durability contract as
+    `helix approve`: the decision commits first, the resume is
+    best-effort, and an already-decided row is a clean report rather
+    than a second decision."""
+    from sqlalchemy import select
+    from sqlalchemy.exc import SQLAlchemyError
+
+    from helix.config import get_settings
+    from state import models
+    from state.db import session_scope
+    from state.reviews import (
+        ReviewDecidedError,
+        latest_for_incident,
+        pending_for_incident,
+        record_decision,
+    )
+
+    approved = args.decision == "approve"
+    actor = args.actor or get_settings().operator
+    try:
+        with session_scope() as session:
+            incident = session.scalar(
+                select(models.Incident).where(models.Incident.incident_id == args.incident_id)
+            )
+            if incident is None:
+                print(
+                    f"helix review: no such incident: {args.incident_id}",
+                    file=sys.stderr,
+                )
+                return 2
+            pending = pending_for_incident(session, incident.id)
+            if pending is None:
+                latest = latest_for_incident(session, incident.id)
+                if latest is not None:
+                    print(
+                        f"{args.incident_id}: review #{latest.id} already "
+                        f"{latest.status.value} by {latest.decided_by} - nothing to decide",
+                    )
+                    return 0
+                print(
+                    f"helix review: no pending review for {args.incident_id}",
+                    file=sys.stderr,
+                )
+                return 2
+            record_decision(session, pending, approved, actor, args.note)
+            review_id = pending.id
+            reviewer = pending.reviewer
+    except ReviewDecidedError as exc:
+        print(f"helix review: {exc}", file=sys.stderr)
+        return 2
+    except SQLAlchemyError as exc:
+        print(
+            f"helix review: database error (is Postgres up? see scripts/db-up.sh): {exc}",
+            file=sys.stderr,
+        )
+        return 1
+
+    decision = "approved" if approved else "rejected"
+    print(f"{args.incident_id}: review #{review_id} {decision} by {actor} ({reviewer})")
+
+    from agent.runner import RunConflictError, run_incident
+
+    try:
+        result = run_incident(args.incident_id)
+    except RunConflictError as exc:
+        print(f"helix review: decision recorded; resume deferred: {exc}", file=sys.stderr)
+        return 0
+    except Exception as exc:
+        print(
+            f"helix review: decision recorded; resume failed "
+            f"(`helix run {args.incident_id}` drives it later): {exc}",
+            file=sys.stderr,
+        )
+        return 0
+    print(f"{result.incident_id}: status={result.status} run={result.run_status}")
+    return 0
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = build_parser()
     args = parser.parse_args(argv)
@@ -596,4 +905,12 @@ def main(argv: list[str] | None = None) -> int:
         return _cmd_emit(args)
     if args.command == "provenance":
         return _cmd_provenance(args)
+    if args.command == "sync":
+        return _cmd_sync(args)
+    if args.command == "reviews":
+        return _cmd_reviews(args)
+    if args.command == "review":
+        return _cmd_review(args)
+    if args.command == "graph-sync":
+        return _cmd_graph_sync()
     return 2

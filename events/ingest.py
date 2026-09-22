@@ -47,10 +47,20 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from events.correlation import CORRELATION_WINDOW, tokens_for
-from events.schemas import EngineeringEvent, EventSource
+from events.schemas import EngineeringEvent, EventSource, EventType
 from state import machine, models
 from state.intake import _new_incident_id
 from state.machine import IncidentStatus
+
+#: Event types that open a `change` incident - the Phase 2 review
+#: lifecycle's entry trigger (CONTEXT.md section 16: "GitHub PR opened").
+#: PR_UPDATED is included for the orphan case: a pr.updated whose
+#: original change incident already went terminal (missed or aged-out
+#: pr.opened) is still change activity, not a runtime fault - it opens a
+#: change incident rather than feeding a code event to the Ops loop.
+#: Every other event type opens a `recovery` incident, Phase 1's
+#: unchanged default.
+_CHANGE_EVENT_TYPES = frozenset({EventType.PR_OPENED, EventType.PR_UPDATED, EventType.PUSH_CREATED})
 
 
 class IngestResult(BaseModel):
@@ -172,6 +182,11 @@ def ingest_event(session: Session, event: EngineeringEvent) -> IngestResult:
             environment=event.environment,
             severity=str((event.metadata or {}).get("severity") or "medium"),
             status=IncidentStatus.RECEIVED,
+            kind=(
+                models.IncidentKind.CHANGE
+                if event.event_type in _CHANGE_EVENT_TYPES
+                else models.IncidentKind.RECOVERY
+            ),
         )
         session.add(incident)
         session.flush()
@@ -179,6 +194,17 @@ def ingest_event(session: Session, event: EngineeringEvent) -> IngestResult:
             incident,
             cause=f"event {event.event_type.value} from {event.source.value}",
             session=session,
+        )
+        # 2.2: the incident's Slack thread starts at creation, not at the
+        # first coordinator hop - same transaction, same outbox contract
+        # as every later transition.
+        from integrations.lifecycle_sync import enqueue_for_transition
+
+        enqueue_for_transition(
+            session,
+            incident,
+            IncidentStatus.RECEIVED,
+            cause=f"new {incident.kind} incident",
         )
 
     _record_tokens(session, incident, tokens)

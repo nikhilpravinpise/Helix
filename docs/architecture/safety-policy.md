@@ -1,7 +1,7 @@
-# Safety policy, approval gate, and execution (subphase 1.8)
+# Safety policy, approval gate, and execution (subphase 1.8, coherence in 2.1)
 
 This document is the safety story behind the write path: the access table
-in code, the durable approval gate, and the two enforcement layers that
+in code, the evidence-coherence check, the durable approval gate, and the two enforcement layers that
 keep a wrong verdict from ever reaching a system.
 
 ```
@@ -13,15 +13,25 @@ validation verdict -> coordinator policy gate -> awaiting_approval --approve--> 
 
 ## The access table as code
 
-`agent/policy.py::decide(action, params, environment)` is pure - same
+`agent/policy.py::decide(action, params, environment, evidence_types=None)` is pure - same
 inputs, same verdict, no I/O. It returns a `PolicyVerdict`:
 
 | Verdict | When | Effect |
 |---|---|---|
 | `ALLOW` | Read-only / no-op actions (none yet - every catalogue write is at least low-tier) | Execute |
 | `ALLOW_WITH_CHECKS` | `low`/`medium` tier write in `sandbox`/`staging` | Execute; `verification_required` is set for `medium` (the 1.9 verifier needs the expected_effect to check against) |
-| `REQUIRE_APPROVAL` | `high` tier anywhere, or ANY write in `production` (or an unknown environment - fail-safe) | Park at `awaiting_approval` with a pending approvals row |
+| `REQUIRE_APPROVAL` | `high` tier anywhere, ANY write in `production` (or an unknown environment - fail-safe), or a runtime-mutating action proposed on source-control-only evidence (coherence, below) | Park at `awaiting_approval` with a pending approvals row |
 | `DENY` | Unknown action, params fail the catalogue's model, or a bound violation (protected branch, write root, manifest allowlist) | Replan with the fingerprint excluded; audited as a `refused` executions row |
+
+Evidence coherence (2.1, the 1.5 ablation's open defect): when the caller
+supplies `evidence_types` (canonical event types - signals classified
+through `events.classify`, event records directly), a kubernetes/jenkins
+executor action proposed on evidence with no runtime type
+(`build.*`, `deployment.*`, `pod.failed`, `service.unhealthy`) escalates
+to REQUIRE_APPROVAL. The domain is the event TYPE, not the vendor source:
+a `build.failed` via a GitHub check-run is CI evidence and proceeds,
+while a `pr.rejected` cannot authorize a cluster rollback. `None` skips
+the check (the executor's re-decide relies on the coordinator's verdict).
 
 Environment semantics: `decide` gates on the **incident's** target
 environment (`signal.environment` -> `incidents.environment`), never on

@@ -131,6 +131,78 @@ class TestDeny:
         assert verdict.decision == PolicyDecision.DENY
 
 
+class TestEvidenceCoherence:
+    """The 1.5 ablation's open defect, fixed: an action whose executor
+    mutates a running system (kubernetes, jenkins) proposed on evidence
+    that only ever touched source control escalates to REQUIRE_APPROVAL
+    - the incoherence a human must sign off, rather than a silent allow
+    that rolled back a deployment over a rejected PR in the wild.
+
+    The domain is the canonical event TYPE, not the vendor source: a
+    `build.failed` arriving through GitHub's check-run webhook is CI
+    evidence, while a `pr.rejected` from anywhere is only a code
+    signal."""
+
+    CODE_ONLY = frozenset({"pr.rejected"})
+    RUNTIME = frozenset({"build.failed"})
+    MIXED = frozenset({"pr.rejected", "deployment.failed"})
+
+    def test_k8s_write_on_code_only_evidence_requires_approval(self):
+        verdict = decide("rollback_deployment", dict(K8S), "sandbox", evidence_types=self.CODE_ONLY)
+        assert verdict.decision == PolicyDecision.REQUIRE_APPROVAL
+        assert "runtime" in verdict.reason
+
+    def test_jenkins_write_on_code_only_evidence_requires_approval(self):
+        verdict = decide(
+            "rerun_pipeline", {"job": "payment-api"}, "sandbox", evidence_types=self.CODE_ONLY
+        )
+        assert verdict.decision == PolicyDecision.REQUIRE_APPROVAL
+
+    def test_k8s_write_on_runtime_evidence_proceeds_normally(self):
+        verdict = decide("rollback_deployment", dict(K8S), "sandbox", evidence_types=self.RUNTIME)
+        assert verdict.decision == PolicyDecision.ALLOW_WITH_CHECKS
+
+    def test_k8s_write_on_mixed_evidence_proceeds_normally(self):
+        verdict = decide("rollback_deployment", dict(K8S), "sandbox", evidence_types=self.MIXED)
+        assert verdict.decision == PolicyDecision.ALLOW_WITH_CHECKS
+
+    def test_code_fix_on_code_evidence_is_not_gated(self):
+        """open_fix_pr (github executor) is coherent for ANY evidence
+        domain - a code fix is always a legitimate remediation shape."""
+        params = {
+            "branch": "helix/INC-deadbeef",
+            "files": [{"path": "sandbox/payment-api/app/x.py", "content": "x=1"}],
+            "title": "fix",
+        }
+        verdict = decide("open_fix_pr", params, "sandbox", evidence_types=self.RUNTIME)
+        assert verdict.decision != PolicyDecision.REQUIRE_APPROVAL
+
+    def test_check_run_failure_counts_as_runtime_evidence(self):
+        """The check-run case that motivated event-type domains: a
+        GitHub-sourced build.failed is CI evidence - rerun_pipeline must
+        not be gated just because the webhook vendor was github."""
+        verdict = decide(
+            "rerun_pipeline", {"job": "payment-api"}, "sandbox", evidence_types=self.RUNTIME
+        )
+        assert verdict.decision == PolicyDecision.ALLOW_WITH_CHECKS
+
+    def test_no_types_supplied_skips_the_check(self):
+        """`None` = caller cannot supply evidence kinds (the executor's
+        own enforcement re-decision) - the routing check stays where the
+        evidence lives, in the coordinator."""
+        verdict = decide("rollback_deployment", dict(K8S), "sandbox")
+        assert verdict.decision == PolicyDecision.ALLOW_WITH_CHECKS
+
+    def test_coherence_gate_still_gates_in_production(self):
+        """Coherence is additional, never weaker: a code-only incident in
+        production still requires approval through the environment rule
+        as well."""
+        verdict = decide(
+            "rollback_deployment", dict(K8S), "production", evidence_types=self.CODE_ONLY
+        )
+        assert verdict.decision == PolicyDecision.REQUIRE_APPROVAL
+
+
 class TestFingerprintStability:
     """The verdict carries the same fingerprint identity approvals rows
     and exclusions key on - a granted approval can only bless the exact

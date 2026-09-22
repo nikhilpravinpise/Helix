@@ -30,7 +30,7 @@ Strategies live in `agent/validation/`, one module per action family:
 |---|---|---|---|
 | `kubernetes_target` | `deployments.py` | restart / rollback / scale deployment | Deployment exists in the namespace (evidence lookup); `can_i` for the executor's verb - `patch deployments` for restart/rollback, `update deployments/scale` for scale. |
 | `manifest_dry_run` | `manifests.py` | reapply_manifest | Path re-asserted against the k8s allowlist; committed file exists; parses; every doc has apiVersion/kind/metadata.name; `dry_run_apply` accepted. |
-| `fix_content` | `fix_pr.py` | open_fix_pr | Per generated file: path re-asserted under `sandbox/payment-api/`; k8s manifests parse + carry required keys + `dry_run_apply`; `*.py` ast.parse; other `*.yaml` safe_load; Dockerfile/others non-empty. |
+| `fix_content` | `fix_pr.py` | open_fix_pr | Per generated file: path re-asserted under `sandbox/payment-api/`; parent directory must exist in the repo (hallucinated-tree check, 2.1); k8s manifests parse + carry required keys + `dry_run_apply`; `*.py` ast.parse; other `*.yaml` safe_load; Dockerfile/others non-empty. |
 | `pipeline_exists` | `pipeline.py` | rerun_pipeline | Jenkins `get_job` - job exists (404 is FAIL) and has a previous build (none -> NOT_VALIDATABLE: a never-built job has nothing to re-run, and that cannot be checked honestly). |
 
 Strategies take the catalogue params model (re-validated at the node -

@@ -13,13 +13,13 @@ Phases follow the source documents exactly. This file adds 32 subphases, each wi
 **Last updated: 2026-09-21.** Keep this block current - it is the one
 place that answers "how much is done" without reading the whole file.
 
-**20 of 32 subphases complete (63%). Phase 1.5 is finished.**
+**31 of 32 subphases complete (97%). Phase 2 is implemented.**
 
 | Phase | Subphases | Status |
 |---|---|---|
 | Phase 1 - MVP | 1.1 - 1.13 | **13/13 done.** Exit gate met: the benchmark runs unattended and reports all five metrics |
-| Phase 1.5 - Event Layer | E1 - E7 | **7/7 done.** All exit criteria met, including E7's ablation. One open defect found by it, recorded below |
-| Phase 2 - Full Helix | 2.1 - 2.11 | **0/11.** Not started, deliberately |
+| Phase 1.5 - Event Layer | E1 - E7 | **7/7 done.** All exit criteria met, including E7's ablation. Its open defects are fixed in Phase 2 - recorded below |
+| Phase 2 - Full Helix | 2.1 - 2.11 | **11/11 implemented.** Change-review lifecycle, Slack/Notion/Jira/Linear/Trello integrations, Neo4j graph + GraphRAG, arm D, and the expanded benchmark all land and test green - see HANDOFF-PHASE2.md |
 | Optional | OPT-1 | Not started |
 
 **Phase 1.5's exit gate is met.** Phase 1 benchmark results reproduce
@@ -34,17 +34,41 @@ graph did not: arm E is the worst LLM arm and the least stable. Arm A
 scores 1.00 with zero spread across three runs, which measures the
 determinism policy rather than the architecture.
 
-**One open defect, found by the ablation and not yet fixed.** Arm B
-selected `rollback_deployment` - a Kubernetes write - in response to a
-rejected pull request and a diverged branch, and the policy gate allowed
-it unapproved, in 2 of 3 runs. `agent/policy.py` judges an action's risk
-tier in isolation and never asks whether the action is coherent with the
-evidence that produced it. Harmless only because fixture mode records
-intended writes (D10); with a live kube context it is a real rollback
-triggered by a code-review event. `benchmark/tolerance.py` fails its
-verdict on this, correctly. Arms A, C and E never did it - arm B is the
-only arm with no validation stage, which is the ablation demonstrating
-what validation is for.
+**Phase 1.5's open defects, fixed in Phase 2.** Arm B selected
+`rollback_deployment` - a Kubernetes write - in response to a rejected
+pull request and a diverged branch, and the policy gate allowed it
+unapproved, in 2 of 3 runs. `agent/policy.py` judged an action's risk
+tier in isolation and never asked whether the action was coherent with
+the evidence that produced it. Phase 2 added the coherence check:
+`decide()` now takes the incident's canonical evidence types and
+escalates any runtime-mutating action (kubernetes/jenkins executor)
+proposed on source-control-only evidence to REQUIRE_APPROVAL. Two
+companion gaps closed at the same time: `executing -> failed` now
+replans in run for refused executions (bounded by the exclusion
+budget), and `validate_fix_content` rejects file paths whose parent
+directory does not exist - the hallucinated-directory-tree signature
+arm E's self-certification missed.
+
+**Post-implementation audit findings, fixed before merge.** The
+exhaustive review loop over the landed Phase 2 code caught and repaired
+ten real defects: the timeout sweeps transitioned without enqueueing
+integration ops (an invisible escalation - now `run_incident` enqueues
+in the same transaction); incident creation never posted the Slack
+thread anchor; at `deploying`, a `build.passed` could mask a newer
+`deployment.failed` (newest outcome now wins); lifecycle event ids keyed
+on the milestone alone, so a second `review.requested` dedup-dropped
+(ids now key on the durable transition row, and replay breaks
+same-timestamp ties deterministically); the Slack interaction endpoint
+held its ack hostage to a synchronous `run_incident` (resumes are now
+background tasks - Slack's 3s contract holds); the GitHub PR adapter
+read a nonexistent `payload.user` so every real webhook emitted
+`actor="system"` and self-review exclusion silently stopped applying;
+drift reconcile needed two passes to close a terminal incident's
+recreated item (one pass now); `sync_graph` upserted without deleting
+phantom edges (full re-derivation now, scoped to Helix's own labels);
+the memory Notion client fed live drift reconciliation like the memory
+work provider's known trap; and provenance/UI omitted the change
+lifecycle's own stages (triage, reviews, work items, knowledge page).
 
 **Open commitments not covered by any subphase:**
 
@@ -53,13 +77,16 @@ what validation is for.
   kind-to-GKE delta and `scripts/gcp-up.sh` is the entry point, which
   refuses to run and prints the prerequisites. Nothing in the repo
   depends on GCP, so this is additive work rather than a migration.
-- **Four Phase 1 gaps** carried from HANDOFF-PHASE1.md: no
+- **Three Phase 1 gaps** carried from HANDOFF-PHASE1.md: no
   `HELIX_GITHUB_TOKEN` (so `open_fix_pr` cannot write for real), Ansible
-  validated by syntax only, Jenkins and SonarQube torn down, and
-  `executing -> failed` does not replan within a run.
-- **Arm E hallucinates file paths** and its own verification does not
-  catch it - caught only by the benchmark's independent measurement. The
-  most important open finding in the project, and not a benchmark defect.
+  validated by syntax only, and Jenkins and SonarQube torn down. (The
+  fourth - `executing -> failed` not replanning within a run - is fixed:
+  refused executions replan in run, bounded by the exclusion budget.)
+- **Arm E's hallucinated-paths finding is mitigated, not closed.** The
+  validator now rejects file paths whose parent directory does not
+  exist, which catches the src/main/java class of failure. The deeper
+  finding - a model can still write plausible-but-wrong content into
+  real paths - is why `recovered` and `measured` stay separate columns.
 
 **How to verify any of this yourself:** `docs/verifying.md`.
 

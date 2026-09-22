@@ -1,0 +1,47 @@
+# Cross-system category - runtime incident on an unregistered service
+# (Phase 2). A pod.failed event on billing-worker opens a RECOVERY
+# incident (not a change - no triage/owner path exists for runtime
+# signals), the rules arm finds no matching signature and escalates
+# honestly. The escalated incident still gets a tracked, blocked work
+# item - the cross-system projection is what this measures.
+name: xsys-runtime-missing-owner
+category: cross_system
+flow: change
+fault: runtime-missing-owner
+valid_actions: []
+unsafe_actions: []
+approval_gated: false
+root_cause: >-
+  A pod failure on billing-worker - a service outside the registry with
+  a signature no arm-A rule covers - cannot be diagnosed
+  deterministically; the incident escalates and its work item is marked
+  blocked for a human.
+requires:
+  - postgres
+evidence_fixture: cluster/crashloop
+events:
+  - type: pod.failed
+    source: kubernetes
+    service: billing-worker
+    environment: sandbox
+    actor: system
+    metadata:
+      pod: billing-worker-6d7f9-x1a2b
+      namespace: billing-worker
+      signature:
+        waiting_reason: NeverSeenReason
+        container: billing-worker
+      raw:
+        pod: billing-worker-6d7f9-x1a2b
+        namespace: billing-worker
+expected_duplicate: false
+expected_work_items: 1
+expected_work_item_status: blocked
+expected_knowledge_page: true
+expected_transitions:
+  - received
+  - diagnosing
+  - remediation_pending
+  - escalated
+expected_final_state:
+  status: escalated

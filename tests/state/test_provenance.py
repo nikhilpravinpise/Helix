@@ -195,7 +195,19 @@ class TestAssembleProvenance:
             "approval",
             "execution",
             "verification",
+            # Phase 2: the change-lifecycle's stages sit after the
+            # recovery chain - empty for a recovery incident, populated
+            # for a change one.
+            "triage",
+            "reviews",
+            "work_items",
+            "knowledge_page",
         ]
+        # A recovery incident's Phase 2 stages are empty but present.
+        assert stages["triage"] == []
+        assert stages["reviews"] == []
+        assert stages["work_items"] == []
+        assert stages["knowledge_page"] is None
         assert stages["evidence"][0]["evidence_id"] == "ev_pods1"
         assert stages["evidence"][0]["origin"] == "fixture"
         assert stages["hypothesis"][0]["evidence_refs"] == ["ev_pods1"]
@@ -300,6 +312,10 @@ class TestProvenanceApi:
             "approval",
             "execution",
             "verification",
+            "triage",
+            "reviews",
+            "work_items",
+            "knowledge_page",
         ]
         assert len(body["stages"]["trigger"]) == 1
         assert [t["to_status"] for t in body["transitions"]] == ["received"]

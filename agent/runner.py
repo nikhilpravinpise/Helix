@@ -43,6 +43,7 @@ from sqlalchemy.orm import Session
 
 from agent.graph import GraphDeps, build_graph, default_deps, open_checkpointer
 from agent.state import WorkflowState
+from helix.logging import get_logger
 from state import models
 from state.approvals import sweep_approval_timeout
 from state.machine import IncidentStatus
@@ -290,7 +291,30 @@ def run_incident(
         # Approval-timeout sweep (1.10): an incident parked at
         # awaiting_approval past HELIX_APPROVAL_TIMEOUT is rejected and
         # escalated here, under the incident lock, before any resume.
-        sweep_approval_timeout(session, incident, deps.approval_timeout)
+        approval_timed_out = sweep_approval_timeout(session, incident, deps.approval_timeout)
+        # 2.6: a pending review request past the same timeout budget is
+        # rejected-by-timeout and escalates - the identical fail-safe the
+        # approval gate applies, so a reviewer who never answers never
+        # strands the change.
+        from state.reviews import sweep_review_timeout
+
+        review_timed_out = sweep_review_timeout(session, incident, deps.approval_timeout)
+        # A sweep that fired already transitioned the incident (to
+        # ESCALATED) inside this transaction - commit the projection
+        # ops with it, same contract the coordinator keeps for its own
+        # transitions, so a timeout escalation is as visible as any
+        # other (slack notify, work item -> blocked, page refresh). Only
+        # when a sweep actually fired this call - a `helix run` on an
+        # already-escalated incident must not re-notify.
+        if approval_timed_out is not None or review_timed_out is not None:
+            from integrations.lifecycle_sync import enqueue_for_transition
+
+            enqueue_for_transition(
+                session,
+                incident,
+                IncidentStatus.ESCALATED,
+                cause="gate timeout",
+            )
         suspended = session.scalar(
             select(models.WorkflowRun)
             .where(models.WorkflowRun.incident_id == incident.id)
@@ -354,6 +378,20 @@ def run_incident(
         execution = _latest_execution(session, incident.id)
         verification = _latest_verification(session, incident.id)
         status = IncidentStatus(incident.status).value
+
+        # 2.2/2.3/2.4: deliver whatever the run's transitions enqueued.
+        # Best-effort - a provider outage is recorded on the outbox rows
+        # and retried by the next `run_incident`/`helix sync`; it must
+        # never mark the run itself failed (the state change is already
+        # the committed truth).
+        try:
+            from integrations.outbox import drain_outbox
+
+            drain_outbox(session)
+        except Exception as exc:  # noqa: BLE001 - drain is advisory here
+            get_logger().warning(
+                "post-run outbox drain failed", incident_id=incident_id, error=str(exc)
+            )
 
     return RunResult(
         incident_id=incident_id,

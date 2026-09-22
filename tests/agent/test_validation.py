@@ -373,12 +373,31 @@ class TestFixContent:
         assert "does not parse" in result.reason
 
     def test_unparseable_yaml_fails(self):
+        # Under the service root (a real directory) but outside k8s/, so
+        # the generic yaml check runs rather than the manifest dry-run.
         spec, params = _pr_params(
-            [{"path": "sandbox/payment-api/config/settings.yaml", "content": "a: [unclosed\n"}]
+            [{"path": "sandbox/payment-api/settings.yaml", "content": "a: [unclosed\n"}]
         )
         result = validate_fix_content(spec, params, _ctx())
         assert result.outcome == ValidationOutcome.FAIL
         assert "does not parse" in result.reason
+
+    def test_phantom_directory_tree_fails(self):
+        """The 1.5 ablation's finding: a model that never looked at the
+        repo invents trees (src/main/java in a Python project). New files
+        are fine; new directory trees under the write root are the
+        hallucination signature - the parent must exist."""
+        spec, params = _pr_params(
+            [
+                {
+                    "path": "sandbox/payment-api/src/main/java/App.java",
+                    "content": "class App {}\n",
+                }
+            ]
+        )
+        result = validate_fix_content(spec, params, _ctx())
+        assert result.outcome == ValidationOutcome.FAIL
+        assert "does not exist" in result.reason
 
     def test_empty_dockerfile_fails(self):
         spec, params = _pr_params([{"path": "sandbox/payment-api/Dockerfile", "content": "   \n"}])

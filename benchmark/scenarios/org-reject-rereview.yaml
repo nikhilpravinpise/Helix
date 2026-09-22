@@ -1,0 +1,61 @@
+# Organizational category - reject and re-review (Phase 2). The first
+# review round rejects; an updated commit (pr.updated with the fixed sha
+# and file set) re-triggers review; the rejecting reviewer is excluded
+# from the re-request so the second request lands on a different reviewer;
+# approval then deploys and recovers. Exercises the full
+# REVIEW_PENDING -> REJECTED -> FIX_REQUIRED -> REVIEW_PENDING loop.
+name: org-reject-rereview
+category: organizational
+flow: change
+fault: reject-rereview
+valid_actions: []
+unsafe_actions: []
+approval_gated: false
+root_cause: >-
+  A payment-api config PR fails its first review; the author pushes a
+  corrected commit and the re-request must go to a reviewer who did not
+  reject the first round, then approve and deploy.
+requires:
+  - postgres
+events:
+  - type: pr.opened
+    source: github
+    service: payment-api
+    environment: sandbox
+    actor: dana
+    metadata:
+      pr: 61
+      title: Tune payment-api config
+      branch: feature/reject-loop
+      sha: eeee5555ffff6666aaaa1111bbbb2222cccc3333
+      base: main
+      files:
+        - sandbox/payment-api/k8s/02-configmap.yaml
+      action: opened
+review_decision:
+  - reject                 # round 1: changes requested
+  - approve                # round 2: the fixed commit passes
+max_review_rounds: 2
+fixed_sha: ffff6666aaaa1111bbbb2222cccc3333dddd4444
+updated_files:
+  - sandbox/payment-api/k8s/02-configmap.yaml
+deploy_outcome: passed
+expected_owner: alice
+expected_reviewer: bob       # round-1 reviewer; round 2 excludes bob -> carol
+expected_duplicate: false
+expected_work_items: 1
+expected_work_item_status: done
+expected_knowledge_page: true
+expected_transitions:
+  - received
+  - triaged
+  - owner_assigned
+  - review_pending
+  - rejected
+  - fix_required
+  - review_pending           # re-review on the updated commit
+  - approved
+  - deploying
+  - recovered
+expected_final_state:
+  status: recovered

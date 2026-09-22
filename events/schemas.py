@@ -131,6 +131,16 @@ class EventType(StrEnum):
     REMEDIATION_COMPLETED = "remediation.completed"
     INCIDENT_RESOLVED = "incident.resolved"
 
+    # Helix's own lifecycle, Phase 2 (2.1) - the change-review chain
+    # (CONTEXT.md section 14). MINOR/additive: existing consumers skip
+    # types they do not handle per the compatibility rule above.
+    TRIAGE_COMPLETED = "triage.completed"
+    OWNER_ASSIGNED = "owner.assigned"
+    REVIEW_REQUESTED = "review.requested"
+    REVIEW_REJECTED = "review.rejected"
+    FIX_REQUESTED = "fix.requested"
+    CHANGE_APPROVED = "change.approved"
+
 
 def new_event_id() -> str:
     """`evt_<12 hex>`, matching CONTEXT.md section 7's `evt_123` shape.

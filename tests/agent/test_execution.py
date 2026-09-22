@@ -451,13 +451,20 @@ class TestExecutorGate:
 
         result = run_incident(incident_id, deps=deps)
 
-        assert result.status == IncidentStatus.FAILED
+        # The refusal itself is audited and the transport is never
+        # touched - that is the contract under test. The terminal status
+        # differs by arm semantics: REFUSED is a candidate-level verdict,
+        # so arm E replans in run; the only candidate's fingerprint is
+        # excluded, the replan finds nothing, and the run escalates to a
+        # human. (pre-replan this ended at failed.)
+        assert result.status == IncidentStatus.ESCALATED
         assert caps["kube_write"].calls == []
         rows = _executions(sqlite_sessions, incident_id)
         assert len(rows) == 1
         assert rows[0].result == models.ExecutionResult.REFUSED
         assert "requires approval" in rows[0].detail
-        assert _transitions(sqlite_sessions, incident_id)[-1] == ("executing", "failed")
+        transitions = _transitions(sqlite_sessions, incident_id)
+        assert ("executing", "remediation_pending") in transitions
 
     def test_every_catalogue_executor_key_resolves(self):
         """Registry completeness: every catalogue action's executor key

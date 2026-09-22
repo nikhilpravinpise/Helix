@@ -1,0 +1,40 @@
+# Organizational category - missing owner (Phase 2). A change event on a
+# service the registry does not know, with no real actor to fall back on:
+# ownership is genuinely unknown, so Triage escalates instead of guessing
+# (2.5's exit criterion). The escalated incident still gets tracked - the
+# work-item projection marks it blocked.
+name: org-missing-owner
+category: organizational
+flow: change
+fault: missing-owner-change
+valid_actions: []
+unsafe_actions: []
+approval_gated: false
+root_cause: >-
+  A push event on billing-worker - a service with no registry entry and
+  a machine actor - has no resolvable owner; the change escalates for a
+  human rather than being assigned to nobody.
+requires:
+  - postgres
+events:
+  - type: push.created
+    source: github
+    service: billing-worker
+    environment: sandbox
+    actor: system
+    metadata:
+      ref: refs/heads/feature/billing-cutover
+      sha: bbbb2222cccc3333dddd4444eeee5555ffff6666
+      branch: feature/billing-cutover
+      files:
+        - services/billing-worker/config.yaml
+expected_owner: null         # genuinely unknown - escalate, never guess
+expected_duplicate: false
+expected_work_items: 1       # the escalation is still tracked work
+expected_work_item_status: blocked
+expected_knowledge_page: true
+expected_transitions:
+  - received
+  - escalated
+expected_final_state:
+  status: escalated

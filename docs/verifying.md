@@ -11,10 +11,10 @@ If you only run one thing, run tier 1.
 
 ```bash
 make lint      # ruff check + format --check
-make test      # 898 unit tests
+make test      # 1235 unit tests
 ```
 
-Expected: `All checks passed`, then `898 passed, 50 deselected`.
+Expected: `All checks passed`, then `1235 passed, 50 deselected`.
 
 The 50 deselected are the integration tier - they need live
 infrastructure and are excluded from every bare `pytest` by design (D9),
@@ -40,20 +40,21 @@ make db-up && make db-migrate
 bash scripts/benchmark.sh
 ```
 
-Expected: 6 scenarios `recovered`, 6 `unmet requirements: kind,
-elasticsearch`. Skips are honest - they are never counted as passes.
+Expected: the Postgres-only scenarios run (fixture signals plus the
+seven `flow: change` scenarios) and the six live scenarios report
+`unmet requirements: kind, elasticsearch`. Skips are honest - they are never counted as passes.
 
 Arm A is a deterministic rule table keyed on fault signature
 (`agent/rules.py`), so **it scores 1.00 by construction**. It is the
 control, not a result: if it ever reads anything other than 1.00, the
 harness is contaminated, not improved.
 
-### The ablation, all four arms
+### The ablation, all five arms
 
 Needs `HELIX_LLM_API_KEY` in `.env`. Costs real tokens.
 
 ```bash
-bash scripts/benchmark.sh --arm A --arm B --arm C --arm E
+bash scripts/benchmark.sh --arm A --arm B --arm C --arm D --arm E
 ```
 
 Read `benchmark/reports/latest.md`. Check arm A first - if it is not
@@ -95,7 +96,7 @@ bash scripts/logging-up.sh   # Elasticsearch + Kibana
 bash scripts/jenkins-up.sh   # Jenkins (+ SonarQube)
 ```
 
-Now all 12 benchmark scenarios run instead of 6.
+Now all 19 benchmark scenarios run instead of the 13 Postgres-only ones.
 
 **Read `docs/bring-up.md` before this.** It documents the prerequisites
 and the hosts-file entry the ingress needs.

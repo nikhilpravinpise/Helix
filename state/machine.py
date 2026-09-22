@@ -7,13 +7,23 @@ in memory without being persisted. `record_creation()` writes the initial
 NULL -> RECEIVED row so the transitions table alone reconstructs an
 incident's full timeline.
 
-Scope note: this is the Phase 1 machine only. CONTEXT.md section 14's
-lifecycle statuses (TRIAGED, OWNER_ASSIGNED, REVIEW_PENDING, REJECTED,
-FIX_REQUIRED, APPROVED, DEPLOYING) belong to the Phase 2 review flow and
-are deliberately absent - see docs/architecture/state-machine.md. The
-section 14 example's `EXECUTING -> VALIDATING -> RECOVERED` tail refers to
-post-deploy review validation; Phase 1 validates pre-execution
-(plan.md 1.7) and verifies post-execution (1.9), hence VERIFYING.
+Scope note: subphases 1.x below are the Phase 1 recovery machine. Phase 2
+(2.1) adds the CONTEXT.md section 14 change-review lifecycle - TRIAGED,
+OWNER_ASSIGNED, REVIEW_PENDING, REJECTED, FIX_REQUIRED, APPROVED,
+DEPLOYING - as a second lifecycle an incident can follow, selected by
+`Incident.kind` (state/models.py): `recovery` incidents (a failure signal)
+use the Phase 1 chain unchanged; `change` incidents (a PR/push event) use
+the Phase 2 chain below. The two chains meet where CONTEXT.md section 16
+says they must: a failed deploy (`DEPLOYING -> FAILED`) re-enters the
+Phase 1 recovery loop through the SAME `FAILED -> DIAGNOSING` edge a
+recovery incident's exhausted verification uses, and a diagnosed-and-
+recovered rollback closes the change incident as RECOVERED too - one
+terminal vocabulary for both lifecycles, not two. The section 14 example's
+`EXECUTING -> VALIDATING -> RECOVERED` tail refers to this same handoff in
+prose; the machine models it as the existing Phase 1 tail
+(EXECUTING -> VERIFYING -> RECOVERED) rather than inventing a duplicate
+VALIDATING-after-EXECUTING status, per the state-machine doc's original
+reasoning.
 """
 
 from enum import StrEnum
@@ -40,6 +50,17 @@ class IncidentStatus(StrEnum):
     ESCALATED = "escalated"
     FAILED = "failed"
 
+    # Phase 2 (2.1) - the change-review lifecycle, CONTEXT.md section 14.
+    # Selected by Incident.kind == "change" (a PR/push event); a
+    # `recovery` incident never enters these.
+    TRIAGED = "triaged"
+    OWNER_ASSIGNED = "owner_assigned"
+    REVIEW_PENDING = "review_pending"
+    REJECTED = "rejected"
+    FIX_REQUIRED = "fix_required"
+    APPROVED = "approved"
+    DEPLOYING = "deploying"
+
 
 #: Statuses an incident never leaves (for dedup and read APIs). FAILED is
 #: terminal for the *run* - the FAILED -> DIAGNOSING re-entry edge below
@@ -55,7 +76,14 @@ TERMINAL_STATUSES: frozenset[IncidentStatus] = frozenset(
 #: single FAILED -> DIAGNOSING re-entry for rediagnosis after a failed run.
 ALLOWED_TRANSITIONS: dict[IncidentStatus, frozenset[IncidentStatus]] = {
     IncidentStatus.RECEIVED: frozenset(
-        {IncidentStatus.DIAGNOSING, IncidentStatus.ESCALATED, IncidentStatus.FAILED}
+        {
+            IncidentStatus.DIAGNOSING,
+            # Phase 2 (2.1): a `change` incident (PR/push event) enters the
+            # review lifecycle instead of the recovery loop.
+            IncidentStatus.TRIAGED,
+            IncidentStatus.ESCALATED,
+            IncidentStatus.FAILED,
+        }
     ),
     IncidentStatus.DIAGNOSING: frozenset(
         {IncidentStatus.REMEDIATION_PENDING, IncidentStatus.ESCALATED, IncidentStatus.FAILED}
@@ -86,6 +114,12 @@ ALLOWED_TRANSITIONS: dict[IncidentStatus, frozenset[IncidentStatus]] = {
         {
             IncidentStatus.VERIFYING,
             IncidentStatus.DIAGNOSING,
+            # A refused execution (the executor's own gate said no before
+            # any transport call) replans in run - the same edge failed
+            # validation already uses, applied to the candidate-level
+            # refusal rather than the transport-level error (which still
+            # goes to failed and re-enters through diagnosing).
+            IncidentStatus.REMEDIATION_PENDING,
             IncidentStatus.ESCALATED,
             IncidentStatus.FAILED,
         }
@@ -103,6 +137,52 @@ ALLOWED_TRANSITIONS: dict[IncidentStatus, frozenset[IncidentStatus]] = {
     # FAILED is terminal but re-enterable: a failed run may be rediagnosed.
     # The 1.10 retry budget bounds that loop - exhaustion escalates.
     IncidentStatus.FAILED: frozenset({IncidentStatus.DIAGNOSING, IncidentStatus.ESCALATED}),
+    # Phase 2 (2.1) - the change-review lifecycle. RECEIVED gains a second
+    # entry edge: a change incident goes RECEIVED -> TRIAGED (a recovery
+    # incident still goes -> DIAGNOSING, above).
+    IncidentStatus.TRIAGED: frozenset(
+        {
+            IncidentStatus.OWNER_ASSIGNED,
+            # 2.5: ownership genuinely unknown - escalate rather than guess.
+            IncidentStatus.ESCALATED,
+            IncidentStatus.FAILED,
+        }
+    ),
+    IncidentStatus.OWNER_ASSIGNED: frozenset(
+        {IncidentStatus.REVIEW_PENDING, IncidentStatus.ESCALATED, IncidentStatus.FAILED}
+    ),
+    IncidentStatus.REVIEW_PENDING: frozenset(
+        {
+            IncidentStatus.APPROVED,
+            IncidentStatus.REJECTED,
+            IncidentStatus.ESCALATED,
+            IncidentStatus.FAILED,
+        }
+    ),
+    IncidentStatus.REJECTED: frozenset(
+        {IncidentStatus.FIX_REQUIRED, IncidentStatus.ESCALATED, IncidentStatus.FAILED}
+    ),
+    # CONTEXT.md section 14: REJECTED -> FIX_REQUIRED -> REVIEW_PENDING -
+    # the fix goes back through review, not straight to APPROVED.
+    IncidentStatus.FIX_REQUIRED: frozenset(
+        {IncidentStatus.REVIEW_PENDING, IncidentStatus.ESCALATED, IncidentStatus.FAILED}
+    ),
+    IncidentStatus.APPROVED: frozenset(
+        {IncidentStatus.DEPLOYING, IncidentStatus.ESCALATED, IncidentStatus.FAILED}
+    ),
+    IncidentStatus.DEPLOYING: frozenset(
+        {
+            # A clean deploy closes the change incident.
+            IncidentStatus.RECOVERED,
+            # A failed deploy hands off to the Phase 1 recovery loop
+            # (CONTEXT.md section 16): the SAME DIAGNOSING a recovery
+            # incident's FAILED re-enters through, so a rolled-back
+            # deployment and a remediated one converge on one vocabulary.
+            IncidentStatus.DIAGNOSING,
+            IncidentStatus.ESCALATED,
+            IncidentStatus.FAILED,
+        }
+    ),
 }
 
 
@@ -149,6 +229,7 @@ def transition(
     )
     incident.status = to_status
     session.add(row)
+    session.flush()  # the event id keys on the durable transition row
     # Helix's own lifecycle event, written in this same transaction so the
     # event and the state change it describes can never disagree (E5).
     # Imported here rather than at module scope: events.lifecycle needs
@@ -161,6 +242,7 @@ def transition(
         to_status=to_status,
         cause=cause,
         session=session,
+        transition_id=row.id,
     )
     session.flush()
     return row
@@ -179,6 +261,7 @@ def record_creation(incident: "Incident", *, cause: str, session: Session) -> "T
         cause=cause,
     )
     session.add(row)
+    session.flush()  # the event id keys on the durable transition row
     from events.lifecycle import emit_for_transition
 
     emit_for_transition(
@@ -187,6 +270,7 @@ def record_creation(incident: "Incident", *, cause: str, session: Session) -> "T
         to_status=IncidentStatus(incident.status),
         cause=cause,
         session=session,
+        transition_id=row.id,
     )
     session.flush()
     return row

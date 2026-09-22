@@ -10,12 +10,14 @@ The exit criterion is that incident state rebuilt purely from replayed
 history matches the state produced by live processing. That has to be
 stated precisely, because the taxonomy does not carry every workflow step.
 
-Helix emits five lifecycle events. The intermediate statuses -
-`diagnosing`, `validating`, `escalated`, `failed` - have no event in
-CONTEXT.md section 7, and inventing some would be expanding the taxonomy
-without a workflow that needs it. So an event log describes an incident's
-**lifecycle**, not its every transition, and replay reconstructs exactly
-that: the milestones reached, in order, plus the incident's identity.
+Helix emits thirteen lifecycle events: the five Phase 1 milestones
+plus the eight Phase 2 change-review milestones in LIFECYCLE_STATUS.
+The intermediate statuses - `diagnosing`, `validating`, `escalated`,
+`failed` - have no event in CONTEXT.md section 7, and inventing some
+would be expanding the taxonomy without a workflow that needs it. So an
+event log describes an incident's **lifecycle**, not its every
+transition, and replay reconstructs exactly that: the milestones
+reached, in order, plus the incident's identity.
 
 `IncidentProjection` is therefore the unit of comparison, and it is built
 two ways from genuinely different data:
@@ -53,6 +55,14 @@ LIFECYCLE_STATUS: dict[EventType, IncidentStatus] = {
     EventType.APPROVAL_REQUESTED: IncidentStatus.AWAITING_APPROVAL,
     EventType.REMEDIATION_COMPLETED: IncidentStatus.VERIFYING,
     EventType.INCIDENT_RESOLVED: IncidentStatus.RECOVERED,
+    EventType.TRIAGE_COMPLETED: IncidentStatus.TRIAGED,
+    EventType.OWNER_ASSIGNED: IncidentStatus.OWNER_ASSIGNED,
+    EventType.REVIEW_REQUESTED: IncidentStatus.REVIEW_PENDING,
+    EventType.REVIEW_REJECTED: IncidentStatus.REJECTED,
+    EventType.FIX_REQUESTED: IncidentStatus.FIX_REQUIRED,
+    EventType.CHANGE_APPROVED: IncidentStatus.APPROVED,
+    EventType.DEPLOYMENT_STARTED: IncidentStatus.DEPLOYING,
+    EventType.DEPLOYMENT_FAILED: IncidentStatus.DIAGNOSING,
 }
 
 
@@ -67,8 +77,11 @@ class IncidentProjection:
     #: Furthest lifecycle milestone reached, as a status.
     lifecycle_status: IncidentStatus
     #: Milestones in the order they were reached, deduplicated: re-entering
-    #: `remediation_pending` on a replan is the same milestone again, and
-    #: the event log records it once because the id derives from it.
+    #: `remediation_pending` on a replan is the same milestone again.
+    #: The event log records one row per durable transition (the id keys
+    #: on the transition row, so a retry lands once while a genuinely
+    #: repeated edge emits each time); the projection still dedups them
+    #: because it tracks furthest-milestone status, not transition count.
     milestones: tuple[EventType, ...] = field(default_factory=tuple)
 
 
@@ -130,7 +143,15 @@ def project_from_events(events: Sequence[EngineeringEvent]) -> IncidentProjectio
     ]
     if not lifecycle:
         return None
-    lifecycle.sort(key=lambda e: e.timestamp)
+    lifecycle.sort(
+        # timestamp alone is not a total order: two lifecycle events
+        # emitted in the same clock tick compare equal, and a stable
+        # sort then inherits input order - reversed input replays to a
+        # different incident. The transition id in the envelope is
+        # monotonic with the real transition order, so equal timestamps
+        # resolve deterministically.
+        key=lambda e: (e.timestamp, int((e.metadata or {}).get("transition_id") or 0))
+    )
     first = lifecycle[0]
     metadata = first.metadata or {}
     return _project(

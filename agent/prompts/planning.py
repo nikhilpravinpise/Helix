@@ -64,13 +64,16 @@ def planning_prompt(
     hypothesis: dict[str, Any],
     evidence: list[dict[str, Any]],
     catalogue: str,
+    prior_context: str = "",
 ) -> str:
     """Prompt for candidate-action proposals into a `CandidateList`.
 
     `catalogue` is `catalogue_view()` output - the registry rendered as the
     action menu. `hypothesis` is the recorded diagnosis the candidates must
     address; every rationale should cite evidence ids the diagnosis itself
-    leaned on."""
+    leaned on. `prior_context` carries the Knowledge Agent's organizational
+    context (2.8) and is empty when the graph is off, so a context-free run
+    renders byte-identically to before."""
     return f"""You are the Helix Recovery Planner. The Diagnosis Agent has
 recorded a root-cause hypothesis; propose candidate recovery actions.
 
@@ -85,7 +88,7 @@ Recorded hypothesis:
 Collected evidence (cite by id):
 {_evidence_block(evidence)}
 
-The bounded action catalogue - these are the ONLY actions that exist:
+{prior_context}The bounded action catalogue - these are the ONLY actions that exist:
 {catalogue}
 
 Rules:

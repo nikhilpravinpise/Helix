@@ -34,10 +34,23 @@ EXPECTED = {
 
 
 def _scenarios():
+    """Signal-path scenarios only. `flow: change` scenarios (Phase 2)
+    declare canonical `events:` instead of a raw `signal` - their
+    coverage check is that every declared type is a known EventType."""
     out = {}
     for path in sorted(glob.glob("benchmark/scenarios/*.yaml")):
         doc = yaml.safe_load(open(path, encoding="utf-8"))
-        out[doc["name"]] = doc["signal"]
+        if "signal" in doc:
+            out[doc["name"]] = doc["signal"]
+    return out
+
+
+def _change_scenarios():
+    out = {}
+    for path in sorted(glob.glob("benchmark/scenarios/*.yaml")):
+        doc = yaml.safe_load(open(path, encoding="utf-8"))
+        if doc.get("flow") == "change":
+            out[doc["name"]] = doc["events"]
     return out
 
 
@@ -48,6 +61,19 @@ def test_every_scenario_in_the_catalogue_is_covered():
     """If a scenario is added without a mapping decision, say so here
     rather than discovering it when intake silently returns no event."""
     assert set(SCENARIO_SIGNALS) == set(EXPECTED)
+
+
+def test_every_change_scenario_event_type_is_canonical():
+    """Change-flow scenarios name canonical event types directly - the
+    taxonomy check is that every declared type parses as an EventType,
+    so a scenario author cannot typo a type the harness then drops."""
+    assert _change_scenarios(), "no change-flow scenarios found - the catalogue regressed"
+    for name, events in _change_scenarios().items():
+        assert events, f"{name}: change-flow scenario declares no events"
+        for event in events:
+            assert EventType(event["type"]) is not None, (
+                f"{name}: event type {event['type']!r} is not in the taxonomy"
+            )
 
 
 @pytest.mark.parametrize("name", sorted(EXPECTED))

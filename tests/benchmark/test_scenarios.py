@@ -20,7 +20,7 @@ from agent.actions.catalogue import (
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 SCENARIOS_DIR = REPO_ROOT / "benchmark" / "scenarios"
-CATEGORIES = {"ci_cd", "kubernetes", "github"}
+CATEGORIES = {"ci_cd", "kubernetes", "github", "organizational", "cross_system"}
 
 
 def _load_all() -> dict[str, dict]:
@@ -34,7 +34,9 @@ SCENARIOS = _load_all()
 
 
 def test_twelve_scenarios_covering_the_phase1_categories():
-    assert set(SCENARIOS) == {
+    """The Phase 1 catalog stays intact; Phase 2 (2.9/2.11) extends it to
+    all five CONTEXT.md section 18 categories via the change flow."""
+    phase1 = {
         "ci-dependency-failure",
         "ci-test-regression",
         "ci-docker-build-failure",
@@ -48,11 +50,27 @@ def test_twelve_scenarios_covering_the_phase1_categories():
         "failed-check",
         "stale-branch",
     }
-    # 4 per category, matching CONTEXT.md section 18's Phase 1 spread.
+    assert phase1 <= set(SCENARIOS)
+    # The Phase 2 additions: organizational + cross_system change flows.
+    assert {
+        "org-known-owner-change",
+        "org-missing-owner",
+        "org-duplicate-change",
+        "org-reject-rereview",
+        "xsys-pr-deploy-failure",
+        "xsys-runtime-missing-owner",
+        "xsys-stale-work-item",
+    } <= set(SCENARIOS)
     by_cat: dict[str, int] = {}
     for s in SCENARIOS.values():
         by_cat[s["category"]] = by_cat.get(s["category"], 0) + 1
-    assert by_cat == {"ci_cd": 4, "kubernetes": 4, "github": 4}
+    assert by_cat == {
+        "ci_cd": 4,
+        "kubernetes": 4,
+        "github": 4,
+        "organizational": 4,
+        "cross_system": 3,
+    }
 
 
 @pytest.mark.parametrize("name", sorted(SCENARIOS))
@@ -60,15 +78,19 @@ def test_action_sets_reference_only_catalogue_actions(name):
     s = SCENARIOS[name]
     assert s["category"] in CATEGORIES
     assert isinstance(s["approval_gated"], bool)
-    for key in ("optimal_action", "valid_actions", "unsafe_actions"):
-        assert key in s, f"{name}: missing {key}"
-    for action in [s["optimal_action"], *s["valid_actions"], *s["unsafe_actions"]]:
+    assert "valid_actions" in s and "unsafe_actions" in s, f"{name}: missing action sets"
+    actions = [*s["valid_actions"], *s["unsafe_actions"]]
+    if s.get("optimal_action") is not None:
+        actions.append(s["optimal_action"])
+        assert s["optimal_action"] in s["valid_actions"], (
+            f"{name}: optimal {s['optimal_action']} must sit inside valid_actions"
+        )
+    elif (s.get("flow") or "signal") == "signal":
+        raise AssertionError(f"{name}: signal flow requires optimal_action")
+    for action in actions:
         assert get_action(action) is not None, (
             f"{name}: {action} is not a registered catalogue action"
         )
-    assert s["optimal_action"] in s["valid_actions"], (
-        f"{name}: optimal {s['optimal_action']} must sit inside valid_actions"
-    )
     overlap = set(s["valid_actions"]) & set(s["unsafe_actions"])
     assert not overlap, f"{name}: actions in both valid and unsafe: {overlap}"
 
@@ -78,6 +100,8 @@ def test_approval_gated_scenarios_have_high_tier_optimal():
     an approval_gated scenario's optimal action is one whose params can
     reach `high` (today: the secret manifest)."""
     for name, s in SCENARIOS.items():
+        if s.get("optimal_action") is None:
+            continue  # change flows without a recovery handoff name no action
         spec = get_action(s["optimal_action"])
         assert spec is not None
         if s["approval_gated"]:

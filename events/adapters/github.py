@@ -108,6 +108,72 @@ def review_events(
     return out
 
 
+_PR_ACTIONS = {
+    "opened": EventType.PR_OPENED,
+    "reopened": EventType.PR_OPENED,
+    "synchronize": EventType.PR_UPDATED,
+    "edited": EventType.PR_UPDATED,
+}
+
+
+def pull_request_events(
+    payload: dict[str, Any],
+    service: str = "payment-api",
+    environment: str = "sandbox",
+) -> list[EngineeringEvent]:
+    """Events for a pull request being opened or updated (subphase 2.1/2.9:
+    CONTEXT.md section 16's trigger for the change-review lifecycle).
+
+    `action` follows GitHub's own webhook vocabulary (`opened`,
+    `reopened`, `synchronize`, `edited`); anything else (`closed`,
+    `merged`, review-only actions the review-events adapter already
+    covers) yields no event here. `files` - when the caller supplies it,
+    e.g. from `GitHubEvidence.get_diff` - carries the changed paths
+    Triage's code-ownership resolution needs; its absence is not an
+    error, since 2.5's registry fallback covers a payload that only
+    names the PR.
+    """
+    action = str(payload.get("action") or "").lower()
+    event_type = _PR_ACTIONS.get(action)
+    if event_type is None:
+        return []
+    number = payload.get("number")
+    head = payload.get("head") or {}
+    base = payload.get("base") or {}
+    # The PR's author: `pull_request.user.login` in GitHub's schema (the
+    # human whose change is under review - Review's self-review exclusion
+    # keys on it). `sender.login` is who triggered the action, which for
+    # synchronize can differ; author is the safer reading, with sender as
+    # the fallback for payload shapes that only carry the trigger. A
+    # top-level `user` never existed in this webhook - reading it meant
+    # every real PR emitted actor="system", and self-review exclusion
+    # silently stopped applying.
+    pr_user = (payload.get("pull_request") or {}).get("user") or {}
+    sender = payload.get("sender") or {}
+    author = pr_user.get("login") or sender.get("login") or payload.get("user") or "system"
+    return [
+        vendor_event(
+            # A PR's identity plus its head sha: re-synchronizing to a
+            # new commit is a distinct, real update, not a redelivery.
+            event_id=derive_event_id("github", "pr", number, head.get("sha")),
+            event_type=event_type,
+            source=EventSource.GITHUB,
+            service=service,
+            environment=environment,
+            actor=str(author),
+            metadata={
+                "pr": number,
+                "title": payload.get("title"),
+                "branch": head.get("ref"),
+                "sha": head.get("sha"),
+                "base": base.get("ref"),
+                "files": payload.get("files") or [],
+                "action": action,
+            },
+        )
+    ]
+
+
 def branch_state_events(
     payload: dict[str, Any],
     service: str = "payment-api",

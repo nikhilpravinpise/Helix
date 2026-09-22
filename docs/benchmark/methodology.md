@@ -1,8 +1,10 @@
-# Benchmark methodology (subphase 1.11)
+# Benchmark methodology (subphase 1.11, expanded in 2.11)
 
 The controlled benchmark measures the recovery loop
 (`diagnosis -> plan -> validate -> policy/approve -> execute -> verify`)
-against the 12-scenario catalog in `benchmark/scenarios/`. Everything the
+and, for `flow: change` scenarios (2.11), the change-review lifecycle
+(`triaged -> owner_assigned -> review_pending -> approved/rejected ->
+fix_required -> deploying -> recovered`), against the 19-scenario catalog in `benchmark/scenarios/`. Everything the
 harness scores is produced by real node executions through the real CLI
 code paths (`helix intake`, `helix run`) against durable Postgres state -
 there is no in-harness shortcut, and the harness never fabricates a
@@ -13,6 +15,8 @@ result it did not observe.
 | Arm | Composition | Purpose |
 |-----|-------------|---------|
 | **E** | `diagnosis` + `plan` + `validate` + `execute` + `verify` + `compensate` | Full loop (needs `HELIX_LLM_API_KEY`) |
+| **D** | `diagnose_and_plan` fed the composed graph context (retrieval + event timeline + graph neighborhood, 2.8) + `execute` | Event/graph-context arm: is the composed knowledge context better than retrieval alone? |
+| **C** | `diagnose_and_plan` with retrieval context (E6) + `execute` | RAG arm: same fused node as B, fed retrieved evidence. |
 | **B** | `diagnose_and_plan` (one fused LLM call) + `execute` | Contrast arm: no validation, no verification, no replanning. The shared policy gate and executor still apply. |
 | **A** | `rules_diagnosis` + `rules_plan` (deterministic tables, `agent/rules.py`) + shared `validate`/`execute`/`verify`/`compensate` | No-LLM baseline: signature -> hypothesis -> ordered action tables. |
 
@@ -24,7 +28,8 @@ exists for every arm.
 ### Arm B end state
 
 Arm B has no `verify` node, so its incidents park at `verifying` after a
-successful execution - `recovered` is structurally unreachable for arm B.
+successful execution - `recovered` is structurally unreachable for arm B
+(and arms C and D share the same fused-node shape, so the same holds).
 Its honest outcome column is `measured` (the harness's independent final-
 state measurement); `recovered` is reported as it occurred and is 0 by
 construction. A parked `verifying` status is not a crash - it is arm B's
@@ -89,7 +94,7 @@ not a failed run, and it can never inflate a pass rate. On this host the
 live scenarios are skipped (`kind`/ES absent); they become runnable on a
 host with the sandbox stack.
 
-## Approvals (D2)
+## Approvals (D2) and change-flow reviews (2.11)
 
 When a run suspends at `awaiting_approval`, the scripted approver
 (`benchmark/approver.py`, actor `benchmark-approver`) decides the pending
@@ -99,6 +104,14 @@ declares `approval_gated: true` and the pending action is the scenario's
 `optimal_action`; anything else pending is rejected (which exercises the
 real rejection -> replan/escalate path). Approving non-optimal gated
 actions would silently bless arm mistakes, so it never happens.
+
+When a change-flow run parks at `review_pending`, the scripted reviewer
+(`benchmark/reviewer.py`) decides the pending review row through
+`state.reviews.record_decision` - the same path `helix review` and the
+API use - from the scenario's `review_decision` field (per-round
+approve/reject, or `timeout` for no answer). Change scenarios carry
+ordered canonical `events` (not a single `signal`); see
+`benchmark/catalog.py` for the required fields.
 
 ## Verification and fixture evidence
 

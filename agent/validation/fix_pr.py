@@ -56,6 +56,17 @@ def _check_file(path: str, content: str, ctx: ValidationContext) -> str | None:
     else the failure reason."""
     if not path.startswith(REPO_WRITE_ROOT):
         return f"{path}: outside the {REPO_WRITE_ROOT} write root"
+    # The 1.5 ablation's open finding, closed: a model that never looked
+    # at the repo invents directory trees (a Java src/main/java in a
+    # Python project). New FILES are legitimate - new directory TREES
+    # under the write root are the hallucination signature, so the
+    # parent directory must exist on disk. The check is honest rather
+    # than advisory: the validator is the last code-level gate before a
+    # PR opens with phantom content.
+    parent = (ctx.repo_root / path).parent
+    if not parent.is_dir():
+        missing = parent.relative_to(ctx.repo_root)
+        return f"{path}: parent directory {missing} does not exist in the repo"
     if _is_k8s_manifest(path):
         return _check_manifest(path, content, ctx)
     name = path.rsplit("/", 1)[-1]

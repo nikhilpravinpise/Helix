@@ -61,12 +61,13 @@ from sqlalchemy import select
 
 from agent.agents.compensation import compensation_node, outstanding_compensation
 from agent.agents.coordinator import coordinator_node, make_router
-from agent.agents.diagnosis import diagnosis_node
 from agent.agents.execution import execution_node
 from agent.agents.fused import diagnose_and_plan_node
-from agent.agents.planner import planner_node
+from agent.agents.review import review_node
+from agent.agents.triage import triage_node
 from agent.agents.validation import validation_node
 from agent.agents.verification import verification_node
+from agent.ops import ops_agent_nodes
 from agent.rules import rules_diagnosis_node, rules_plan_node
 from agent.state import WorkflowState
 from agent.validation import candidate_fingerprint
@@ -252,7 +253,7 @@ def _selected_candidate_state(session, incident: models.Incident, arm: str = "E"
         IncidentStatus.EXECUTING,
         IncidentStatus.VERIFYING,
     }
-    if arm in ("B", "C"):
+    if arm in ("B", "C", "D"):
         statuses.add(IncidentStatus.REMEDIATION_PENDING)
     if IncidentStatus(incident.status) not in statuses:
         return None
@@ -460,6 +461,13 @@ def _intake_node(deps: GraphDeps, arm: str = "E"):
                     "environment": incident.environment,
                     "severity": incident.severity,
                     "status": IncidentStatus(incident.status).value,
+                    # Phase 2 (2.1): which lifecycle this incident follows.
+                    "kind": incident.kind.value,
+                    "triage": None,
+                    "triage_complete": False,
+                    "review": None,
+                    "review_complete": False,
+                    "fix_pushed": False,
                     "signal": (
                         {
                             "source": latest.source,
@@ -490,7 +498,7 @@ def _intake_node(deps: GraphDeps, arm: str = "E"):
                     # escalated) plan_complete=True lets the coordinator
                     # land the escalation instead of parking forever.
                     "plan_complete": bool(
-                        arm in ("B", "C")
+                        arm in ("B", "C", "D")
                         and IncidentStatus(incident.status) == IncidentStatus.REMEDIATION_PENDING
                     ),
                     "plan_failed": None,
@@ -555,6 +563,13 @@ _ARM_NODES: dict[str, dict[str, str]] = {
     # verification.
     "C": {
         "diagnose_and_plan": "1.11",
+        "execute": "1.8",
+    },
+    # D is C plus the Knowledge Agent's GraphRAG context (2.8): same
+    # single-call composition, so a C-vs-D comparison isolates what the
+    # event timeline + relationship graph add over retrieval alone.
+    "D": {
+        "diagnose_and_plan": "2.8",
         "execute": "1.8",
     },
     "A": {
@@ -638,17 +653,33 @@ def build_graph(
     builder = StateGraph(WorkflowState)
     builder.add_node("intake", _intake_node(deps, arm))
     builder.add_node("coordinator", coordinator_node(deps, arm))
+    # Phase 2 (2.1/2.5/2.6): the change-review lifecycle's nodes are not
+    # arm-gated - Triage and Review are deterministic regardless of which
+    # ablation arm handles the Ops loop a failed deploy hands off to, so
+    # every arm's graph carries them rather than duplicating them per arm.
+    builder.add_node("triage", _with_step_timeout(triage_node(deps), "triage", deps.step_timeout))
+    builder.add_node("review", _with_step_timeout(review_node(deps), "review", deps.step_timeout))
+    builder.add_edge("triage", "coordinator")
+    builder.add_edge("review", "coordinator")
+    # 2.1: arm E's recovery-loop nodes come from the Ops Agent boundary
+    # itself - the graph asks the agent for its node set rather than
+    # knowing which `agent.agents.*` builders belong to it. Internals are
+    # the same builders the elifs below give the other arms.
+    ops_nodes = ops_agent_nodes(deps) if arm == "E" else {}
     for name, subphase in _ARM_NODES[arm].items():
         node = _placeholder(name, subphase)
-        if arm == "E" and name == "diagnosis":
-            node = diagnosis_node(deps)
-        elif arm == "E" and name == "plan":
-            node = planner_node(deps)
+        if name in ops_nodes:
+            node = ops_nodes[name]
         elif arm in ("B", "C") and name == "diagnose_and_plan":
             # 1.11: the fused single-call node - one complete_structured
             # produces hypothesis + selection; no validate/verify/replan.
             # Arm C is the same node with retrieval context (E6).
             node = diagnose_and_plan_node(deps, retrieval=arm == "C")
+        elif arm == "D" and name == "diagnose_and_plan":
+            # 2.8: the same fused node as C, fed the composed GraphRAG
+            # context (retrieval + event timeline + graph neighborhood)
+            # instead of retrieval alone.
+            node = diagnose_and_plan_node(deps, retrieval=True, knowledge=True)
         elif arm == "A" and name == "rules_diagnosis":
             # 1.11: deterministic rule tables - zero LLM calls.
             node = rules_diagnosis_node(deps)

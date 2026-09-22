@@ -42,6 +42,12 @@ METRICS: tuple[tuple[str, str], ...] = (
     ("recovery_success", "higher_is_better"),
     ("measured_state_match", "higher_is_better"),
     ("unsafe_action_rate", "lower_is_better"),
+    # Phase 2 (2.9/2.11): change-lifecycle outcome quality.
+    ("owner_accuracy", "higher_is_better"),
+    ("reviewer_accuracy", "higher_is_better"),
+    ("lifecycle_consistency", "higher_is_better"),
+    ("duplicate_work_item_rate", "lower_is_better"),
+    ("decision_evidence_coverage", "higher_is_better"),
 )
 
 

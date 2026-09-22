@@ -84,6 +84,8 @@ from agent.actions.catalogue import Reversibility, get_action
 from agent.policy import PolicyDecision, PolicyVerdict, decide
 from agent.state import WorkflowState
 from agent.validation import candidate_fingerprint
+from events.classify import UnclassifiedSignal, classify
+from events.schemas import EventType
 from helix.config import get_settings
 from helix.observability import trace_workflow_step
 from state import models
@@ -115,20 +117,34 @@ class _Decision:
     deny: PolicyVerdict | None = None  # policy DENY: audited as a refused execution
     policy: dict[str, Any] | None = None  # PolicyVerdict snapshot for state["policy"]
     approval: dict[str, Any] | None = None  # approvals-row snapshot for state["approval"]
+    # Phase 2 (2.1/2.5/2.6) - the change-review lifecycle.
+    set_owner: str | None = None  # incident.owner, set on TRIAGED -> OWNER_ASSIGNED
+    duplicate_of_id: int | None = None  # incident.duplicate_of_id, a 2.5 duplicate finding
 
 
 def _policy_gate(
-    state: WorkflowState, approval: models.Approval | None, arm: str = "E"
+    state: WorkflowState,
+    approval: models.Approval | None,
+    arm: str = "E",
+    evidence_types: "frozenset[str] | None" = None,
 ) -> _Decision:
     """The 1.8 access-table routing for a validated selection. Shared by
     every arm - arm B has no validate node, but a selection still faces
-    the same policy decision before any write."""
+    the same policy decision before any write. `evidence_types` carries
+    the incident's canonical evidence kinds so the verdict can check the
+    action is coherent with what actually broke (Phase 2 fix for the 1.5
+    ablation's incoherent-action defect)."""
     selected = state.get("selected_action") or {}
     action = str(selected.get("action") or "")
-    verdict = decide(action, selected.get("params") or {}, state.get("environment") or "")
+    verdict = decide(
+        action,
+        selected.get("params") or {},
+        state.get("environment") or "",
+        evidence_types=evidence_types,
+    )
     policy = verdict.to_state()
     if verdict.decision == PolicyDecision.DENY:
-        if arm in ("B", "C"):
+        if arm in ("B", "C", "D"):
             # Arm B/C have no replan node - a denied action is terminal.
             return _Decision(
                 IncidentStatus.ESCALATED,
@@ -154,7 +170,7 @@ def _policy_gate(
                 approval=_approval_state(approval),
             )
         if approval is not None and approval.status == ApprovalStatus.REJECTED:
-            if arm in ("B", "C"):
+            if arm in ("B", "C", "D"):
                 return _Decision(
                     IncidentStatus.ESCALATED,
                     f"approval rejected by {approval.decided_by} for {verdict.action} "
@@ -207,20 +223,117 @@ def _decide(
     approval: models.Approval | None,
     max_attempts: int | None = None,
     arm: str = "E",
+    *,
+    triage: models.TriageResult | None = None,
+    review: models.ReviewRequest | None = None,
+    fix_pushed: bool = False,
+    deploy_outcome: str | None = None,
+    evidence_types: "frozenset[str] | None" = None,
 ) -> _Decision:
-    """The Phase 1 routing policy, keyed on the persisted status.
+    """The Phase 1 routing policy, keyed on the persisted status - extended
+    in Phase 2 (2.1/2.5/2.6) with the change-review lifecycle's own
+    branches, keyed on the same persisted status.
 
     Status values come from the incident row (authoritative), so this is
-    pure over (status, state, approval) - `approval` is the newest
-    approvals row matching the selected candidate's fingerprint, loaded
-    by the coordinator node. `max_attempts` is the 1.10 retry budget
-    (HELIX_MAX_ATTEMPTS); None falls back to settings so state-level
-    callers need not know the wiring.
+    pure over (status, state, approval, triage, review, fix_pushed,
+    deploy_outcome) - `approval` is the newest approvals row matching the
+    selected candidate's fingerprint, `triage`/`review` the newest
+    triage_results/review_requests rows, `fix_pushed`/`deploy_outcome` the
+    coordinator's own read of whether a newer PR-update/build/deploy
+    event exists for the incident since it entered its current status -
+    all loaded by the coordinator node, exactly like `approval` already
+    is, so every Phase 2 decision here survives a crash-and-resume across
+    separate `helix run` invocations the same way Phase 1's does: never
+    trusting a WorkflowState value that a prior process might not have
+    persisted. `max_attempts` is the 1.10 retry budget (HELIX_MAX_ATTEMPTS);
+    None falls back to settings so state-level callers need not know the
+    wiring.
     """
     budget = max_attempts if max_attempts is not None else get_settings().max_attempts
     status = state.get("status")
     if status == IncidentStatus.RECEIVED:
+        if state.get("kind") == "change":
+            if triage is None:
+                return _Decision(None, "")  # router sends to the triage node
+            if triage.duplicate_of_id is not None:
+                return _Decision(
+                    IncidentStatus.ESCALATED,
+                    f"triage: {triage.rationale}",
+                    duplicate_of_id=triage.duplicate_of_id,
+                )
+            if not triage.owner:
+                return _Decision(IncidentStatus.ESCALATED, f"triage: {triage.rationale}")
+            return _Decision(IncidentStatus.TRIAGED, f"triage: {triage.rationale}")
         return _Decision(IncidentStatus.DIAGNOSING, "coordinator: begin diagnosis")
+    if status == IncidentStatus.TRIAGED:
+        # A real, audited status of its own (state/machine.py declares
+        # the edge) reached by the branch above; nothing further needs to
+        # run before assigning ownership - the triage node already
+        # resolved it - so this decision needs only the same queried row,
+        # not a fresh pass of any node.
+        if triage is None or not triage.owner:
+            return _Decision(IncidentStatus.ESCALATED, "triaged: no owner resolved")
+        return _Decision(
+            IncidentStatus.OWNER_ASSIGNED,
+            f"owner {triage.owner} assigned via {triage.owner_source}",
+            set_owner=triage.owner,
+        )
+    if status == IncidentStatus.OWNER_ASSIGNED:
+        if not state.get("review_complete"):
+            return _Decision(None, "")  # router sends to the review node
+        review_report = state.get("review") or {}
+        reviewer = review_report.get("reviewer")
+        if not reviewer:
+            return _Decision(
+                IncidentStatus.ESCALATED,
+                review_report.get("rationale") or "review: no reviewer resolved",
+            )
+        return _Decision(
+            IncidentStatus.REVIEW_PENDING,
+            f"review requested from {reviewer}: {review_report.get('rationale')}",
+        )
+    if status == IncidentStatus.REVIEW_PENDING:
+        if review is None or review.status == ApprovalStatus.PENDING:
+            return _Decision(None, "")  # still waiting - run ends suspended
+        if review.status == ApprovalStatus.APPROVED:
+            return _Decision(IncidentStatus.APPROVED, f"review approved by {review.decided_by}")
+        return _Decision(
+            IncidentStatus.REJECTED, f"review rejected by {review.decided_by}: {review.note or ''}"
+        )
+    if status == IncidentStatus.REJECTED:
+        # CONTEXT.md section 14: REJECTED -> FIX_REQUIRED -> REVIEW_PENDING.
+        # REJECTED needs no work of its own, only the audited record that
+        # it happened, before the run parks at FIX_REQUIRED for an
+        # updated commit.
+        return _Decision(
+            IncidentStatus.FIX_REQUIRED, "awaiting an updated commit to re-request review"
+        )
+    if status == IncidentStatus.FIX_REQUIRED:
+        if not fix_pushed:
+            return _Decision(None, "")  # still waiting for an updated commit
+        if not state.get("review_complete"):
+            return _Decision(None, "")  # router sends to the review node again
+        review_report = state.get("review") or {}
+        reviewer = review_report.get("reviewer")
+        if not reviewer:
+            return _Decision(
+                IncidentStatus.ESCALATED,
+                review_report.get("rationale") or "review: no reviewer resolved for re-review",
+            )
+        return _Decision(
+            IncidentStatus.REVIEW_PENDING,
+            f"updated commit detected: re-requesting review from {reviewer}",
+        )
+    if status == IncidentStatus.APPROVED:
+        return _Decision(IncidentStatus.DEPLOYING, "change approved: deploying")
+    if status == IncidentStatus.DEPLOYING:
+        if deploy_outcome == "passed":
+            return _Decision(IncidentStatus.RECOVERED, "deploy succeeded")
+        if deploy_outcome == "failed":
+            return _Decision(
+                IncidentStatus.DIAGNOSING, "deploy failed: handing off to the recovery loop"
+            )
+        return _Decision(None, "")  # still waiting for a build/deploy outcome
     if status == IncidentStatus.FAILED:
         # The failed -> diagnosing re-entry edge: a failed run may be
         # rediagnosed by a later `helix run`. The just-failed cycle
@@ -244,9 +357,25 @@ def _decide(
     # diagnosing re-entry + budget then apply like any other failure).
     node_failed = state.get("node_failed")
     if node_failed:
+        # 2.1: name the owning agent in the audited cause, so the
+        # transition record says WHOSE hop failed, not just which node.
+        from agent.ops import is_ops_node
+
+        failed_node = str(node_failed.get("node", "?"))
+        owner_agent = (
+            "ops"
+            if is_ops_node(failed_node)
+            else (
+                "triage"
+                if failed_node == "triage"
+                else "review"
+                if failed_node == "review"
+                else "coordinator"
+            )
+        )
         return _Decision(
             IncidentStatus.FAILED,
-            f"{node_failed.get('node', '?')}: {node_failed.get('cause', 'step timeout')}",
+            f"{owner_agent}.{failed_node}: {node_failed.get('cause', 'step timeout')}",
         )
     if status == IncidentStatus.DIAGNOSING:
         if not state.get("diagnosis_complete"):
@@ -285,14 +414,14 @@ def _decide(
     if status == IncidentStatus.VALIDATING:
         validation = state.get("validation")
         if not validation:
-            if arm in ("B", "C"):
+            if arm in ("B", "C", "D"):
                 # Arm B/C have no validate node (1.11): their fused
                 # selection goes straight to the shared policy gate - the
                 # access table still applies, the pre-execution check does
                 # not.
                 if not state.get("selected_action"):
                     return _Decision(IncidentStatus.FAILED, "validating without a selected action")
-                return _policy_gate(state, approval, arm)
+                return _policy_gate(state, approval, arm, evidence_types)
             # The validate node has not run in this status yet - the
             # router sends the run to it.
             return _Decision(None, "")
@@ -317,7 +446,7 @@ def _decide(
         # awaiting_approval vs a denied replan.
         if not state.get("selected_action"):
             return _Decision(IncidentStatus.FAILED, "validating without a selected action")
-        return _policy_gate(state, approval, arm)
+        return _policy_gate(state, approval, arm, evidence_types)
     if status == IncidentStatus.AWAITING_APPROVAL:
         # The run is suspended on a pending approvals row. `approval` is
         # the newest row matching the selected candidate's fingerprint.
@@ -328,7 +457,7 @@ def _decide(
                 approval=_approval_state(approval),
             )
         if approval is not None and approval.status == ApprovalStatus.REJECTED:
-            if arm in ("B", "C"):
+            if arm in ("B", "C", "D"):
                 # Rejection needs a replan; arm B/C have none - terminal.
                 return _Decision(
                     IncidentStatus.ESCALATED,
@@ -358,12 +487,44 @@ def _decide(
                 IncidentStatus.VERIFYING,
                 f"executed {execution.get('action')}: {execution.get('detail')}",
             )
-        # error / refused: the run fails here. Rediagnosis is the
-        # failed -> diagnosing re-entry on a later run; the fingerprint
-        # joins exclusions so a replan cannot blindly repeat it.
+        # Two failure kinds, two honest responses (the 1.5 gap, closed):
+        # - REFUSED means the executor's own gate rejected the candidate
+        #   before any transport call - the call itself was the problem,
+        #   so an in-run replan with the fingerprint excluded is the right
+        #   answer for arms that have a planner stage (E, A). Arms B/C/D
+        #   have no replan stage; refusal is terminal there exactly as a
+        #   denied or rejected selection is.
+        # - ERROR means the transport itself faulted - every candidate
+        #   against the same dead target fails alike, so replanning in
+        #   run would only burn the exclusion list. The run fails here;
+        #   rediagnosis is the failed -> diagnosing re-entry on a later
+        #   run.
+        refused = result == models.ExecutionResult.REFUSED.value
+        if arm in ("B", "C", "D") or not refused:
+            return _Decision(
+                IncidentStatus.FAILED,
+                f"execution {result} for {execution.get('action')}: {execution.get('detail')}",
+                exclude_fingerprint=execution.get("fingerprint"),
+            )
+        # The exclusion list doubles as the in-run replan budget: every
+        # dead end adds one fingerprint, so the same HELIX_MAX_ATTEMPTS
+        # bound that guards failed -> diagnosing re-entries guards this
+        # loop - a planner inventing endlessly distinct refused
+        # candidates escalates instead of cycling forever.
+        if len(state.get("excluded_candidates") or []) >= budget:
+            return _Decision(
+                IncidentStatus.ESCALATED,
+                f"execution refused for {execution.get('action')}: "
+                f"{execution.get('detail')} - in-run replan budget "
+                f"({budget}) exhausted, escalating",
+                count_attempt=True,
+                exclude_fingerprint=execution.get("fingerprint"),
+            )
         return _Decision(
-            IncidentStatus.FAILED,
-            f"execution {result} for {execution.get('action')}: {execution.get('detail')}",
+            IncidentStatus.REMEDIATION_PENDING,
+            f"execution refused for {execution.get('action')}: "
+            f"{execution.get('detail')} - replanning",
+            replan=True,
             exclude_fingerprint=execution.get("fingerprint"),
         )
     if status == IncidentStatus.VERIFYING:
@@ -456,6 +617,89 @@ def _latest_approval(session, incident_pk: int, fingerprint: str | None) -> mode
     )
 
 
+def _latest_triage(session, incident_pk: int) -> models.TriageResult | None:
+    """The newest triage_results row for an incident, if any - what the
+    coordinator decides from at received/triaged (2.5), queried fresh
+    rather than trusted from state for the same crash-resume reason
+    `approval`/`review` already are."""
+    return session.scalar(
+        select(models.TriageResult)
+        .where(models.TriageResult.incident_id == incident_pk)
+        .order_by(models.TriageResult.id.desc())
+        .limit(1)
+    )
+
+
+def _latest_review(session, incident_pk: int) -> models.ReviewRequest | None:
+    """The newest review_requests row for an incident, any status - what
+    the coordinator decides from at review_pending (2.6)."""
+    return session.scalar(
+        select(models.ReviewRequest)
+        .where(models.ReviewRequest.incident_id == incident_pk)
+        .order_by(models.ReviewRequest.id.desc())
+        .limit(1)
+    )
+
+
+def _status_entered_at(session, incident_pk: int, status: IncidentStatus) -> datetime | None:
+    """When the incident most recently transitioned INTO `status` - the
+    baseline `fix_pushed`/`deploy_outcome` measure "newer than" against,
+    so an event that arrived before parking cannot spuriously fire the
+    moment the run resumes."""
+    row = session.scalar(
+        select(models.Transition)
+        .where(models.Transition.incident_id == incident_pk)
+        .where(models.Transition.to_status == status)
+        .order_by(models.Transition.id.desc())
+        .limit(1)
+    )
+    return row.created_at if row is not None else None
+
+
+def _newer_event_type(
+    session, incident_pk: int, event_types: "frozenset[EventType]", since: datetime | None
+) -> str | None:
+    """The type of the newest EventRecord among `event_types` for this
+    incident ingested after `since`, or None.
+
+    The comparison is `created_at` vs `created_at` - both stamped by the
+    same app-side `datetime.now(UTC)` default at microsecond precision
+    (state/models.py), so the ordering is exact. `occurred_at` is the
+    event's claimed wall-clock time: a different precision entirely, and
+    the wrong semantics anyway - what matters is when Helix LEARNED of
+    the event, not when the vendor says it happened. A delayed or
+    replayed fix notification must still count as new.
+
+    `since=None` (the incident has not yet transitioned into the status
+    being checked) never fires - there is nothing to compare against.
+    A same-second event is conservative: equal, not newer."""
+    if since is None:
+        return None
+    row = session.scalar(
+        select(models.EventRecord)
+        .where(models.EventRecord.incident_id == incident_pk)
+        .where(models.EventRecord.event_type.in_([t.value for t in event_types]))
+        .where(models.EventRecord.created_at > since)
+        .order_by(models.EventRecord.id.desc())
+        .limit(1)
+    )
+    return row.event_type if row is not None else None
+
+
+#: Events that mean a change lifecycle's deploy succeeded / failed - the
+#: exact same taxonomy Phase 1's own CI/CD adapters already emit
+#: (events/adapters/jenkins.py, kubernetes.py). No new event type is
+#: needed: a deploy Helix is waiting on reports through the identical
+#: build.passed/build.failed/deployment.succeeded/deployment.failed
+#: vocabulary a live pipeline already uses.
+_DEPLOY_PASSED: "frozenset[EventType]" = frozenset(
+    {EventType.BUILD_PASSED, EventType.DEPLOYMENT_SUCCEEDED}
+)
+_DEPLOY_FAILED: "frozenset[EventType]" = frozenset(
+    {EventType.BUILD_FAILED, EventType.DEPLOYMENT_FAILED}
+)
+
+
 def _record_denial(
     session, deps: "GraphDeps", state: WorkflowState, verdict: PolicyVerdict
 ) -> None:
@@ -499,8 +743,70 @@ def coordinator_node(deps: "GraphDeps", arm: str = "E"):
                         ]
                     }
                 approval = _latest_approval(session, incident.id, _selected_fingerprint(state))
-                decision = _decide(state, approval, max_attempts=deps.max_attempts, arm=arm)
-                update: dict = {}
+                triage_row = _latest_triage(session, incident.id)
+                review_row = _latest_review(session, incident.id)
+                fix_pushed = (
+                    _newer_event_type(
+                        session,
+                        incident.id,
+                        # A reopen lands as PR_OPENED (the GitHub adapter
+                        # maps "reopened" there) - any new PR-bearing
+                        # event after parking is a change to re-review.
+                        frozenset({EventType.PR_UPDATED, EventType.PR_OPENED}),
+                        _status_entered_at(session, incident.id, IncidentStatus.FIX_REQUIRED),
+                    )
+                    is not None
+                    if incident.status == IncidentStatus.FIX_REQUIRED
+                    else False
+                )
+                deploy_outcome: str | None = None
+                if incident.status == IncidentStatus.DEPLOYING:
+                    since = _status_entered_at(session, incident.id, IncidentStatus.DEPLOYING)
+                    # The NEWEST deploy outcome decides: a build.passed
+                    # followed by a deployment.failed (a post-deploy
+                    # smoke failing, a rollout wedging after the gate
+                    # reported green) is a failure, not a recovery -
+                    # checking "any passed first" would let the earlier
+                    # event mask the newer one.
+                    newest = _newer_event_type(
+                        session, incident.id, _DEPLOY_PASSED | _DEPLOY_FAILED, since
+                    )
+                    if newest is not None:
+                        deploy_outcome = (
+                            "passed" if EventType(newest) in _DEPLOY_PASSED else "failed"
+                        )
+                # The canonical kinds this incident's evidence actually
+                # is - signals classified to event types plus non-Helix
+                # event records' types. The policy gate's coherence check
+                # uses it: a runtime-mutating action proposed on
+                # code-review-only evidence escalates to approval instead
+                # of executing (the 1.5 ablation's defect).
+                evidence_kinds: set[str] = set()
+                for record in incident.event_records:
+                    if record.source != "helix" and record.event_type in {
+                        t.value for t in EventType
+                    }:
+                        evidence_kinds.add(record.event_type)
+                for signal in incident.signals:
+                    try:
+                        evidence_kinds.add(
+                            classify(signal.source, dict(signal.signature or {})).value
+                        )
+                    except UnclassifiedSignal:
+                        pass  # an unnamed signal contributes no kind
+                evidence_types = frozenset(evidence_kinds)
+                decision = _decide(
+                    state,
+                    approval,
+                    max_attempts=deps.max_attempts,
+                    arm=arm,
+                    triage=triage_row,
+                    review=review_row,
+                    fix_pushed=fix_pushed,
+                    deploy_outcome=deploy_outcome,
+                    evidence_types=evidence_types,
+                )
+                update: dict = {"fix_pushed": fix_pushed}
                 if decision.bump_attempt or decision.count_attempt:
                     # A failed cycle consumed one attempt (1.10): the
                     # counter is the persisted retry budget ledger. The
@@ -586,6 +892,14 @@ def coordinator_node(deps: "GraphDeps", arm: str = "E"):
                         )
                         session.add(approval)
                         session.flush()
+                        # 2.2: the Slack surface for the gate is an
+                        # outbox op committed with the row itself - the
+                        # decision's durability never depends on Slack.
+                        from integrations.lifecycle_sync import (
+                            enqueue_approval_request,
+                        )
+
+                        enqueue_approval_request(session, incident, approval)
                     update["approval"] = _approval_state(approval)
                 if decision.deny is not None:
                     _record_denial(session, deps, state, decision.deny)
@@ -593,12 +907,30 @@ def coordinator_node(deps: "GraphDeps", arm: str = "E"):
                     update["policy"] = decision.policy
                 if decision.approval is not None:
                     update["approval"] = decision.approval
+                if decision.set_owner is not None:
+                    incident.owner = decision.set_owner
+                if decision.duplicate_of_id is not None:
+                    incident.duplicate_of_id = decision.duplicate_of_id
                 if decision.to_status is not None:
                     transition(
                         incident,
                         decision.to_status,
                         cause=decision.cause,
                         session=session,
+                    )
+                    # 2.2/2.3/2.4: the external side effects the new
+                    # status implies are committed in THIS transaction as
+                    # integration_outbox rows - the drain
+                    # (integrations/outbox.py) delivers them after, so a
+                    # Slack/Jira/Notion outage degrades the notification,
+                    # never the canonical state.
+                    from integrations.lifecycle_sync import enqueue_for_transition
+
+                    enqueue_for_transition(
+                        session,
+                        incident,
+                        decision.to_status,
+                        cause=decision.cause,
                     )
                 update["status"] = IncidentStatus(incident.status).value
                 return update
@@ -614,31 +946,38 @@ _DIAGNOSIS_NODE = {
     "E": "diagnosis",
     "B": "diagnose_and_plan",
     "C": "diagnose_and_plan",
+    "D": "diagnose_and_plan",
     "A": "rules_diagnosis",
 }
 
 #: Per-arm node key behind `remediation_pending` (1.6): E routes to the
 #: real planner, A to its rules variant (1.11 slot), B/C have no separate
 #: planning step - their fused call lands in 1.11.
-_PLAN_NODE = {"E": "plan", "A": "rules_plan", "B": None, "C": None}
+_PLAN_NODE = {"E": "plan", "A": "rules_plan", "B": None, "C": None, "D": None}
 
 #: Per-arm node key behind `validating` (1.7): E and A share the real
 #: validate node; B/C have no validate step at all.
-_VALIDATE_NODE = {"E": "validate", "A": "validate", "B": None, "C": None}
+_VALIDATE_NODE = {"E": "validate", "A": "validate", "B": None, "C": None, "D": None}
 
 #: Per-arm node key behind `executing` (1.8): the real execute node is
 #: shared by every arm (it is pure code - the policy gate lives in the
 #: coordinator's routing plus the executor's own re-check).
-_EXECUTE_NODE = {"E": "execute", "A": "execute", "B": "execute", "C": "execute"}
+_EXECUTE_NODE = {
+    "E": "execute",
+    "A": "execute",
+    "B": "execute",
+    "C": "execute",
+    "D": "execute",
+}
 
 #: Per-arm node key behind `verifying` (1.9): E and A share the real
 #: verify node; B/C drop it (its benchmark harness inspects actual system
 #: state itself, so the run ends at `verifying` for scoring).
-_VERIFY_NODE = {"E": "verify", "A": "verify", "B": None, "C": None}
+_VERIFY_NODE = {"E": "verify", "A": "verify", "B": None, "C": None, "D": None}
 
 #: Per-arm node key for the 1.10 compensation hop: parked at `verifying`
 #: while a failed compensable action still owes an un-undone change.
-_COMPENSATE_NODE = {"E": "compensate", "A": "compensate", "B": None, "C": None}
+_COMPENSATE_NODE = {"E": "compensate", "A": "compensate", "B": None, "C": None, "D": None}
 
 
 def make_router(arm: str):
@@ -665,6 +1004,26 @@ def make_router(arm: str):
     def _route(state: WorkflowState) -> str:
         from langgraph.graph import END
 
+        # Phase 2 (2.1/2.5/2.6) - the change-review lifecycle. Not
+        # arm-dependent: Triage/Review are deterministic regardless of
+        # which ablation arm handles the Ops loop a failed deploy hands
+        # off to (below, via the existing DIAGNOSING case).
+        if (
+            state.get("status") == IncidentStatus.RECEIVED
+            and state.get("kind") == "change"
+            and not state.get("triage_complete")
+        ):
+            return "triage"
+        if state.get("status") == IncidentStatus.OWNER_ASSIGNED and not state.get(
+            "review_complete"
+        ):
+            return "review"
+        if (
+            state.get("status") == IncidentStatus.FIX_REQUIRED
+            and state.get("fix_pushed")
+            and not state.get("review_complete")
+        ):
+            return "review"
         if state.get("status") == IncidentStatus.DIAGNOSING:
             return diagnosis_key
         if state.get("status") == IncidentStatus.REMEDIATION_PENDING:

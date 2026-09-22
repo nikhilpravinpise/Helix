@@ -19,6 +19,22 @@ and whose `needs_compensation` flag records the compensation debt 1.10
 consumes). Later subphases add their own tables alongside
 these - the schema grows with the code that uses it.
 
+Phase 2 (2.1-2.4) adds the change-review lifecycle's own state, extending
+rather than replacing the Phase 1 tables above: `Incident.kind`
+distinguishes the two lifecycles (state/machine.py has the full
+reasoning), `triage_results`/`review_requests` record the Triage and
+Review agents' decisions the same way `hypotheses`/`validations` record
+the Ops loop's, `work_items`/`work_item_comments` and `knowledge_pages`
+hold the provider-neutral projection state CONTEXT.md section 11/13
+describes (a `WorkItem` row per (incident, provider), never Jira- or
+Linear-specific columns), and `integration_outbox` is the durable
+send-queue every external side effect (Slack notify, work-item op, page
+sync) goes through - the same outbox pattern `event_records.published_at`
+already uses for Kafka, applied here because CONTEXT.md section 8's "Slack
+is not the database" holds for Jira and Notion too: the state change and
+the intent to notify commit or roll back together, and an integration
+outage degrades the send, never the state.
+
 Notes on the choices made here:
 
 - `incidents.fingerprint` is the dedup key computed by state/intake.py; it
@@ -40,7 +56,7 @@ Notes on the choices made here:
   is always True.
 """
 
-from datetime import datetime
+from datetime import UTC, datetime
 from enum import StrEnum
 from typing import Any
 
@@ -87,6 +103,30 @@ def _json_doc() -> JSON:
     return JSONB().with_variant(JSON(), "sqlite")
 
 
+class IncidentKind(StrEnum):
+    """Which lifecycle an incident follows (subphase 2.1).
+
+    `recovery` - a failure signal; the Phase 1 chain (RECEIVED ->
+    DIAGNOSING -> ... -> RECOVERED). `change` - a PR/push event; the
+    Phase 2 change-review chain (RECEIVED -> TRIAGED -> ... -> DEPLOYING).
+    See state/machine.py for how the two chains meet on a failed deploy.
+    """
+
+    RECOVERY = "recovery"
+    CHANGE = "change"
+
+
+def _kind_type() -> Enum:
+    return Enum(
+        IncidentKind,
+        native_enum=False,
+        validate_strings=True,
+        values_callable=lambda e: [m.value for m in e],
+        name="incident_kind",
+        length=16,
+    )
+
+
 class Incident(Base):
     """The canonical incident record. One row per deduplicated failure."""
 
@@ -103,11 +143,24 @@ class Incident(Base):
     attempt_count: Mapped[int] = mapped_column(Integer, default=0, server_default="0")
     linked_pr: Mapped[str | None] = mapped_column(String(256))
     linked_deployment: Mapped[str | None] = mapped_column(String(256))
+    # Phase 2 (2.1): which lifecycle this incident follows, and the
+    # provider-neutral ownership/priority/duplicate fields CONTEXT.md
+    # section 11 and 2.5 need. `kind` defaults `recovery` so every Phase 1
+    # incident (and every existing row) is unambiguous without a backfill.
+    kind: Mapped[IncidentKind] = mapped_column(
+        _kind_type(), default=IncidentKind.RECOVERY, server_default=IncidentKind.RECOVERY.value
+    )
+    owner: Mapped[str | None] = mapped_column(String(128))
+    priority: Mapped[str | None] = mapped_column(String(16))
+    duplicate_of_id: Mapped[int | None] = mapped_column(
+        ForeignKey("incidents.id", ondelete="SET NULL"), nullable=True
+    )
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
     )
 
+    duplicate_of: Mapped["Incident | None"] = relationship(remote_side="Incident.id")
     signals: Mapped[list["Signal"]] = relationship(back_populates="incident", order_by="Signal.id")
     transitions: Mapped[list["Transition"]] = relationship(
         back_populates="incident", order_by="Transition.id"
@@ -141,6 +194,21 @@ class Incident(Base):
     )
     correlation_tokens: Mapped[list["CorrelationToken"]] = relationship(
         back_populates="incident", order_by="CorrelationToken.id"
+    )
+    triage_results: Mapped[list["TriageResult"]] = relationship(
+        back_populates="incident",
+        order_by="TriageResult.id",
+        foreign_keys="TriageResult.incident_id",
+    )
+    review_requests: Mapped[list["ReviewRequest"]] = relationship(
+        back_populates="incident", order_by="ReviewRequest.id"
+    )
+    work_items: Mapped[list["WorkItem"]] = relationship(
+        back_populates="incident", order_by="WorkItem.id"
+    )
+    knowledge_page: Mapped["KnowledgePage | None"] = relationship(back_populates="incident")
+    outbox_entries: Mapped[list["IntegrationOutbox"]] = relationship(
+        back_populates="incident", order_by="IntegrationOutbox.id"
     )
 
 
@@ -178,7 +246,16 @@ class Transition(Base):
     from_status: Mapped[IncidentStatus | None] = mapped_column(_status_type(), nullable=True)
     to_status: Mapped[IncidentStatus] = mapped_column(_status_type())
     cause: Mapped[str] = mapped_column(Text)
-    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    # App-side default (microsecond, tz-aware) in front of the server
+    # fallback: func.now() on SQLite stores second-precision strings,
+    # and the coordinator's "events newer than this transition" check
+    # compares this column against event_records.created_at - the two
+    # sides must share precision or same-second ordering goes wrong.
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        default=lambda: datetime.now(UTC),
+        server_default=func.now(),
+    )
 
     incident: Mapped[Incident] = relationship(back_populates="transitions")
 
@@ -729,7 +806,14 @@ class EventRecord(Base):
     #: NULL means unpublished - including for every event CONSUMED from
     #: the stream, which Helix never produced and must not claim to have.
     published_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
-    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    # App-side default for the same reason as transitions.created_at:
+    # the coordinator compares this column against it, and second-precision
+    # server strings cannot order same-second events correctly.
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        default=lambda: datetime.now(UTC),
+        server_default=func.now(),
+    )
 
     incident: Mapped[Incident] = relationship(back_populates="event_records")
 
@@ -754,3 +838,239 @@ class CorrelationToken(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
     incident: Mapped[Incident] = relationship(back_populates="correlation_tokens")
+
+
+class TriageResult(Base):
+    """One Triage Agent pass (subphase 2.5): what happened, what is
+    affected, and who owns it.
+
+    `duplicate_of_id` is set when this triage matched an existing OPEN
+    incident by the same duplicate-detection signature (2.5's "duplicate
+    incident detection against event history") - the row records the
+    finding even though the coordinator does not open a second incident
+    for it. `owner_source` names which resolution path produced `owner`
+    (`codeowners` | `registry` | `graph` | `none`) so a later 2.7 graph
+    comparison can tell a graph-backed answer from a pre-graph one
+    without re-deriving it.
+    """
+
+    __tablename__ = "triage_results"
+
+    id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
+    incident_id: Mapped[int] = mapped_column(
+        ForeignKey("incidents.id", ondelete="CASCADE"), index=True
+    )
+    attempt: Mapped[int] = mapped_column(Integer, default=0, server_default="0")
+    affected_service: Mapped[str] = mapped_column(String(128))
+    blast_radius: Mapped[str] = mapped_column(String(16))  # low | medium | high
+    duplicate_of_id: Mapped[int | None] = mapped_column(
+        ForeignKey("incidents.id", ondelete="SET NULL"), nullable=True
+    )
+    owner: Mapped[str | None] = mapped_column(String(128))
+    owner_source: Mapped[str] = mapped_column(String(16))  # codeowners | registry | graph | none
+    rationale: Mapped[str] = mapped_column(Text)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+    incident: Mapped[Incident] = relationship(
+        back_populates="triage_results", foreign_keys=[incident_id]
+    )
+    duplicate_of: Mapped[Incident | None] = relationship(foreign_keys=[duplicate_of_id])
+
+
+class ReviewRequest(Base):
+    """One Review Agent request (subphase 2.6): who should review this
+    change, and why.
+
+    `status` reuses `ApprovalStatus` (pending/approved/rejected) - the
+    review decision is structurally the same gate the 1.8 approval flow
+    already models, decided by a human through the same durable-row
+    pattern (Slack 2.2 is a delivery surface, never the record of truth).
+    `ux_review_requests_one_pending` mirrors the approvals table's
+    single-pending-row guard.
+    """
+
+    __tablename__ = "review_requests"
+    __table_args__ = (
+        Index(
+            "ux_review_requests_one_pending",
+            "incident_id",
+            unique=True,
+            postgresql_where=text("status = 'pending'"),
+            sqlite_where=text("status = 'pending'"),
+        ),
+    )
+
+    id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
+    incident_id: Mapped[int] = mapped_column(
+        ForeignKey("incidents.id", ondelete="CASCADE"), index=True
+    )
+    attempt: Mapped[int] = mapped_column(Integer, default=0, server_default="0")
+    reviewer: Mapped[str] = mapped_column(String(128))
+    rationale: Mapped[str] = mapped_column(Text)
+    status: Mapped[ApprovalStatus] = mapped_column(
+        _approval_status_type(), default=ApprovalStatus.PENDING
+    )
+    decided_by: Mapped[str | None] = mapped_column(String(128))
+    decided_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    note: Mapped[str | None] = mapped_column(Text)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+    incident: Mapped[Incident] = relationship(back_populates="review_requests")
+
+
+class WorkItem(Base):
+    """One tracked work item projected onto an external provider
+    (subphase 2.3): `WorkItemProvider` is `jira` | `linear` | `trello`
+    (2.10), never hardcoded to one vendor. Columns are the
+    provider-neutral concepts CONTEXT.md section 11 names -
+    `status`/`assignee`/`priority`/`project` - so no agent ever reads or
+    writes vendor vocabulary.
+
+    `ux_work_items_one_per_provider` is the duplicate-prevention backstop
+    (2.3's "duplicate work item prevention", 2.10's "duplicate work item
+    rate" metric): at most one work item per (incident, provider).
+    """
+
+    __tablename__ = "work_items"
+    __table_args__ = (
+        Index("ux_work_items_one_per_provider", "incident_id", "provider", unique=True),
+    )
+
+    id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
+    incident_id: Mapped[int] = mapped_column(
+        ForeignKey("incidents.id", ondelete="CASCADE"), index=True
+    )
+    provider: Mapped[str] = mapped_column(String(16))  # jira | linear | trello
+    external_id: Mapped[str] = mapped_column(String(64))
+    external_key: Mapped[str | None] = mapped_column(String(32))  # e.g. "HELIX-123"
+    external_url: Mapped[str | None] = mapped_column(String(512))
+    title: Mapped[str] = mapped_column(Text)
+    # Provider-neutral status (CONTEXT.md section 11): open | in_progress |
+    # blocked | done | closed. A provider lacking a state (2.10's Trello
+    # study) maps its native list membership onto this vocabulary.
+    status: Mapped[str] = mapped_column(String(16))
+    assignee: Mapped[str | None] = mapped_column(String(128))
+    priority: Mapped[str | None] = mapped_column(String(16))
+    project: Mapped[str | None] = mapped_column(String(128))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
+    )
+
+    incident: Mapped[Incident] = relationship(back_populates="work_items")
+    # delete-orphan matches the declared ondelete="CASCADE" on
+    # work_item_comments.work_item_id: an ORM-level session.delete(item)
+    # (integrations.reconcile's missing-remote repair) otherwise nulls
+    # the FK on flush and trips the NOT NULL constraint.
+    comments: Mapped[list["WorkItemComment"]] = relationship(
+        back_populates="work_item",
+        order_by="WorkItemComment.id",
+        cascade="all, delete-orphan",
+    )
+
+
+class WorkItemComment(Base):
+    """One `comment_work_item` call recorded (subphase 2.3) - the audit
+    trail of what Helix told the tracker, mirroring how `executions`
+    audits what Helix told the cluster."""
+
+    __tablename__ = "work_item_comments"
+
+    id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
+    work_item_id: Mapped[int] = mapped_column(
+        ForeignKey("work_items.id", ondelete="CASCADE"), index=True
+    )
+    body: Mapped[str] = mapped_column(Text)
+    author: Mapped[str] = mapped_column(String(128), default="helix")
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+    work_item: Mapped[WorkItem] = relationship(back_populates="comments")
+
+
+class KnowledgePage(Base):
+    """One Notion incident page (subphase 2.4): a projection of Postgres
+    state, never a source of truth (CONTEXT.md section 13). One row per
+    incident - `ux_knowledge_pages_one_per_incident` is 2.4's "no
+    duplicate pages" exit criterion as a database guarantee."""
+
+    __tablename__ = "knowledge_pages"
+    __table_args__ = (Index("ux_knowledge_pages_one_per_incident", "incident_id", unique=True),)
+
+    id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
+    incident_id: Mapped[int] = mapped_column(
+        ForeignKey("incidents.id", ondelete="CASCADE"), index=True
+    )
+    provider: Mapped[str] = mapped_column(String(16), default="notion")
+    external_id: Mapped[str] = mapped_column(String(64))
+    external_url: Mapped[str | None] = mapped_column(String(512))
+    title: Mapped[str] = mapped_column(Text)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
+    )
+
+    incident: Mapped[Incident] = relationship(back_populates="knowledge_page")
+
+
+class OutboxStatus(StrEnum):
+    """Delivery state of one `integration_outbox` row."""
+
+    PENDING = "pending"
+    SENT = "sent"
+    FAILED = "failed"
+    #: The integration was not configured at drain time - an explicit
+    #: terminal outcome (delivered-to-nowhere), not a retryable failure
+    #: and never a fake `sent`.
+    SKIPPED = "skipped"
+
+
+def _outbox_status_type() -> Enum:
+    return Enum(
+        OutboxStatus,
+        native_enum=False,
+        validate_strings=True,
+        values_callable=lambda e: [m.value for m in e],
+        name="outbox_status",
+        length=16,
+    )
+
+
+class IntegrationOutbox(Base):
+    """The durable send-queue every external side effect goes through
+    (subphases 2.2/2.3/2.4): a Slack notification, a work-item create or
+    transition, a knowledge-page sync. Written in the SAME transaction as
+    the state change that caused it - exactly `event_records`' outbox
+    pattern (E5), extended past Kafka to these three integrations because
+    the reasoning is identical: "Slack is not the database" (CONTEXT.md
+    section 8) means an integration outage must degrade the send, not the
+    state change, and the only way to guarantee that is to commit the
+    intent to send atomically with the fact that made it true.
+
+    `integration` (`slack` | `jira` | `notion`) and `op` (e.g.
+    `notify`, `create_work_item`, `update_work_item`, `comment_work_item`,
+    `sync_page`) are plain strings, not DB enums - 2.10 adds providers
+    (`linear`, `trello`) without a migration, matching how
+    `event_records.source` stays a string for the same reason.
+    `attempts`/`last_error` are the retry ledger `integrations.outbox`
+    drains against; `sent_at` NULL means still pending or permanently
+    failed (`status` tells the two apart).
+    """
+
+    __tablename__ = "integration_outbox"
+
+    id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
+    incident_id: Mapped[int] = mapped_column(
+        ForeignKey("incidents.id", ondelete="CASCADE"), index=True
+    )
+    integration: Mapped[str] = mapped_column(String(16))
+    op: Mapped[str] = mapped_column(String(32))
+    payload: Mapped[dict[str, Any]] = mapped_column(_json_doc())
+    status: Mapped[OutboxStatus] = mapped_column(
+        _outbox_status_type(), default=OutboxStatus.PENDING
+    )
+    attempts: Mapped[int] = mapped_column(Integer, default=0, server_default="0")
+    last_error: Mapped[str | None] = mapped_column(Text)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    sent_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+
+    incident: Mapped[Incident] = relationship(back_populates="outbox_entries")

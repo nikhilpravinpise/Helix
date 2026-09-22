@@ -68,11 +68,15 @@ The older single-validation-retry rule (`validating` FAIL replans once,
 a second consecutive FAIL escalates) is unchanged - it is a
 within-the-cycle bound, not part of the attempt ledger.
 
-## Execution failure -> rediagnosis
+## Execution failure -> rediagnosis (in-run replan for refusals, 2.1)
 
-An `error`/`refused` executions row still transitions `executing ->
-failed` with the fingerprint excluded. A later `helix run` on a `failed`
-incident takes `failed -> diagnosing` (budget permitting): hypothesis and
+A `refused` executions row (the executor's own gate said no before any
+transport call - a candidate-level refusal) transitions `executing ->
+remediation_pending` and replans in run for arms with a planner (E, A),
+bounded by the exclusion list as the budget. An `error` result (transport
+failure) still transitions `executing -> failed` with the fingerprint
+excluded; a later `helix run` on a `failed` incident takes `failed ->
+diagnosing` (budget permitting): hypothesis and
 run-scoped outputs are cleared, `attempt_count` bumps, and the planner's
 exclusion list keeps the failed fingerprint from being re-selected.
 
@@ -82,12 +86,18 @@ An incident suspended at `awaiting_approval` forever is a hang, so a
 pending `approvals` row older than `HELIX_APPROVAL_TIMEOUT` (default
 24h, `0` disables) is handled two ways:
 
-- **The sweep** (`state/approvals.sweep_approval_timeout`) runs inside
-  `run_incident` while holding the incident row lock, before any resume:
-  the row is recorded `rejected` (`decided_by="helix"`, the note carries
-  the pending age) and the incident transitions
-  `awaiting_approval -> escalated` with the timeout cause - all in the
-  run's first transaction.
+- **The sweep** (`state/approvals.sweep_approval_timeout`, and its 2.6
+  twin `state/reviews.sweep_review_timeout` for a parked
+  `review_pending`) runs inside `run_incident` while holding the
+  incident row lock, before any resume: the row is recorded `rejected`
+  (`decided_by="helix"`, the note carries the pending age) and the
+  incident transitions `awaiting_approval -> escalated` (or
+  `review_pending -> escalated`) with the timeout cause - all in the
+  run's first transaction. When either sweep fires, `run_incident` calls
+  `enqueue_for_transition` for the escalation in that same transaction,
+  so a timeout projects like any other escalation (Slack notify, work
+  item `-> blocked`, terminal comment, page refresh) - never an
+  invisible state change.
 - **The decision-side guard**: `record_decision` refuses a decision on a
   pending row that has already outlived the window
   (`ApprovalDecidedError` -> CLI error / API 409). It writes nothing -

@@ -27,6 +27,21 @@ Flow per (scenario, arm):
 7. `scoring.score_outcome` folds the record into metrics; the report
    lands under benchmark/reports/.
 
+`flow: change` scenarios (Phase 2, subphase 2.9/2.11) run differently in
+steps 4-6: the declared `events` are ingested in order through
+`events.ingest.ingest_event` (never `helix intake`), the hop loop also
+handles `review_pending` (scripted reviewer, benchmark/reviewer.py),
+`fix_required` (an updated-commit event is injected) and `deploying`
+(the declared `deploy_outcome` event is injected), and after the drive
+`_settle_integrations` converges the integration projections - the same
+drain+reconcile code `helix sync` runs, in-process with one memory
+provider seeded from the mirror, because the subprocess-per-hop shape
+cannot carry provider state the way one long-lived Helix process does.
+The collected record additionally carries triage results, review
+requests, work-item/knowledge-page mirrors, the outbox ledger, the
+ordered transition list, the duplicate edge and decision-evidence
+coverage - the Phase 2 metrics in benchmark/scoring.py read those.
+
 The harness never short-circuits the graph: everything it scores was
 produced by real node executions against real durable state.
 
@@ -51,7 +66,7 @@ import subprocess
 import sys
 import urllib.request
 from dataclasses import dataclass, field
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any
 
@@ -59,12 +74,12 @@ from pydantic import ValidationError
 from sqlalchemy import create_engine, select
 from sqlalchemy.orm import Session
 
-from benchmark import catalog
+from benchmark import catalog, reviewer
 from benchmark.approver import service_suspended_run
 from benchmark.scoring import OutcomeRecord, dumps_report, render_markdown, score_outcome, summarize
 from events.classify import UnclassifiedSignal, classify
 from events.ingest import ingest_event
-from events.schemas import EventSource
+from events.schemas import EngineeringEvent, EventSource, EventType
 from helix.config import get_settings
 from state import models
 from state.db import session_scope
@@ -100,7 +115,10 @@ class HarnessConfig:
     scenarios: list[str] | None = None  # None = all
     mode: str = "auto"  # auto | fixture | live
     out_dir: Path = REPORTS_DIR
-    max_hops: int = 10  # `helix run` invocations before declaring a stall
+    # `helix run` invocations before declaring a stall. Change flows are
+    # the longest paths: reject -> fix -> re-review -> deploy can take
+    # eight hops before the recovery handoff even starts.
+    max_hops: int = 14
     database_url: str | None = None  # None = settings.database_url
     path: str = "direct"  # direct | event (subphase E7) - see module docstring
 
@@ -110,7 +128,11 @@ class HarnessConfig:
 
 def _postgres_ok(url: str) -> bool:
     try:
-        engine = create_engine(url)
+        # psycopg's default connect wait is the OS TCP timeout (~90s on a
+        # dead port) - a requirement probe must fail fast, so postgres URLs
+        # get a bound. Other drivers (sqlite) take no connect_timeout.
+        kwargs = {"connect_args": {"connect_timeout": 3}} if "postgres" in url else {}
+        engine = create_engine(url, **kwargs)
         with engine.connect():
             return True
     except Exception:
@@ -231,6 +253,277 @@ def _inject_live(scenario: dict[str, Any]) -> str | None:
     if proc.returncode != 0:
         return f"fault script exited {proc.returncode}: {proc.stderr.strip()[:300]}"
     return None
+
+
+# --- Change-flow driving (subphase 2.9/2.11) ---------------------------------
+
+
+def _ingest_declared_events(
+    scenario: dict[str, Any], database_url: str
+) -> tuple[list[dict[str, Any]], str | None]:
+    """Change-flow intake: ingest every declared `events` item through
+    `events.ingest.ingest_event`, in order, each in its own transaction -
+    the same entry point the Kafka consumer drives, so the change
+    lifecycle is exercised exactly as production drives it.
+
+    `offset_seconds` spaces `occurred_at` deterministically: the timeline
+    is anchored so the LAST event lands ~now (older events sit in the
+    past), which keeps both the correlation window and the coordinator's
+    "newer than status-entry" checks honest.
+
+    Returns `(results, error)` - one entry per event, in declared order.
+    """
+    specs = scenario.get("events") or []
+    if not specs:
+        return [], "change flow declares no events"
+    max_offset = max(float(spec.get("offset_seconds") or 0) for spec in specs)
+    base = datetime.now(UTC) - timedelta(seconds=max_offset)
+    engine = create_engine(database_url)
+    results: list[dict[str, Any]] = []
+    try:
+        for spec in specs:
+            event = EngineeringEvent(
+                event_type=EventType(spec["type"]),
+                source=EventSource(spec["source"]),
+                timestamp=base + timedelta(seconds=float(spec.get("offset_seconds") or 0)),
+                service=spec["service"],
+                environment=spec["environment"],
+                actor=spec.get("actor") or "system",
+                metadata=spec.get("metadata") or {},
+            )
+            with session_scope(engine) as session:
+                result = ingest_event(session, event)
+            results.append(
+                {
+                    "type": spec["type"],
+                    "incident_id": result.incident_id,
+                    "created": result.created,
+                    "correlated": result.correlated,
+                }
+            )
+    except (ValidationError, ValueError, KeyError) as exc:
+        return results, f"event ingest failed: {exc}"
+    return results, None
+
+
+def _ingest_followup(event: EngineeringEvent, database_url: str) -> str | None:
+    """Ingest one follow-up event the lifecycle is waiting on (an updated
+    commit at fix_required, a deploy outcome at deploying). Stamped at
+    ingest time, which is strictly after the status was entered - the
+    coordinator's `occurred_at > entered_at` check then sees it. The event
+    attaches by its correlation tokens, the same way a real vendor event
+    arrives. Returns None on success."""
+    engine = create_engine(database_url)
+    try:
+        with session_scope(engine) as session:
+            ingest_event(session, event)
+    except (ValidationError, ValueError) as exc:
+        return f"follow-up event ingest failed: {exc}"
+    return None
+
+
+def _push_update(scenario: dict[str, Any], incident_id: str, database_url: str) -> str | None:
+    """The reject-loop follow-up: a `pr.updated` carrying `fixed_sha` /
+    `updated_files`, attached to the incident by service+branch tokens -
+    the same way a real GitHub webhook would arrive."""
+    first = (scenario["events"][0] if scenario.get("events") else {}) or {}
+    metadata = dict(first.get("metadata") or {})
+    if scenario.get("fixed_sha"):
+        metadata["sha"] = scenario["fixed_sha"]
+    if scenario.get("updated_files"):
+        metadata["files"] = list(scenario["updated_files"])
+    metadata.setdefault("action", "synchronize")
+    event = EngineeringEvent(
+        event_type=EventType.PR_UPDATED,
+        source=EventSource(first.get("source") or EventSource.GITHUB.value),
+        correlation_id=incident_id,
+        service=first.get("service") or "unknown",
+        environment=first.get("environment") or "sandbox",
+        actor=first.get("actor") or "system",
+        metadata=metadata,
+    )
+    return _ingest_followup(event, database_url)
+
+
+def _deploy_outcome_event(
+    scenario: dict[str, Any], incident_id: str, database_url: str
+) -> str | None:
+    """At `deploying`, inject the build/deploy verdict the declared
+    `deploy_outcome` names - the same `build.passed`/`build.failed`/
+    `deployment.succeeded`/`deployment.failed` vocabulary the CI and CD
+    adapters emit."""
+    outcome = scenario.get("deploy_outcome") or "passed"
+    first = (scenario["events"][0] if scenario.get("events") else {}) or {}
+    metadata = dict(scenario.get("deploy_metadata") or {})
+    metadata.setdefault("deployment", first.get("service") or "unknown")
+    event = EngineeringEvent(
+        event_type=(
+            EventType.DEPLOYMENT_SUCCEEDED if outcome == "passed" else EventType.DEPLOYMENT_FAILED
+        ),
+        source=EventSource(scenario.get("deploy_source") or EventSource.JENKINS.value),
+        correlation_id=incident_id,
+        service=first.get("service") or "unknown",
+        environment=first.get("environment") or "sandbox",
+        metadata=metadata,
+    )
+    return _ingest_followup(event, database_url)
+
+
+def _settle_integrations(database_url: str) -> list[str]:
+    """Converge the integration projections the lifecycle enqueued.
+
+    `helix run` drains the outbox at the end of every hop, but each hop
+    is a subprocess whose memory provider dies with it: dependent ops
+    (assign/transition/comment) and reconcile's remote lookups cannot see
+    provider state that lived in a dead process. A real deployment runs
+    one long-lived process holding ONE provider, so this settle
+    reconstructs that view - it seeds a shared `MemoryWorkProvider` from
+    the durable `work_items` mirror (the canonical record of what was
+    delivered, written in the same transaction as delivery), then runs
+    the same drain + reconcile code `helix sync` invokes until no pending
+    rows remain. Genuine drift the reconcile finds - a recovered incident
+    whose item is still open, a deleted remote - repairs through the real
+    2.9 path; that repair is what the stale-work-item scenario measures.
+
+    Only applies to the memory provider: a configured real provider is
+    resolved by the drain itself. Errors surface in the record, never
+    silently.
+    """
+    errors: list[str] = []
+    from integrations.outbox import drain_outbox
+    from integrations.reconcile import reconcile_knowledge_pages, reconcile_work_items
+    from integrations.work.memory import MemoryWorkProvider
+
+    try:
+        from integrations.notion import get_notion_client
+
+        notion = get_notion_client()  # None when unconfigured - reconcile no-ops
+    except ImportError:
+        notion = None
+
+    engine = create_engine(database_url)
+    try:
+        work = MemoryWorkProvider()
+        inject = get_settings().work_provider == work.name
+        if inject:
+            # Seed the provider's remote view from the mirror - the state
+            # a single persistent process would have accumulated.
+            with session_scope(engine) as session:
+                for item in session.scalars(select(models.WorkItem)).all():
+                    if item.provider != work.name:
+                        continue
+                    work.items[item.external_id] = {
+                        "incident_id": item.incident.incident_id,
+                        "title": item.title,
+                        "status": item.status,
+                        "assignee": item.assignee,
+                        "priority": item.priority,
+                        "comments": [],
+                        "linked": [],
+                    }
+                seq = [
+                    int(eid[4:])
+                    for eid in work.items
+                    if eid.startswith("MEM-") and eid[4:].isdigit()
+                ]
+                work._seq = max(seq, default=0)  # recreates must not collide
+        for _pass in range(8):
+            with session_scope(engine) as session:
+                drain_outbox(session, work=work if inject else None)
+                if inject:
+                    reconcile_work_items(session, work)
+                if notion is not None:
+                    reconcile_knowledge_pages(session, notion)
+                pending = session.scalar(
+                    select(models.IntegrationOutbox.id).where(
+                        models.IntegrationOutbox.status == models.OutboxStatus.PENDING
+                    )
+                )
+            if pending is None:
+                break
+    except Exception as exc:  # a settle defect is a harness error, not a result
+        errors.append(f"integration settle failed: {exc}")
+    return errors
+
+
+def _drive_change(
+    incident_id: str, env: dict[str, str], cfg: HarnessConfig, scenario: dict
+) -> list[str]:
+    """`helix run` hop loop for `flow: change`, parallel to `_drive`.
+
+    The change lifecycle parks at statuses the Ops loop never visits:
+    `review_pending` (scripted reviewer via state.reviews), `fix_required`
+    (an updated commit is injected), `deploying` (a build/deploy outcome
+    event is injected). `awaiting_approval` still routes through the
+    scripted approver - a deploy-failure handoff enters the Phase 1
+    recovery loop unchanged. Returns harness error notes (empty = clean).
+    """
+    errors: list[str] = []
+    seen: list[str] = []
+    url = cfg.database_url or get_settings().database_url
+    review_rounds = 0
+    injected: set[str] = set()
+    max_rounds = int(scenario.get("max_review_rounds") or 1)
+    for _hop in range(cfg.max_hops):
+        proc = _helix(["run", incident_id], env)
+        if proc.returncode not in (0, 1):
+            errors.append(f"helix run failed: {proc.stderr.strip()[:300]}")
+            break
+        status = _current_status(url, incident_id)
+        if status in TERMINAL:
+            break
+        acted = False
+        if status == IncidentStatus.AWAITING_APPROVAL.value:
+            outcome = service_suspended_run(_session_factory(cfg), incident_id, scenario)
+            if outcome.outcome == "no_pending":
+                errors.append("awaiting_approval with no pending approvals row")
+                break
+            if outcome.outcome == "error":
+                errors.append(f"approver error: {outcome.detail}")
+                break
+            acted = True
+        elif status == IncidentStatus.REVIEW_PENDING.value:
+            decision = reviewer.decision_for_round(scenario, review_rounds)
+            if decision == "timeout":
+                break  # the scripted reviewer never answers - honestly parked
+            if review_rounds >= max_rounds:
+                errors.append(
+                    f"review round {review_rounds + 1} exceeds max_review_rounds={max_rounds}"
+                )
+                break
+            outcome = reviewer.service_suspended_review(
+                _session_factory(cfg), incident_id, scenario, round_index=review_rounds
+            )
+            review_rounds += 1
+            if outcome.outcome == "no_pending":
+                errors.append("review_pending with no pending review_requests row")
+                break
+            if outcome.outcome == "error":
+                errors.append(f"reviewer error: {outcome.detail}")
+                break
+            acted = True
+        elif status == IncidentStatus.FIX_REQUIRED.value and "fix" not in injected:
+            injected.add("fix")
+            fail = _push_update(scenario, incident_id, url)
+            if fail:
+                errors.append(fail)
+                break
+            acted = True
+        elif status == IncidentStatus.DEPLOYING.value and "deploy" not in injected:
+            injected.add("deploy")
+            if not scenario.get("deploy_outcome"):
+                break  # no declared outcome - the incident honestly waits for one
+            fail = _deploy_outcome_event(scenario, incident_id, url)
+            if fail:
+                errors.append(fail)
+                break
+            acted = True
+        if seen and seen[-1] == status and not acted:
+            break  # parked - same status twice with nothing new injected
+        seen.append(status)
+    else:
+        errors.append(f"hop bound {cfg.max_hops} exhausted")
+    return errors
 
 
 def _drive(incident_id: str, env: dict[str, str], cfg: HarnessConfig, scenario: dict) -> list[str]:
@@ -419,7 +712,13 @@ def _first_observed_at(incident: models.Incident) -> str | None:
 
 
 def _collect(database_url: str, incident_id: str) -> dict[str, Any]:
-    """Read back the durable record the run produced."""
+    """Read back the durable record the run produced.
+
+    Phase 2 (2.9/2.11) adds the change-lifecycle record: triage results,
+    review requests, work-item/knowledge-page mirrors, the outbox ledger,
+    the ordered transition list, the owner, the duplicate edge, and the
+    evidence-ref coverage of the decision rows. Everything here is read
+    from the canonical store - never inferred."""
     engine = create_engine(database_url)
     with Session(engine) as session:
         incident = session.scalar(
@@ -429,6 +728,9 @@ def _collect(database_url: str, incident_id: str) -> dict[str, Any]:
             return {}
         transitions = list(incident.transitions)
         recovered = next((t for t in transitions if t.to_status == IncidentStatus.RECOVERED), None)
+        triage = incident.triage_results[-1] if incident.triage_results else None
+        candidates = list(incident.candidates)
+        hypotheses = list(incident.hypotheses)
         return {
             "incident_id": incident.incident_id,
             "final_status": IncidentStatus(incident.status).value,
@@ -462,6 +764,70 @@ def _collect(database_url: str, incident_id: str) -> dict[str, Any]:
             "verifications": [
                 {"action": v.action, "outcome": v.outcome.value} for v in incident.verifications
             ],
+            # Phase 2 (2.9/2.11): the change-lifecycle durable record.
+            "incident_kind": incident.kind.value if incident.kind else None,
+            "owner": incident.owner,
+            "triage": (
+                {
+                    "affected_service": triage.affected_service,
+                    "owner": triage.owner,
+                    "owner_source": triage.owner_source,
+                    "duplicate_of_id": triage.duplicate_of_id,
+                }
+                if triage
+                else None
+            ),
+            "reviews": [
+                {
+                    "reviewer": r.reviewer,
+                    "status": r.status.value,
+                    "decided_by": r.decided_by,
+                    "attempt": r.attempt,
+                }
+                for r in incident.review_requests
+            ],
+            "work_items": [
+                {
+                    "provider": w.provider,
+                    "external_id": w.external_id,
+                    "status": w.status,
+                    "assignee": w.assignee,
+                }
+                for w in incident.work_items
+            ],
+            "knowledge_page": (
+                {
+                    "external_id": incident.knowledge_page.external_id,
+                    "external_url": incident.knowledge_page.external_url,
+                    "title": incident.knowledge_page.title,
+                }
+                if incident.knowledge_page
+                else None
+            ),
+            "outbox": {
+                status: sum(1 for o in incident.outbox_entries if o.status.value == status)
+                for status in {o.status.value for o in incident.outbox_entries}
+            },
+            "outbox_ops": [
+                {"integration": o.integration, "op": o.op, "status": o.status.value}
+                for o in incident.outbox_entries
+            ],
+            "transitions": [
+                {
+                    "from": t.from_status.value if t.from_status else None,
+                    "to": t.to_status.value,
+                }
+                for t in transitions
+            ],
+            "duplicate_of": (
+                incident.duplicate_of.incident_id if incident.duplicate_of_id else None
+            ),
+            "decision_evidence": {
+                "candidates_with_refs": sum(1 for c in candidates if c.evidence_refs),
+                "candidates_total": len(candidates),
+                "hypotheses_with_refs": sum(1 for h in hypotheses if h.evidence_refs),
+                "hypotheses_total": len(hypotheses),
+            },
         }
 
 
@@ -526,6 +892,69 @@ def _measure(cfg: HarnessConfig, scenario: dict[str, Any], record: dict[str, Any
     if scenario.get("inject") == "live":
         for probe in expected.get("measured") or []:
             checks.append(_kubectl_probe(probe))
+    checks.extend(_measure_change(scenario, record))
+    return checks
+
+
+def _measure_change(scenario: dict[str, Any], record: dict[str, Any]) -> list[dict]:
+    """The change-flow assertions: the durable record the 2.x lifecycle
+    left behind. Each declared expectation becomes a measured check the
+    same way `executed_action` does for Phase 1 - a scenario that does not
+    declare one simply is not measured on it."""
+    checks: list[dict] = []
+    if "expected_duplicate" in scenario:
+        want = bool(scenario["expected_duplicate"])
+        got = record.get("duplicate_of") is not None
+        checks.append(
+            {
+                "check": f"duplicate_of set == {want}",
+                "ok": got == want,
+                "detail": f"duplicate_of={record.get('duplicate_of')!r}",
+            }
+        )
+    if "expected_work_items" in scenario:
+        want = int(scenario["expected_work_items"])
+        got = len(record.get("work_items") or [])
+        items = [
+            (w["provider"], w["external_id"], w["status"]) for w in record.get("work_items") or []
+        ]
+        checks.append(
+            {
+                "check": f"work_items == {want}",
+                "ok": got == want,
+                "detail": f"{got} work_items row(s): {items}",
+            }
+        )
+    if "expected_work_item_status" in scenario:
+        want = scenario["expected_work_item_status"]
+        statuses = [w["status"] for w in record.get("work_items") or []]
+        checks.append(
+            {
+                "check": f"work_item_status == {want!r}",
+                "ok": bool(statuses) and all(s == want for s in statuses),
+                "detail": f"statuses={statuses}",
+            }
+        )
+    if "expected_knowledge_page" in scenario:
+        want = bool(scenario["expected_knowledge_page"])
+        # The deterministic half of the projection is the committed
+        # outbox op: whether Notion delivered it depends on credentials
+        # the benchmark env may not have, and `outbox` in the record
+        # reports that truth separately. A mirror row or a sync_page op
+        # both count as "the lifecycle projected a page".
+        got = record.get("knowledge_page") is not None or any(
+            o.get("integration") == "notion" and o.get("op") == "sync_page"
+            for o in record.get("outbox_ops") or []
+        )
+        checks.append(
+            {
+                "check": f"knowledge_page projected == {want}",
+                "ok": got == want,
+                "detail": (
+                    f"page={record.get('knowledge_page')!r} outbox={record.get('outbox')!r}"
+                ),
+            }
+        )
     return checks
 
 
@@ -599,9 +1028,9 @@ def run_scenario(
         record.errors = catalog_errors
         return record
 
-    # Arm-level requirement: B, C and E reason through the LLM - without
-    # a key they are honestly unrunnable, not failed runs. Arm A's
-    # deterministic tables need no key.
+    # Arm-level requirement: B, C, D and E reason through the LLM -
+    # without a key they are honestly unrunnable, not failed runs. Arm
+    # A's deterministic tables need no key.
     #
     # Read through Settings, not os.environ. The key's documented home is
     # .env (.env.example, docs/bring-up.md), which only pydantic-settings
@@ -609,11 +1038,23 @@ def run_scenario(
     # the key exactly where every document says to put it left all three
     # LLM arms skipping with a message naming the variable that was, as
     # far as the user could tell, already set.
-    if arm in ("B", "C", "E") and not get_settings().llm_api_key:
+    if arm in ("B", "C", "D", "E") and not get_settings().llm_api_key:
         record.skipped = f"arm {arm} requires HELIX_LLM_API_KEY (set it in .env or the environment)"
         return record
 
-    mode = scenario["inject"] if cfg.mode == "auto" else cfg.mode
+    flow = scenario.get("flow") or "signal"
+    if flow == "change":
+        # Change scenarios ingest canonical events; `inject` is a Phase 1
+        # concern. Fixture mode is still selectable via evidence_fixture -
+        # a failed deploy hands off to the recovery loop, which needs an
+        # evidence substrate.
+        mode = (
+            cfg.mode
+            if cfg.mode != "auto"
+            else ("fixture" if scenario.get("evidence_fixture") else "live")
+        )
+    else:
+        mode = scenario["inject"] if cfg.mode == "auto" else cfg.mode
 
     # `--mode fixture` forces every scenario onto recorded evidence, but
     # `evidence_fixture` is not a required catalogue field and the five
@@ -641,16 +1082,34 @@ def run_scenario(
         env["HELIX_FIXTURE_PATH"] = scenario["evidence_fixture"]  # guarded above
     else:
         env["HELIX_EVIDENCE_SOURCE"] = "live"
-        fail = _inject_live(scenario)
-        if fail:
-            record.skipped = f"injection failed: {fail}"
-            return record
+        if flow != "change":
+            fail = _inject_live(scenario)
+            if fail:
+                record.skipped = f"injection failed: {fail}"
+                return record
 
-    if cfg.path == "event":
+    if flow == "change":
+        results, error = _ingest_declared_events(scenario, database_url)
+        if error:
+            record.skipped = error
+            return record
+        # The incident under test is the LAST declared event's - earlier
+        # events may have opened other incidents (the duplicate scenario)
+        # that stay open on purpose.
+        incident_id = results[-1]["incident_id"]
+        record.incident_id = incident_id
+        record.extra_incident_ids = [
+            r["incident_id"] for r in results[:-1] if r["incident_id"] != incident_id
+        ]
+        record.errors.extend(_drive_change(incident_id, env, cfg, scenario))
+        record.errors.extend(_settle_integrations(database_url))
+    elif cfg.path == "event":
         incident_id, skip = _ingest_via_events(scenario, database_url)
         if skip:
             record.skipped = skip
             return record
+        record.incident_id = incident_id
+        record.errors.extend(_drive(incident_id, env, cfg, scenario))
     else:
         # `helix intake` reads stdin when --file is omitted - the operator path.
         intake = _helix(["intake"], env, stdin_text=json.dumps(scenario["signal"]))
@@ -658,9 +1117,8 @@ def run_scenario(
             record.skipped = f"intake failed: {intake.stderr.strip()[:300]}"
             return record
         incident_id = intake.stdout.strip().splitlines()[-1]
-    record.incident_id = incident_id
-
-    record.errors.extend(_drive(incident_id, env, cfg, scenario))
+        record.incident_id = incident_id
+        record.errors.extend(_drive(incident_id, env, cfg, scenario))
 
     collected = _collect(database_url, incident_id)
     record.final_status = collected.get("final_status")
@@ -672,6 +1130,18 @@ def run_scenario(
     record.signal_at = collected.get("signal_at")
     record.recovered_at = collected.get("recovered_at")
     record.last_event_at = collected.get("last_event_at")
+    # Phase 2 (2.9/2.11): the change-lifecycle record.
+    record.incident_kind = collected.get("incident_kind")
+    record.owner = collected.get("owner")
+    record.triage = collected.get("triage")
+    record.reviews = collected.get("reviews", [])
+    record.work_items = collected.get("work_items", [])
+    record.knowledge_page = collected.get("knowledge_page")
+    record.outbox = collected.get("outbox", {})
+    record.outbox_ops = collected.get("outbox_ops", [])
+    record.transitions = collected.get("transitions", [])
+    record.duplicate_of = collected.get("duplicate_of")
+    record.decision_evidence = collected.get("decision_evidence", {})
     record.measured = _measure(cfg, scenario, collected)
     return record
 
@@ -695,6 +1165,10 @@ def run_benchmark(cfg: HarnessConfig) -> dict[str, Any]:
             record = run_scenario(name, scenario, arm, cfg)
             if record.incident_id:
                 touched.add(record.incident_id)
+            # Change flows can open incidents besides the driven one (the
+            # duplicate scenario's original) - they must close too or the
+            # next arm's identical events correlate onto them.
+            touched.update(record.extra_incident_ids)
             scored = score_outcome(record, scenario)
             outcomes.append(scored)
             tag = record.skipped or record.final_status or "?"
@@ -740,7 +1214,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument(
         "--arm",
         action="append",
-        choices=["A", "B", "C", "E"],
+        choices=["A", "B", "C", "D", "E"],
         help="ablation arm(s) to run; repeatable (default: A)",
     )
     parser.add_argument(
@@ -765,7 +1239,7 @@ def main(argv: list[str] | None = None) -> int:
         default=None,
         help="state DB URL (default HELIX_DATABASE_URL/settings)",
     )
-    parser.add_argument("--max-hops", type=int, default=10)
+    parser.add_argument("--max-hops", type=int, default=14)
     parser.add_argument(
         "--path",
         choices=["direct", "event"],

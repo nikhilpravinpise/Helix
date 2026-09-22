@@ -129,9 +129,14 @@ class TestEmission:
         assert db_session.query(models.EventRecord).count() == 0
         assert db_session.query(models.Transition).count() == 0
 
-    def test_re_entering_a_status_does_not_duplicate_its_event(self, db_session):
-        """A replan returns to remediation_pending; the id derives from the
-        milestone, so the first record stands."""
+    def test_re_entering_a_status_emits_its_own_event(self, db_session):
+        """A replan returns to remediation_pending: that is a REAL second
+        transition, and the event stream must record it - the id derives
+        from the durable transition row, not the milestone alone, so a
+        repeat arrival emits its own event rather than collapsing into
+        the first. (The earlier milestone-keyed derivation dropped the
+        second review.requested of a reject-fix-rereview cycle entirely -
+        the stream told an incomplete story.)"""
         incident = open_incident(db_session)
         drive(
             db_session,
@@ -144,7 +149,7 @@ class TestEmission:
             ],
         )
         events = history_for_incident(db_session, incident.incident_id, source=EventSource.HELIX)
-        assert [e.event_type for e in events].count(EventType.REMEDIATION_REQUESTED) == 1
+        assert [e.event_type for e in events].count(EventType.REMEDIATION_REQUESTED) == 2
 
     def test_helix_events_do_not_become_correlation_tokens(self, db_session):
         """Emission writes history directly; it does not re-enter ingest,
@@ -218,6 +223,19 @@ class TestReplay:
         events = history_for_incident(db_session, incident.incident_id)
         assert project_from_events(list(reversed(events))) == project_from_events(events)
 
+    def test_same_timestamp_replay_is_still_order_independent(self, db_session):
+        """Two lifecycle events sharing one clock tick must still replay
+        to the same incident regardless of storage order - the envelope's
+        transition id, not input order, breaks the tie."""
+        incident = drive(db_session, open_incident(db_session))
+        events = history_for_incident(db_session, incident.incident_id)
+        tick = min(e.timestamp for e in events)
+        flattened = [e.model_copy(update={"timestamp": tick}) for e in events]
+        assert project_from_events(list(reversed(flattened))) == project_from_events(flattened)
+        # And the flattened replay still reaches the incident's real end
+        # state - the tiebreak order is the TRUE transition order.
+        assert project_from_events(flattened).lifecycle_status == incident.status
+
     def test_every_lifecycle_type_has_a_status(self):
         """A milestone with no status would make replay silently incomplete."""
         emitted = {
@@ -226,6 +244,14 @@ class TestReplay:
             EventType.APPROVAL_REQUESTED,
             EventType.REMEDIATION_COMPLETED,
             EventType.INCIDENT_RESOLVED,
+            EventType.TRIAGE_COMPLETED,
+            EventType.OWNER_ASSIGNED,
+            EventType.REVIEW_REQUESTED,
+            EventType.REVIEW_REJECTED,
+            EventType.FIX_REQUESTED,
+            EventType.CHANGE_APPROVED,
+            EventType.DEPLOYMENT_STARTED,
+            EventType.DEPLOYMENT_FAILED,
         }
         assert emitted == set(LIFECYCLE_STATUS)
 

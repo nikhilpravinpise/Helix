@@ -1,4 +1,4 @@
-"""Helix as an event producer (subphase E5).
+"""Helix as an event producer (subphase E5; extended in 2.1/2.2/2.3/2.4).
 
 Phase 1 consumed events; E5 makes Helix emit its own. The five lifecycle
 types CONTEXT.md section 7 reserves for it are derived from status
@@ -16,6 +16,27 @@ through:
 `remediation.completed` is keyed on arriving at `verifying` rather than
 on leaving `executing`, because `executing -> failed` is the transport
 erroring and no remediation completed at all.
+
+Phase 2 (2.1) adds the change-review lifecycle's own milestones, on the
+same principle - one event per milestone the outbox-driven integrations
+(Slack 2.2, Jira 2.3, Notion 2.4) react to, not one per intermediate hop:
+
+| Edge | Event |
+|---|---|
+| any -> `triaged` | `triage.completed` |
+| any -> `owner_assigned` | `owner.assigned` |
+| any -> `review_pending` | `review.requested` |
+| any -> `rejected` | `review.rejected` |
+| any -> `fix_required` | `fix.requested` |
+| any -> `approved` | `change.approved` |
+| any -> `deploying` | `deployment.started` |
+| `deploying` -> `diagnosing` | `deployment.failed` |
+
+`deployment.started`/`deployment.failed` reuse the CONTEXT.md section 7
+vendor types rather than minting Helix-specific synonyms: Helix causing a
+deployment to start or fail is the same fact a CI system's own webhook
+would report, and a consumer (Jira, Notion) that already reacts to those
+types needs no new branch to handle Helix's telling of the same story.
 
 ## Written, not published
 
@@ -60,11 +81,22 @@ _ON_ARRIVAL: dict[IncidentStatus, EventType] = {
     IncidentStatus.REMEDIATION_PENDING: EventType.REMEDIATION_REQUESTED,
     IncidentStatus.AWAITING_APPROVAL: EventType.APPROVAL_REQUESTED,
     IncidentStatus.RECOVERED: EventType.INCIDENT_RESOLVED,
+    # Phase 2 (2.1) change-review lifecycle milestones.
+    IncidentStatus.TRIAGED: EventType.TRIAGE_COMPLETED,
+    IncidentStatus.OWNER_ASSIGNED: EventType.OWNER_ASSIGNED,
+    IncidentStatus.REVIEW_PENDING: EventType.REVIEW_REQUESTED,
+    IncidentStatus.REJECTED: EventType.REVIEW_REJECTED,
+    IncidentStatus.FIX_REQUIRED: EventType.FIX_REQUESTED,
+    IncidentStatus.APPROVED: EventType.CHANGE_APPROVED,
+    IncidentStatus.DEPLOYING: EventType.DEPLOYMENT_STARTED,
 }
 
 #: Edges where both ends matter.
 _ON_EDGE: dict[tuple[IncidentStatus, IncidentStatus], EventType] = {
     (IncidentStatus.EXECUTING, IncidentStatus.VERIFYING): EventType.REMEDIATION_COMPLETED,
+    # 2.1: a failed deploy handing off to the recovery loop is reported as
+    # a deployment failure, not silently as "diagnosing began".
+    (IncidentStatus.DEPLOYING, IncidentStatus.DIAGNOSING): EventType.DEPLOYMENT_FAILED,
 }
 
 
@@ -85,12 +117,17 @@ def build_lifecycle_event(
     cause: str,
     from_status: IncidentStatus | None,
     to_status: IncidentStatus,
+    transition_id: int,
 ) -> EngineeringEvent:
     """The canonical event for one lifecycle milestone.
 
-    The id is derived from the incident and the milestone, so re-deriving
-    an incident's events - during a replay, or after a crash mid-flush -
-    produces the same ids rather than a second set.
+    The id is derived from the incident, the milestone, AND the durable
+    transition row's id: re-deriving an incident's events - during a
+    replay, or after a crash mid-flush - produces the same ids for the
+    same transitions, while a genuinely repeated edge (a rejected review
+    re-requested after a new commit) emits a second event rather than
+    silently collapsing into the first. Two real transitions are two
+    events; the milestone alone is not their identity.
     """
     metadata: dict[str, Any] = {
         "incident": incident.incident_id,
@@ -98,9 +135,15 @@ def build_lifecycle_event(
         "to_status": to_status.value,
         "cause": cause,
         "severity": incident.severity,
+        # The durable transition row's id - monotonic with real order, so
+        # a replay can break same-timestamp ties deterministically rather
+        # than inheriting whatever order storage returned.
+        "transition_id": transition_id,
     }
     return EngineeringEvent(
-        event_id=derive_event_id("helix", incident.incident_id, event_type.value, to_status.value),
+        event_id=derive_event_id(
+            "helix", incident.incident_id, event_type.value, to_status.value, transition_id
+        ),
         event_type=event_type,
         source=EventSource.HELIX,
         # The incident this is about, which for Helix's own events is
@@ -120,13 +163,14 @@ def emit_for_transition(
     to_status: IncidentStatus,
     cause: str,
     session: "Session",
+    transition_id: int,
 ) -> EngineeringEvent | None:
     """Record the lifecycle event for a transition, if it has one.
 
     Returns the event, or None when the transition is not a lifecycle
-    milestone. Never raises on a duplicate: re-entering a status - a
-    replan returning to `remediation_pending`, say - derives the same id,
-    and the first record stands.
+    milestone. Never raises on a duplicate: the id keys on the durable
+    transition row, so a retry of the SAME row (crash mid-flush, replay)
+    lands once while a legitimately repeated edge emits each time.
     """
     from sqlalchemy import select
 
@@ -136,7 +180,9 @@ def emit_for_transition(
     if event_type is None:
         return None
 
-    event = build_lifecycle_event(incident, event_type, cause, from_status, to_status)
+    event = build_lifecycle_event(
+        incident, event_type, cause, from_status, to_status, transition_id
+    )
     existing = session.scalar(select(EventRecord).where(EventRecord.event_id == event.event_id))
     if existing is not None:
         return event

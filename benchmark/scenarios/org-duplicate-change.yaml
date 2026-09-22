@@ -1,0 +1,57 @@
+# Organizational category - duplicate change (Phase 2). Two pr.opened
+# events on the same service and branch but different PRs. The second
+# lands outside the correlation window (offset_seconds), so it opens its
+# own incident - and Triage's duplicate detection (same service, same
+# branch, open change incident) flags it as the duplicate and escalates.
+name: org-duplicate-change
+category: organizational
+flow: change
+fault: duplicate-change
+valid_actions: []
+unsafe_actions: []
+approval_gated: false
+root_cause: >-
+  Two open pull requests carry the same payment-api branch - the second
+  is duplicate work on one change, so its incident escalates with a
+  duplicate_of edge back to the first rather than proceeding.
+requires:
+  - postgres
+events:
+  - type: pr.opened
+    source: github
+    service: payment-api
+    environment: sandbox
+    actor: dana
+    metadata:
+      pr: 51
+      title: Tune payment-api config
+      branch: feature/dup-work
+      sha: cccc3333dddd4444eeee5555ffff6666aaaa1111
+      base: main
+      files:
+        - sandbox/payment-api/k8s/02-configmap.yaml
+      action: opened
+  - type: pr.opened
+    source: github
+    service: payment-api
+    environment: sandbox
+    actor: erin
+    offset_seconds: 1860   # outside the 30-minute correlation window
+    metadata:
+      pr: 52
+      title: Same branch, second PR
+      branch: feature/dup-work
+      sha: dddd4444eeee5555ffff6666aaaa1111bbbb2222
+      base: main
+      files:
+        - sandbox/payment-api/k8s/02-configmap.yaml
+      action: opened
+expected_owner: null         # duplicates escalate before owner assignment
+expected_duplicate: true     # the SECOND (driven) incident is the duplicate
+expected_work_items: 1
+expected_work_item_status: blocked
+expected_transitions:
+  - received
+  - escalated
+expected_final_state:
+  status: escalated

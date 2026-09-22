@@ -1,4 +1,4 @@
-# Bring-up - Phase 1 environment from scratch (subphase 1.13)
+# Bring-up - environment from scratch (subphase 1.13, Phase 2 in §6.5)
 
 Everything needed to rebuild the whole environment on a clean machine,
 using only committed code and this document. Written for Windows +
@@ -137,6 +137,49 @@ wsl -d docker-desktop -u root sysctl -w vm.max_map_count=524288   # Windows only
 docker compose -f infra/sonarqube-compose.yml up -d
 ```
 
+## 6.5. Phase 2 integrations (Slack / Jira / Notion / Neo4j)
+
+All four are optional and independently configurable - unset credentials
+record `skipped` on the integration outbox rather than failing runs, so
+PostgreSQL remains the only hard dependency (CONTEXT.md §13).
+
+```bash
+# Slack (notifications + Approve/Reject buttons; 2.2)
+HELIX_SLACK_BOT_TOKEN=xoxb-...        # chat:write on the channel
+HELIX_SLACK_SIGNING_SECRET=...        # required for POST /slack/interactions
+HELIX_SLACK_DEFAULT_CHANNEL=#helix-incidents
+# Point Slack's Interactivity URL at https://<host>/slack/interactions -
+# signature verification is the whole auth; an unset secret closes the
+# surface (503) rather than accepting unsigned payloads.
+
+# Work management (2.3/2.10) - pick one:
+HELIX_WORK_PROVIDER=jira              # memory | jira | linear | trello
+HELIX_JIRA_BASE_URL=https://you.atlassian.net
+HELIX_JIRA_EMAIL=bot@you.com
+HELIX_JIRA_API_TOKEN=...
+HELIX_JIRA_PROJECT_KEY=HELIX
+# or HELIX_LINEAR_API_KEY + HELIX_LINEAR_TEAM_ID,
+# or HELIX_TRELLO_API_KEY + HELIX_TRELLO_API_TOKEN + HELIX_TRELLO_BOARD_ID.
+
+# Notion knowledge pages (2.4)
+HELIX_NOTION_API_KEY=ntn_...
+HELIX_NOTION_PARENT_PAGE_ID=...       # pages are created under this parent
+
+# Relationship graph (2.7/2.8) - needs a Neo4j you run yourself
+# (docker run -p 7687:7687 -e NEO4J_AUTH=neo4j/password neo4j:5):
+HELIX_GRAPH_ENABLED=true
+HELIX_NEO4J_URI=bolt://127.0.0.1:7687
+HELIX_NEO4J_USER=neo4j
+HELIX_NEO4J_PASSWORD=...
+```
+
+Every transition's external side effects commit as `integration_outbox`
+rows in the same transaction as the status change; `helix run` drains
+them after each run and `helix sync` drains plus reconciles drift
+(deleted Jira issues / Notion pages get re-created). Reviewer decisions
+land via `helix review INC-* approve|reject`, `POST /reviews/{id}/...`,
+or the Slack buttons on the review request.
+
 ## 7. The SonarQube quality gate (one-time token step)
 
 The Jenkins `payment-api` pipeline has `SonarQube analysis` +
@@ -153,7 +196,9 @@ To enable it:
 3. Put the token in `.env` as `SONARQUBE_TOKEN=<token>` (compose path) or
    `terraform.tfvars` as `sonarqube_token` (terraform path), and recreate
    Jenkins - JCasC injects it into the `sonarqube-token` credential at
-   container start.
+   container start. The compose file's project directory is `infra/`, so
+   it does not read the repo-root `.env` on its own - pass it explicitly:
+   `docker compose -f infra/jenkins-compose.yml --env-file .env up -d`.
 4. Create the quality-gate webhook (mandatory for `waitForQualityGate` -
    without it the gate stage waits until timeout): SonarQube
    **Administration -> Configuration -> Webhooks -> Create**, name
