@@ -137,9 +137,10 @@ def sync_graph(session: Any, store: GraphStore, *, repo: str = "") -> int:
 
     from agent.ops.registry import load_registry
 
-    store.clear()
-    ingest_registry(store, load_registry())
+    registry = load_registry()
     incidents = session.scalars(select(models.Incident)).all()
+    store.clear()
+    ingest_registry(store, registry)
     for incident in incidents:
         ingest_incident(store, incident, repo=repo)
     return len(incidents)
