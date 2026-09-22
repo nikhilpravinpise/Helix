@@ -244,6 +244,14 @@ class TestReplay:
             EventType.APPROVAL_REQUESTED,
             EventType.REMEDIATION_COMPLETED,
             EventType.INCIDENT_RESOLVED,
+            EventType.TRIAGE_COMPLETED,
+            EventType.OWNER_ASSIGNED,
+            EventType.REVIEW_REQUESTED,
+            EventType.REVIEW_REJECTED,
+            EventType.FIX_REQUESTED,
+            EventType.CHANGE_APPROVED,
+            EventType.DEPLOYMENT_STARTED,
+            EventType.DEPLOYMENT_FAILED,
         }
         assert emitted == set(LIFECYCLE_STATUS)
 

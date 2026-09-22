@@ -53,6 +53,14 @@ LIFECYCLE_STATUS: dict[EventType, IncidentStatus] = {
     EventType.APPROVAL_REQUESTED: IncidentStatus.AWAITING_APPROVAL,
     EventType.REMEDIATION_COMPLETED: IncidentStatus.VERIFYING,
     EventType.INCIDENT_RESOLVED: IncidentStatus.RECOVERED,
+    EventType.TRIAGE_COMPLETED: IncidentStatus.TRIAGED,
+    EventType.OWNER_ASSIGNED: IncidentStatus.OWNER_ASSIGNED,
+    EventType.REVIEW_REQUESTED: IncidentStatus.REVIEW_PENDING,
+    EventType.REVIEW_REJECTED: IncidentStatus.REJECTED,
+    EventType.FIX_REQUESTED: IncidentStatus.FIX_REQUIRED,
+    EventType.CHANGE_APPROVED: IncidentStatus.APPROVED,
+    EventType.DEPLOYMENT_STARTED: IncidentStatus.DEPLOYING,
+    EventType.DEPLOYMENT_FAILED: IncidentStatus.DIAGNOSING,
 }
 
 
