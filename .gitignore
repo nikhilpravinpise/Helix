@@ -16,3 +16,8 @@ infra/terraform/*.tfstate
 infra/terraform/*.tfstate.*
 infra/terraform/terraform.tfvars
 infra/terraform/*-config
+
+# start.sh runtime artifacts
+.helix-serve.pid
+.helix-serve.log
+.helix-demo-signal.json
