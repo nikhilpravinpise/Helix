@@ -167,6 +167,20 @@ def main() -> int:
     assert all(r[2] in ("sent", "skipped", "failed") for r in st["outbox_rows"]), (
         "no row may stay pending after sync"
     )
+    # The knowledge page was printed but never checked, so a lifecycle
+    # that silently stopped writing one would still report PASS.
+    assert st["page"], "a knowledge page should exist for a recovered change"
+    # Every op this lifecycle enqueues must actually be delivered. The
+    # count is asserted rather than the statuses alone: a regression that
+    # stopped enqueueing a hop would leave the survivors all "sent" and
+    # pass the check above. 21 is what the full pr.opened -> recovered
+    # walk produces (slack notify/review_request, notion sync_page, and
+    # the memory provider's create/assign/transition/comment ops).
+    delivered = [r for r in st["outbox_rows"] if r[2] == "sent"]
+    assert len(delivered) == 21, (
+        f"expected 21 delivered outbox ops, got {len(delivered)} "
+        f"of {len(st['outbox_rows'])} rows"
+    )
     print("E2E change lifecycle: PASS")
     return 0
 
