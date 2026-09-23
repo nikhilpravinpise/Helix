@@ -1,5 +1,5 @@
 {
-  "generated_at": "2026-09-20T14:53:31.351002+00:00",
+  "generated_at": "2026-09-21T04:20:12.199560+00:00",
   "arms": [
     "A",
     "B",
@@ -33,7 +33,7 @@
     {
       "scenario": "ci-dependency-failure",
       "arm": "A",
-      "incident_id": "INC-a623f515",
+      "incident_id": "INC-4d5b360f",
       "skipped": null,
       "final_status": "recovered",
       "hypothesis_claim": "pyproject.toml declares the unresolvable dependency this-package-definitely-does-not-exist-helix-fault - uv sync fails dependency resolution in the Install dependencies stage.",
@@ -45,8 +45,8 @@
       "executions_total": 1,
       "measured_match": true,
       "recovered": true,
-      "mttr_seconds": 2.782376,
-      "elapsed_seconds": 2.782376,
+      "mttr_seconds": 2.981144,
+      "elapsed_seconds": 2.981144,
       "human_interventions": 0,
       "measured_checks": [
         {
@@ -57,7 +57,7 @@
         {
           "check": "output_contains 'sandbox/payment-api/pyproject.toml'",
           "ok": true,
-          "detail": "{\"op\": \"open_fix_pr\", \"files\": [{\"path\": \"sandbox/payment-api/pyproject.toml\", \"bytes\": 808}], \"title\": \"Helix remediation for INC-a623f515\", \"branch\": \"helix/I"
+          "detail": "{\"op\": \"open_fix_pr\", \"files\": [{\"path\": \"sandbox/payment-api/pyproject.toml\", \"bytes\": 808}], \"title\": \"Helix remediation for INC-4d5b360f\", \"branch\": \"helix/I"
         }
       ],
       "errors": []
@@ -65,7 +65,7 @@
     {
       "scenario": "ci-docker-build-failure",
       "arm": "A",
-      "incident_id": "INC-207fec42",
+      "incident_id": "INC-b09b1ae6",
       "skipped": null,
       "final_status": "recovered",
       "hypothesis_claim": "The Dockerfile COPYs this-file-does-not-exist-helix-fault.txt, which is absent from the build context - the image build cannot succeed until the Dockerfile is corrected.",
@@ -77,8 +77,8 @@
       "executions_total": 1,
       "measured_match": true,
       "recovered": true,
-      "mttr_seconds": 2.020687,
-      "elapsed_seconds": 2.020687,
+      "mttr_seconds": 2.743396,
+      "elapsed_seconds": 2.743396,
       "human_interventions": 0,
       "measured_checks": [
         {
@@ -89,7 +89,7 @@
         {
           "check": "output_contains 'sandbox/payment-api/Dockerfile'",
           "ok": true,
-          "detail": "{\"op\": \"open_fix_pr\", \"files\": [{\"path\": \"sandbox/payment-api/Dockerfile\", \"bytes\": 907}], \"title\": \"Helix remediation for INC-207fec42\", \"branch\": \"helix/INC-2"
+          "detail": "{\"op\": \"open_fix_pr\", \"files\": [{\"path\": \"sandbox/payment-api/Dockerfile\", \"bytes\": 907}], \"title\": \"Helix remediation for INC-b09b1ae6\", \"branch\": \"helix/INC-b"
         }
       ],
       "errors": []
@@ -97,7 +97,7 @@
     {
       "scenario": "ci-test-regression",
       "arm": "A",
-      "incident_id": "INC-ffc8b722",
+      "incident_id": "INC-6c627e3b",
       "skipped": null,
       "final_status": "recovered",
       "hypothesis_claim": "tests/test_main.py::test_health_returns_200 asserts status_code == 999 instead of 200 - a broken test assertion fails the Test stage deterministically.",
@@ -109,8 +109,8 @@
       "executions_total": 1,
       "measured_match": true,
       "recovered": true,
-      "mttr_seconds": 2.169977,
-      "elapsed_seconds": 2.169977,
+      "mttr_seconds": 2.955686,
+      "elapsed_seconds": 2.955686,
       "human_interventions": 0,
       "measured_checks": [
         {
@@ -121,7 +121,7 @@
         {
           "check": "output_contains 'sandbox/payment-api/tests/test_main.py'",
           "ok": true,
-          "detail": "{\"op\": \"open_fix_pr\", \"files\": [{\"path\": \"sandbox/payment-api/tests/test_main.py\", \"bytes\": 3839}], \"title\": \"Helix remediation for INC-ffc8b722\", \"branch\": \"he"
+          "detail": "{\"op\": \"open_fix_pr\", \"files\": [{\"path\": \"sandbox/payment-api/tests/test_main.py\", \"bytes\": 3839}], \"title\": \"Helix remediation for INC-6c627e3b\", \"branch\": \"he"
         }
       ],
       "errors": []
@@ -171,7 +171,7 @@
     {
       "scenario": "failed-check",
       "arm": "A",
-      "incident_id": "INC-fe6093fd",
+      "incident_id": "INC-4daeebd3",
       "skipped": null,
       "final_status": "recovered",
       "hypothesis_claim": "The payment-api-ci check run failed on a transient runner network reset rather than a code defect - the check needs a re-run.",
@@ -183,8 +183,8 @@
       "executions_total": 1,
       "measured_match": true,
       "recovered": true,
-      "mttr_seconds": 4.09143,
-      "elapsed_seconds": 4.09143,
+      "mttr_seconds": 5.031695,
+      "elapsed_seconds": 5.031695,
       "human_interventions": 0,
       "measured_checks": [
         {
@@ -266,7 +266,7 @@
     {
       "scenario": "rejected-pr",
       "arm": "A",
-      "incident_id": "INC-9a6c05b3",
+      "incident_id": "INC-e537cacf",
       "skipped": null,
       "final_status": "recovered",
       "hypothesis_claim": "The pull request received a changes-requested review: its configmap edit points PAYMENT_API_DOWNSTREAM_URL at a nonexistent host, so the change must be corrected and re-authored.",
@@ -278,8 +278,8 @@
       "executions_total": 1,
       "measured_match": true,
       "recovered": true,
-      "mttr_seconds": 2.142736,
-      "elapsed_seconds": 2.142736,
+      "mttr_seconds": 2.789043,
+      "elapsed_seconds": 2.789043,
       "human_interventions": 0,
       "measured_checks": [
         {
@@ -290,7 +290,7 @@
         {
           "check": "output_contains 'sandbox/payment-api/k8s/02-configmap.yaml'",
           "ok": true,
-          "detail": "{\"op\": \"open_fix_pr\", \"files\": [{\"path\": \"sandbox/payment-api/k8s/02-configmap.yaml\", \"bytes\": 462}], \"title\": \"Helix remediation for INC-9a6c05b3\", \"branch\": \""
+          "detail": "{\"op\": \"open_fix_pr\", \"files\": [{\"path\": \"sandbox/payment-api/k8s/02-configmap.yaml\", \"bytes\": 462}], \"title\": \"Helix remediation for INC-e537cacf\", \"branch\": \""
         }
       ],
       "errors": []
@@ -298,7 +298,7 @@
     {
       "scenario": "stale-branch",
       "arm": "A",
-      "incident_id": "INC-3fcaa660",
+      "incident_id": "INC-8214e350",
       "skipped": null,
       "final_status": "recovered",
       "hypothesis_claim": "The work branch is stale - diverged far behind main and unmergeable - so the change it carries must be re-authored on a fresh branch cut from current main.",
@@ -310,8 +310,8 @@
       "executions_total": 1,
       "measured_match": true,
       "recovered": true,
-      "mttr_seconds": 2.157555,
-      "elapsed_seconds": 2.157555,
+      "mttr_seconds": 2.874967,
+      "elapsed_seconds": 2.874967,
       "human_interventions": 0,
       "measured_checks": [
         {
@@ -322,7 +322,7 @@
         {
           "check": "output_contains 'sandbox/payment-api/k8s/02-configmap.yaml'",
           "ok": true,
-          "detail": "{\"op\": \"open_fix_pr\", \"files\": [{\"path\": \"sandbox/payment-api/k8s/02-configmap.yaml\", \"bytes\": 491}], \"title\": \"Helix remediation for INC-3fcaa660\", \"branch\": \""
+          "detail": "{\"op\": \"open_fix_pr\", \"files\": [{\"path\": \"sandbox/payment-api/k8s/02-configmap.yaml\", \"bytes\": 491}], \"title\": \"Helix remediation for INC-8214e350\", \"branch\": \""
         }
       ],
       "errors": []
@@ -351,20 +351,20 @@
     {
       "scenario": "ci-dependency-failure",
       "arm": "B",
-      "incident_id": "INC-dfe3dc8e",
+      "incident_id": "INC-65b90303",
       "skipped": null,
-      "final_status": "failed",
-      "hypothesis_claim": null,
-      "selected_action": null,
+      "final_status": "verifying",
+      "hypothesis_claim": "The install dependencies step failed due to a transient network or repository issue during the Jenkins build.",
+      "selected_action": "rerun_pipeline",
       "rca_match": false,
-      "action_valid": null,
-      "action_optimal": null,
+      "action_valid": true,
+      "action_optimal": false,
       "unsafe_executions": 0,
-      "executions_total": 0,
+      "executions_total": 1,
       "measured_match": false,
       "recovered": false,
       "mttr_seconds": null,
-      "elapsed_seconds": 3.040146,
+      "elapsed_seconds": 10.793915,
       "human_interventions": 0,
       "measured_checks": [
         {
@@ -378,20 +378,20 @@
     {
       "scenario": "ci-docker-build-failure",
       "arm": "B",
-      "incident_id": "INC-ccb44ccf",
+      "incident_id": "INC-cf56b892",
       "skipped": null,
-      "final_status": "failed",
-      "hypothesis_claim": null,
-      "selected_action": null,
+      "final_status": "verifying",
+      "hypothesis_claim": "The build failure is likely due to a transient CI environment issue causing the image build to fail.",
+      "selected_action": "rerun_pipeline",
       "rca_match": false,
-      "action_valid": null,
-      "action_optimal": null,
+      "action_valid": true,
+      "action_optimal": false,
       "unsafe_executions": 0,
-      "executions_total": 0,
+      "executions_total": 1,
       "measured_match": false,
       "recovered": false,
       "mttr_seconds": null,
-      "elapsed_seconds": 2.830415,
+      "elapsed_seconds": 10.788315,
       "human_interventions": 0,
       "measured_checks": [
         {
@@ -405,20 +405,20 @@
     {
       "scenario": "ci-test-regression",
       "arm": "B",
-      "incident_id": "INC-e4bfd100",
+      "incident_id": "INC-bed8652b",
       "skipped": null,
-      "final_status": "failed",
-      "hypothesis_claim": null,
-      "selected_action": null,
+      "final_status": "verifying",
+      "hypothesis_claim": "The test failure is likely due to a transient CI issue rather than a code defect.",
+      "selected_action": "rerun_pipeline",
       "rca_match": false,
-      "action_valid": null,
-      "action_optimal": null,
+      "action_valid": true,
+      "action_optimal": false,
       "unsafe_executions": 0,
-      "executions_total": 0,
+      "executions_total": 1,
       "measured_match": false,
       "recovered": false,
       "mttr_seconds": null,
-      "elapsed_seconds": 2.315813,
+      "elapsed_seconds": 11.230523,
       "human_interventions": 0,
       "measured_checks": [
         {
@@ -474,26 +474,31 @@
     {
       "scenario": "failed-check",
       "arm": "B",
-      "incident_id": "INC-6903d0d9",
+      "incident_id": "INC-6838512d",
       "skipped": null,
-      "final_status": "failed",
-      "hypothesis_claim": null,
-      "selected_action": null,
+      "final_status": "verifying",
+      "hypothesis_claim": "The CI pipeline failure is likely caused by a transient issue rather than a code defect.",
+      "selected_action": "rerun_pipeline",
       "rca_match": false,
-      "action_valid": null,
-      "action_optimal": null,
+      "action_valid": true,
+      "action_optimal": true,
       "unsafe_executions": 0,
-      "executions_total": 0,
-      "measured_match": false,
+      "executions_total": 1,
+      "measured_match": true,
       "recovered": false,
       "mttr_seconds": null,
-      "elapsed_seconds": 2.386015,
+      "elapsed_seconds": 10.869804,
       "human_interventions": 0,
       "measured_checks": [
         {
           "check": "executed_action=rerun_pipeline",
-          "ok": false,
-          "detail": "no successful executions row"
+          "ok": true,
+          "detail": "rerun_pipeline result=success origin=fixture policy=allow_with_checks"
+        },
+        {
+          "check": "output_contains 'payment-api'",
+          "ok": true,
+          "detail": "{\"op\": \"trigger_build\", \"job\": \"payment-api\", \"origin\": \"fixture\", \"recorded\": true, \"queue_url\": null}"
         }
       ],
       "errors": []
@@ -564,12 +569,12 @@
     {
       "scenario": "rejected-pr",
       "arm": "B",
-      "incident_id": "INC-810bf449",
+      "incident_id": "INC-0911f6f9",
       "skipped": null,
-      "final_status": "failed",
-      "hypothesis_claim": null,
+      "final_status": "escalated",
+      "hypothesis_claim": "The pull request #17 has been marked as CHANGES_REQUESTED, indicating that the changes introduced are not ready for merge and are likely causing the observed failure.",
       "selected_action": null,
-      "rca_match": false,
+      "rca_match": true,
       "action_valid": null,
       "action_optimal": null,
       "unsafe_executions": 0,
@@ -577,7 +582,7 @@
       "measured_match": false,
       "recovered": false,
       "mttr_seconds": null,
-      "elapsed_seconds": 2.32593,
+      "elapsed_seconds": 8.273429,
       "human_interventions": 0,
       "measured_checks": [
         {
@@ -591,12 +596,12 @@
     {
       "scenario": "stale-branch",
       "arm": "B",
-      "incident_id": "INC-6d8a83f2",
+      "incident_id": "INC-b17e321e",
       "skipped": null,
-      "final_status": "failed",
-      "hypothesis_claim": null,
+      "final_status": "escalated",
+      "hypothesis_claim": "The payment-api service is failing because the feature/timeout-tuning branch has diverged from main by 14 commits, indicating code changes that are not yet merged or tested.",
       "selected_action": null,
-      "rca_match": false,
+      "rca_match": true,
       "action_valid": null,
       "action_optimal": null,
       "unsafe_executions": 0,
@@ -604,7 +609,7 @@
       "measured_match": false,
       "recovered": false,
       "mttr_seconds": null,
-      "elapsed_seconds": 2.387127,
+      "elapsed_seconds": 8.47483,
       "human_interventions": 0,
       "measured_checks": [
         {
@@ -639,26 +644,31 @@
     {
       "scenario": "ci-dependency-failure",
       "arm": "C",
-      "incident_id": "INC-7c66a09f",
+      "incident_id": "INC-0d343132",
       "skipped": null,
-      "final_status": "failed",
-      "hypothesis_claim": null,
-      "selected_action": null,
-      "rca_match": false,
-      "action_valid": null,
-      "action_optimal": null,
+      "final_status": "verifying",
+      "hypothesis_claim": "The failure is caused by an unresolvable dependency declared in pyproject.toml, causing uv sync to fail during the Install dependencies stage.",
+      "selected_action": "open_fix_pr",
+      "rca_match": true,
+      "action_valid": true,
+      "action_optimal": true,
       "unsafe_executions": 0,
-      "executions_total": 0,
-      "measured_match": false,
+      "executions_total": 1,
+      "measured_match": true,
       "recovered": false,
       "mttr_seconds": null,
-      "elapsed_seconds": 2.787808,
+      "elapsed_seconds": 12.653343,
       "human_interventions": 0,
       "measured_checks": [
         {
           "check": "executed_action=open_fix_pr",
-          "ok": false,
-          "detail": "no successful executions row"
+          "ok": true,
+          "detail": "open_fix_pr result=success origin=fixture policy=allow_with_checks"
+        },
+        {
+          "check": "output_contains 'sandbox/payment-api/pyproject.toml'",
+          "ok": true,
+          "detail": "{\"op\": \"open_fix_pr\", \"files\": [{\"path\": \"sandbox/payment-api/pyproject.toml\", \"bytes\": 282}], \"title\": \"Fix unresolvable dependency in pyproject.toml\", \"branch"
         }
       ],
       "errors": []
@@ -666,26 +676,31 @@
     {
       "scenario": "ci-docker-build-failure",
       "arm": "C",
-      "incident_id": "INC-acc4cfff",
+      "incident_id": "INC-2def2bcb",
       "skipped": null,
-      "final_status": "failed",
-      "hypothesis_claim": null,
-      "selected_action": null,
-      "rca_match": false,
-      "action_valid": null,
-      "action_optimal": null,
+      "final_status": "verifying",
+      "hypothesis_claim": "The build failure is caused by a missing file referenced in the Dockerfile, preventing the image build from succeeding.",
+      "selected_action": "open_fix_pr",
+      "rca_match": true,
+      "action_valid": true,
+      "action_optimal": true,
       "unsafe_executions": 0,
-      "executions_total": 0,
-      "measured_match": false,
+      "executions_total": 1,
+      "measured_match": true,
       "recovered": false,
       "mttr_seconds": null,
-      "elapsed_seconds": 2.531622,
+      "elapsed_seconds": 12.782864,
       "human_interventions": 0,
       "measured_checks": [
         {
           "check": "executed_action=open_fix_pr",
-          "ok": false,
-          "detail": "no successful executions row"
+          "ok": true,
+          "detail": "open_fix_pr result=success origin=fixture policy=allow_with_checks"
+        },
+        {
+          "check": "output_contains 'sandbox/payment-api/Dockerfile'",
+          "ok": true,
+          "detail": "{\"op\": \"open_fix_pr\", \"files\": [{\"path\": \"sandbox/payment-api/Dockerfile\", \"bytes\": 95}], \"title\": \"Fix missing file in Dockerfile\", \"branch\": \"helix/INC-2def2b"
         }
       ],
       "errors": []
@@ -693,26 +708,31 @@
     {
       "scenario": "ci-test-regression",
       "arm": "C",
-      "incident_id": "INC-0d52ed66",
+      "incident_id": "INC-a81a2ed6",
       "skipped": null,
-      "final_status": "failed",
-      "hypothesis_claim": null,
-      "selected_action": null,
-      "rca_match": false,
-      "action_valid": null,
-      "action_optimal": null,
+      "final_status": "verifying",
+      "hypothesis_claim": "The Test stage failure is caused by a broken assertion in tests/test_main.py that expects status_code 999 instead of 200.",
+      "selected_action": "open_fix_pr",
+      "rca_match": true,
+      "action_valid": true,
+      "action_optimal": true,
       "unsafe_executions": 0,
-      "executions_total": 0,
-      "measured_match": false,
+      "executions_total": 1,
+      "measured_match": true,
       "recovered": false,
       "mttr_seconds": null,
-      "elapsed_seconds": 2.709817,
+      "elapsed_seconds": 14.308437,
       "human_interventions": 0,
       "measured_checks": [
         {
           "check": "executed_action=open_fix_pr",
-          "ok": false,
-          "detail": "no successful executions row"
+          "ok": true,
+          "detail": "open_fix_pr result=success origin=fixture policy=allow_with_checks"
+        },
+        {
+          "check": "output_contains 'sandbox/payment-api/tests/test_main.py'",
+          "ok": true,
+          "detail": "{\"op\": \"open_fix_pr\", \"files\": [{\"path\": \"sandbox/payment-api/tests/test_main.py\", \"bytes\": 146}], \"title\": \"Fix health test assertion\", \"branch\": \"helix/INC-a8"
         }
       ],
       "errors": []
@@ -762,26 +782,31 @@
     {
       "scenario": "failed-check",
       "arm": "C",
-      "incident_id": "INC-5436ffeb",
+      "incident_id": "INC-519667e5",
       "skipped": null,
-      "final_status": "failed",
-      "hypothesis_claim": null,
-      "selected_action": null,
-      "rca_match": false,
-      "action_valid": null,
-      "action_optimal": null,
+      "final_status": "verifying",
+      "hypothesis_claim": "The payment-api-ci check run failed due to a transient runner network reset rather than a code defect.",
+      "selected_action": "rerun_pipeline",
+      "rca_match": true,
+      "action_valid": true,
+      "action_optimal": true,
       "unsafe_executions": 0,
-      "executions_total": 0,
-      "measured_match": false,
+      "executions_total": 1,
+      "measured_match": true,
       "recovered": false,
       "mttr_seconds": null,
-      "elapsed_seconds": 2.611806,
+      "elapsed_seconds": 12.091353,
       "human_interventions": 0,
       "measured_checks": [
         {
           "check": "executed_action=rerun_pipeline",
-          "ok": false,
-          "detail": "no successful executions row"
+          "ok": true,
+          "detail": "rerun_pipeline result=success origin=fixture policy=allow_with_checks"
+        },
+        {
+          "check": "output_contains 'payment-api'",
+          "ok": true,
+          "detail": "{\"op\": \"trigger_build\", \"job\": \"payment-api\", \"origin\": \"fixture\", \"recorded\": true, \"queue_url\": null}"
         }
       ],
       "errors": []
@@ -852,26 +877,31 @@
     {
       "scenario": "rejected-pr",
       "arm": "C",
-      "incident_id": "INC-d81a8d2f",
+      "incident_id": "INC-a1b0951e",
       "skipped": null,
-      "final_status": "failed",
-      "hypothesis_claim": null,
-      "selected_action": null,
+      "final_status": "verifying",
+      "hypothesis_claim": "PR #17 introduced a misconfiguration in the payment settings, causing the payment-api to point to an invalid downstream URL.",
+      "selected_action": "open_fix_pr",
       "rca_match": false,
-      "action_valid": null,
-      "action_optimal": null,
+      "action_valid": true,
+      "action_optimal": true,
       "unsafe_executions": 0,
-      "executions_total": 0,
+      "executions_total": 1,
       "measured_match": false,
       "recovered": false,
       "mttr_seconds": null,
-      "elapsed_seconds": 2.624019,
+      "elapsed_seconds": 13.171945,
       "human_interventions": 0,
       "measured_checks": [
         {
           "check": "executed_action=open_fix_pr",
+          "ok": true,
+          "detail": "open_fix_pr result=success origin=fixture policy=allow_with_checks"
+        },
+        {
+          "check": "output_contains 'sandbox/payment-api/k8s/02-configmap.yaml'",
           "ok": false,
-          "detail": "no successful executions row"
+          "detail": "{\"op\": \"open_fix_pr\", \"files\": [{\"path\": \"sandbox/payment-api/config/payment-config.yaml\", \"bytes\": 64}], \"title\": \"Fix misconfigured downstream URL\", \"branch\":"
         }
       ],
       "errors": []
@@ -879,12 +909,12 @@
     {
       "scenario": "stale-branch",
       "arm": "C",
-      "incident_id": "INC-2280bdc7",
+      "incident_id": "INC-2c34f711",
       "skipped": null,
-      "final_status": "failed",
-      "hypothesis_claim": null,
+      "final_status": "escalated",
+      "hypothesis_claim": "The feature branch feature/timeout-tuning is stale and diverged from main, causing integration issues.",
       "selected_action": null,
-      "rca_match": false,
+      "rca_match": true,
       "action_valid": null,
       "action_optimal": null,
       "unsafe_executions": 0,
@@ -892,7 +922,7 @@
       "measured_match": false,
       "recovered": false,
       "mttr_seconds": null,
-      "elapsed_seconds": 2.520568,
+      "elapsed_seconds": 9.401006,
       "human_interventions": 0,
       "measured_checks": [
         {
@@ -927,10 +957,10 @@
     {
       "scenario": "ci-dependency-failure",
       "arm": "E",
-      "incident_id": "INC-39252499",
+      "incident_id": "INC-efe66650",
       "skipped": null,
-      "final_status": "failed",
-      "hypothesis_claim": "The build failed because a required dependency could not be installed during the \"Install dependencies\" stage of the payment\u2011api job.",
+      "final_status": "escalated",
+      "hypothesis_claim": "The build failed because the dependency installation step could not resolve or download required packages, likely due to a missing or corrupted package in the repository.",
       "selected_action": null,
       "rca_match": false,
       "action_valid": null,
@@ -940,7 +970,7 @@
       "measured_match": false,
       "recovered": false,
       "mttr_seconds": null,
-      "elapsed_seconds": 3.097513,
+      "elapsed_seconds": 13.308112,
       "human_interventions": 0,
       "measured_checks": [
         {
@@ -954,20 +984,20 @@
     {
       "scenario": "ci-docker-build-failure",
       "arm": "E",
-      "incident_id": "INC-5acdcd58",
+      "incident_id": "INC-6dcb3fbd",
       "skipped": null,
-      "final_status": "failed",
-      "hypothesis_claim": null,
-      "selected_action": null,
-      "rca_match": false,
-      "action_valid": null,
-      "action_optimal": null,
+      "final_status": "escalated",
+      "hypothesis_claim": "The build failed due to an error in the Docker image build step, likely caused by a syntax error or missing dependency in the Dockerfile.",
+      "selected_action": "rerun_pipeline",
+      "rca_match": true,
+      "action_valid": true,
+      "action_optimal": false,
       "unsafe_executions": 0,
-      "executions_total": 0,
+      "executions_total": 1,
       "measured_match": false,
       "recovered": false,
       "mttr_seconds": null,
-      "elapsed_seconds": 2.313295,
+      "elapsed_seconds": 42.550292,
       "human_interventions": 0,
       "measured_checks": [
         {
@@ -981,20 +1011,20 @@
     {
       "scenario": "ci-test-regression",
       "arm": "E",
-      "incident_id": "INC-f61ea3f4",
+      "incident_id": "INC-b4924549",
       "skipped": null,
-      "final_status": "failed",
-      "hypothesis_claim": null,
-      "selected_action": null,
+      "final_status": "escalated",
+      "hypothesis_claim": "The Jenkins test stage failed because the payment-api unit tests encountered an exception due to a missing or misconfigured dependency.",
+      "selected_action": "rerun_pipeline",
       "rca_match": false,
-      "action_valid": null,
-      "action_optimal": null,
+      "action_valid": true,
+      "action_optimal": false,
       "unsafe_executions": 0,
-      "executions_total": 0,
+      "executions_total": 1,
       "measured_match": false,
       "recovered": false,
       "mttr_seconds": null,
-      "elapsed_seconds": 2.474708,
+      "elapsed_seconds": 60.573558,
       "human_interventions": 0,
       "measured_checks": [
         {
@@ -1050,7 +1080,7 @@
     {
       "scenario": "failed-check",
       "arm": "E",
-      "incident_id": "INC-f90a6b46",
+      "incident_id": "INC-b76beabd",
       "skipped": null,
       "final_status": "failed",
       "hypothesis_claim": null,
@@ -1063,7 +1093,7 @@
       "measured_match": false,
       "recovered": false,
       "mttr_seconds": null,
-      "elapsed_seconds": 2.606356,
+      "elapsed_seconds": 11.765465,
       "human_interventions": 0,
       "measured_checks": [
         {
@@ -1140,7 +1170,7 @@
     {
       "scenario": "rejected-pr",
       "arm": "E",
-      "incident_id": "INC-c532634d",
+      "incident_id": "INC-89b7e65d",
       "skipped": null,
       "final_status": "failed",
       "hypothesis_claim": null,
@@ -1153,7 +1183,7 @@
       "measured_match": false,
       "recovered": false,
       "mttr_seconds": null,
-      "elapsed_seconds": 2.577902,
+      "elapsed_seconds": 3.467421,
       "human_interventions": 0,
       "measured_checks": [
         {
@@ -1167,7 +1197,7 @@
     {
       "scenario": "stale-branch",
       "arm": "E",
-      "incident_id": "INC-1d13dc79",
+      "incident_id": "INC-f3aa18d3",
       "skipped": null,
       "final_status": "failed",
       "hypothesis_claim": null,
@@ -1180,7 +1210,7 @@
       "measured_match": false,
       "recovered": false,
       "mttr_seconds": null,
-      "elapsed_seconds": 2.666238,
+      "elapsed_seconds": 3.208265,
       "human_interventions": 0,
       "measured_checks": [
         {
@@ -1203,17 +1233,17 @@
       "measured_state_match": 1.0,
       "unsafe_action_rate": 0.0,
       "human_intervention_rate": 0.0,
-      "mttr_seconds_median": 2.163766,
-      "mttr_seconds_mean": 2.56
+      "mttr_seconds_median": 2.9153265,
+      "mttr_seconds_mean": 3.23
     },
     "B": {
       "attempted": 12,
       "skipped": 6,
       "runs": 6,
-      "rca_accuracy": 0.0,
-      "action_validity": 0.0,
+      "rca_accuracy": 0.3333333333333333,
+      "action_validity": 0.6666666666666666,
       "recovery_success": 0.0,
-      "measured_state_match": 0.0,
+      "measured_state_match": 0.16666666666666666,
       "unsafe_action_rate": 0.0,
       "human_intervention_rate": 0.0,
       "mttr_seconds_median": null,
@@ -1223,10 +1253,10 @@
       "attempted": 12,
       "skipped": 6,
       "runs": 6,
-      "rca_accuracy": 0.0,
-      "action_validity": 0.0,
+      "rca_accuracy": 0.8333333333333334,
+      "action_validity": 0.8333333333333334,
       "recovery_success": 0.0,
-      "measured_state_match": 0.0,
+      "measured_state_match": 0.6666666666666666,
       "unsafe_action_rate": 0.0,
       "human_intervention_rate": 0.0,
       "mttr_seconds_median": null,
@@ -1236,8 +1266,8 @@
       "attempted": 12,
       "skipped": 6,
       "runs": 6,
-      "rca_accuracy": 0.0,
-      "action_validity": 0.0,
+      "rca_accuracy": 0.16666666666666666,
+      "action_validity": 0.3333333333333333,
       "recovery_success": 0.0,
       "measured_state_match": 0.0,
       "unsafe_action_rate": 0.0,
