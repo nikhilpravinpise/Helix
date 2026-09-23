@@ -10,16 +10,23 @@ Phases follow the source documents exactly. This file adds 32 subphases, each wi
 
 ## Current Status
 
-**Last updated: 2026-09-21.** Keep this block current - it is the one
+**Last updated: 2026-09-23.** Keep this block current - it is the one
 place that answers "how much is done" without reading the whole file.
 
-**31 of 32 subphases complete (97%). Phase 2 is implemented.**
+**31 of 32 subphases implemented (97%). Phase 2 is implemented but not
+exited.** The distinction is the definition of done below: exit criterion
+demonstrated end to end, not code landed and tests green. Two Phase 2
+exit criteria are measurement-bearing and have no artifact yet - 2.7
+(owner and reviewer accuracy measured with and without the graph) and
+2.11 (the populated five-arm ablation table plus written analysis). Arm D
+has never been benchmarked, and `docs/benchmark/phase-2-evaluation.md`
+does not exist. Everything else is built, tested and merged.
 
 | Phase | Subphases | Status |
 |---|---|---|
 | Phase 1 - MVP | 1.1 - 1.13 | **13/13 done.** Exit gate met: the benchmark runs unattended and reports all five metrics |
 | Phase 1.5 - Event Layer | E1 - E7 | **7/7 done.** All exit criteria met, including E7's ablation. Its open defects are fixed in Phase 2 - recorded below |
-| Phase 2 - Full Helix | 2.1 - 2.11 | **11/11 implemented.** Change-review lifecycle, Slack/Notion/Jira/Linear/Trello integrations, Neo4j graph + GraphRAG, arm D, and the expanded benchmark all land and test green - see HANDOFF-PHASE2.md |
+| Phase 2 - Full Helix | 2.1 - 2.11 | **11/11 implemented, 9/11 exited.** Change-review lifecycle, Slack/Notion/Jira/Linear/Trello integrations, Neo4j graph + GraphRAG, arm D, and the expanded benchmark all land and test green - see HANDOFF-PHASE2.md. **2.7 and 2.11 are not exited:** both need measurements nobody has taken |
 | Optional | OPT-1 | Not started |
 
 **Phase 1.5's exit gate is met.** Phase 1 benchmark results reproduce
@@ -72,6 +79,17 @@ lifecycle's own stages (triage, reviews, work items, knowledge page).
 
 **Open commitments not covered by any subphase:**
 
+- **The Phase 2 measurements (2.7 and 2.11).** The code for all of it
+  exists; none of it has been run to completion. Needed: the five-arm
+  ablation across all 19 scenarios on the pinned model, three runs inside
+  the tolerance bands, owner and reviewer accuracy with
+  `HELIX_GRAPH_ENABLED` both true and false, and
+  `docs/benchmark/phase-2-evaluation.md` written on the
+  `phase-1.5-evaluation.md` model. Two things to plan around rather than
+  discover: the 120b daily token cap killed the third stability run last
+  time, so the prior stability claim is on `gpt-oss-20b`; and six of the
+  twelve Phase 1 scenarios skip without the sandbox stack up, so every
+  published rate so far is out of six, not twelve.
 - **GCP / cloud deployment (D23).** DJS23OLOE501 requires it; Helix runs
   on kind. Stubbed, not built: `infra/gcp/README.md` scopes the full
   kind-to-GKE delta and `scripts/gcp-up.sh` is the entry point, which
@@ -139,7 +157,7 @@ Two of the three questions this plan originally left open are engineering calls,
 
 **D7. `complete_structured(prompt, schema)`** on the LLM interface returns a validated pydantic model, via the provider's JSON-schema response format with a prompt-instructed JSON fallback.
 
-**D8. Ablation arms are graph-composition config** (`HELIX_ARM=A|B|E`), not code forks: E is the full graph, B collapses diagnose+plan into one LLM call and drops validate/verify/replan, A replaces LLM nodes with deterministic rule tables.
+**D8. Ablation arms are graph-composition config** (`HELIX_ARM=A|B|C|D|E`), not code forks: E is the full graph, B collapses diagnose+plan into one LLM call and drops validate/verify/replan, A replaces LLM nodes with deterministic rule tables. C and D reuse B's fused node with richer context rather than adding stages - C feeds it E6 retrieval (D21), D feeds it the composed knowledge context of 2.8 (retrieval plus event timeline plus graph neighbourhood). Because C and D share B's shape, they inherit its structural limit: with no verify node, `recovered` is unreachable for all three, and `measured_state_match` is their honest outcome column. The arm list is `Literal["A","B","C","D","E"]` in `helix/config.py`; the node sets are `_ARM_NODES` in `agent/graph.py`. This decision originally named only `A|B|E` and was left unamended when C landed in E6 and D in 2.8, which is how arm C reached three subphases without ever executing a node.
 
 **D9. Test tiers are enforced by pytest addopts.** `addopts = "-m 'not integration'"` means every pytest invocation - including CI's bare `uv run pytest` - excludes live-infra tests by default; `make test-integration` opts in.
 
@@ -174,6 +192,12 @@ Two of the three questions this plan originally left open are engineering calls,
 **D23. The benchmark stays on kind. A cloud deployment is deferred, not dropped, and now has a stub.** `infra/gcp/README.md` scopes the full kind-to-GKE delta and `scripts/gcp-up.sh` is its entry point - it refuses to run and prints the prerequisites, because a stub that half-creates cloud resources bills and leaves state nobody knows about. Deliberately no Terraform: an unapplied `google_container_cluster` would look like progress and prove nothing, since the first real `apply` finds every mistake in it anyway. DJS23OLOE501 carries a cloud requirement, so GCP is outstanding scope rather than a rejected option - this records it so the question does not go missing again, having sat unanswered from 1.2 through 1.5 while the work proceeded on kind regardless. Nothing in the repo depends on GCP today: the only reference is a comment in `sandbox/payment-api/k8s/06-ingress.yaml` noting that a GKE move replaces that one file. plan.md assumption 1 therefore stands unretired.
 
 Keeping the measured work local is the point. The benchmark rebuilds cluster state on every run, which is free and instant on kind and minutes of real billing on GKE; and the 1.11 tolerance criterion needs three consecutive runs inside a band, which a GKE auto-upgrade mid-series would silently turn into a measurement of GKE. When the requirement is addressed, the cheaper shape is a one-off GKE deployment of `payment-api` as a separate artifact for the report, with the benchmark staying local - the manifests are already isolated for exactly that, and it keeps the results reproducible.
+
+**D24. External systems are reached through a capability contract and a transactional outbox, never inline.** `integrations/work/contract.py` defines `WorkManagementProvider` as a Protocol with `WorkItemSpec`/`WorkItemRef` and a declared `ProviderCapabilities` map, so no agent holds Jira, Linear or Trello vocabulary - CONTEXT.md §22 forbids vendor APIs entering agent reasoning, and a Protocol makes that checkable rather than aspirational. Not-found is a `None` return rather than an exception, because "no work item yet" is the normal state on the first hop of every incident. Delivery is deliberately not inline with the state change: every intent commits as an `integration_outbox` row inside the same transaction as the transition that caused it (migration `0011`), and `integrations/outbox.py` drains afterwards. A provider outage therefore cannot lose a transition, which is the whole reason Postgres is the source of truth and Slack, Jira, Notion and Neo4j are projections (CONTEXT.md §13). The drain classifies failures rather than retrying blindly: transient errors retry with attempts counted, `PermanentDeliveryError` fails terminally, and `DependencyNotReady` defers an op whose `create_work_item` has not landed yet **without** burning an attempt - otherwise a slow create would exhaust its dependents' budgets and lose them. Capability gaps are declared, not hidden: Trello has no workflow state beyond a list and no native priority, and its capability map says so and is asserted by a test, because an undeclared behavioural difference is a defect in the abstraction while a declared one is a finding for the 2.10 provider study.
+
+**D25. Slack is a door, not a store.** `POST /slack/interactions` verifies the signing secret over Slack's documented `v0:{timestamp}:{body}` HMAC-SHA256 and rejects stale timestamps, and an unset secret closes the surface rather than accepting unsigned payloads - the endpoint is internet-facing by design, so signature verification is the entire authentication story and failing open would hand anyone an approval button. An interaction records its decision durably **first** and only then resumes the workflow, best-effort: the approval lives in the `approvals`/`review_requests` tables, so a Slack outage after the click loses a notification rather than a decision. The resume runs as a background task because Slack's contract requires an acknowledgement within three seconds and a synchronous `run_incident` cannot promise that; holding the ack hostage to the graph was a real defect found in the Phase 2 audit. Stale and duplicate actions acknowledge with a note instead of mutating state twice. Approval timeouts are not Slack's job - the existing sweep handles them, so an unanswered button escalates on the same path a never-sent one does.
+
+**D26. The graph is a derived projection, gated off by default.** `graph/` puts `MemoryGraphStore` and `Neo4jGraphStore` behind one `GraphStore` Protocol, so the graph's consumers - ownership resolution in 2.5, reviewer selection in 2.6, the composed context in 2.8 - are testable without a database and arm D is reproducible without one. `sync_graph` re-derives from Postgres rather than incrementally mutating, and deletes Helix's own labels before rebuilding: an incremental upsert leaves phantom edges when a relationship disappears, and a graph that is only ever added to slowly stops being true. Nothing reads the graph as a source of truth; every question it answers is answerable from Postgres more slowly, which is why a Neo4j outage degrades `helix sync` to a warning rather than failing it. `HELIX_GRAPH_ENABLED` defaults to **false** and every arm works with it off, for the same reason retrieval is flag-gated in D21: the graph's contribution has to be measured against its absence, and 2.7's exit criterion is precisely owner and reviewer accuracy with and without it. An always-on graph would make that measurement impossible to take.
 
 ### Input still needed
 

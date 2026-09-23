@@ -1,8 +1,10 @@
 # Handoff - Phase 2 (Full Helix)
 
 **Date:** 2026-09-22
-**Branch:** `main` - all Phase 2 work uncommitted in the working tree
-**Tests:** 1233 unit, 50 integration (deselected by default, D9)
+**Branch:** merged to `main` via PR #21 (`67b62f5`)
+**Tests:** see [docs/verifying.md](docs/verifying.md) for the current
+count - a number pinned in a dated handoff goes stale the next time
+anyone adds a test, and this one did.
 **Prior handoffs:** [HANDOFF-PHASE1.5.md](HANDOFF-PHASE1.5.md) |
 [HANDOFF-PHASE1.md](HANDOFF-PHASE1.md)
 **Verify any claim here yourself:** [docs/verifying.md](docs/verifying.md),
@@ -18,7 +20,7 @@
 |----|----------|-------------|
 | 2.1 | Ops Agent consolidation | `agent/ops/` owns the recovery-loop node set; `build_graph` asks the boundary for arm E. New `Incident.kind` (`recovery`/`change`), `owner`, `duplicate_of_id`, review/triage/outbox/work-item/knowledge-page tables (migration `0011`). |
 | 2.2 | Slack | `integrations/slack/`: web client + recording memory fake, HMAC signature verification, Block Kit notifications (status, approval buttons, review buttons), `POST /slack/interactions` routing to durable decisions, approval timeout fallback via the existing sweep. |
-| 2.3 | Provider-neutral work mgmt | `integrations/work/contract.py` (`WorkManagementProvider`, `WorkItemRef`, capability maps, `WorkItemNotFoundError`), durable `integration_outbox` table, `integrations/lifecycle_sync.py` status→ops map, `integrations/outbox.py` drain with transient/permanent retry classes and dependency deferral, `helix sync`. |
+| 2.3 | Provider-neutral work mgmt | `integrations/work/contract.py` (`WorkManagementProvider`, `WorkItemRef`, `WorkItemSpec`, `ProviderCapabilities` capability maps, `WorkItemError`; not-found is signalled by returning `None`), durable `integration_outbox` table, `integrations/lifecycle_sync.py` status→ops map, `integrations/outbox.py` drain with transient/permanent retry classes and dependency deferral, `helix sync`. |
 | 2.4 | Notion | `integrations/notion/`: web client + memory fake, provenance page builder, `sync_page` outbox op, `knowledge_pages` mirror. |
 | 2.5 | Triage Agent | `agent/agents/triage.py`: affected service, deterministic blast radius, ownership via graph → codeowners → registry → commit author (`"system"` never counts), duplicate detection by (service, branch). |
 | 2.6 | Review Agent | `agent/agents/review.py`: reviewer resolution excluding the author and every prior rejector, durable `review_requests` rows, Slack review buttons, `helix review approve|reject`, API `/reviews/*`, timeout sweep → escalate. |
@@ -107,14 +109,21 @@ remains deliberately untouched.
 
 ## What is verified
 
-- **1233 unit tests green** (`uv run pytest`), 50 integration-marked
-  tests deselected per D9 (they need live Postgres/kafka/kind/LLM).
+- **Unit tier green** (`uv run pytest`), 50 integration-marked tests
+  deselected per D9 (they need live Postgres/kafka/kind/LLM). Current
+  count in [docs/verifying.md](docs/verifying.md).
 - **Real subprocess E2E:** `scripts/e2e_change_lifecycle.py` drives
   pr.opened -> triage -> owner -> review_pending -> `helix review
   approve` -> approved -> deploying -> build.passed -> recovered through
   actual `helix` invocations, asserting triage/review rows, the work
-  item, the knowledge page, and 21 delivered outbox ops including the
-  drift repair.
+  item, the knowledge page, and 21 delivered outbox ops.
+  The knowledge page and the op count were originally only printed, not
+  asserted, and this section claimed otherwise; the assertions now exist.
+  The drift repair is **not** exercised here: the script runs with
+  `HELIX_WORK_PROVIDER=memory`, and `helix sync` deliberately skips
+  work-item reconciliation for the memory provider (its "remote" is the
+  local mirror, so a fresh process would report total drift). Drift
+  repair is covered by `tests/integrations/test_reconcile.py`.
 - **Real benchmark run:** `benchmark.harness --scenario
   org-known-owner-change --arm A` against a migrated state store
   recovers the change incident and scores owner/reviewer/lifecycle/

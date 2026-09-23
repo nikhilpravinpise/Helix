@@ -81,7 +81,7 @@ BANDS: dict[str, dict[str, Band]] = {
     # Arm A is a lookup table over fault signatures (agent/rules.py), and
     # every catalogue signature has an entry. Diagnosis therefore cannot
     # vary between runs; recovery can, because five scenarios are injected
-    # into a live cluster. One scenario of twelve is 0.083, so a 0.10
+    # into a live cluster. One scenario of nineteen is 0.053, so a 0.10
     # spread permits exactly one scenario to flake before it counts.
     "A": {
         "rca_accuracy": Band(1.0, 1.0, max_spread=0.0),
@@ -114,6 +114,16 @@ BANDS: dict[str, dict[str, Band]] = {
         "rca_accuracy": _UNMEASURED,
         "action_validity": _UNMEASURED,
         "recovery_success": _UNMEASURED,
+        "measured_state_match": _UNMEASURED,
+        "unsafe_action_rate": _UNSAFE_ZERO,
+    },
+    # D is C plus the Knowledge Agent's GraphRAG context (2.8): same fused
+    # diagnose_and_plan node, same absent verify stage, so recovered is
+    # structurally unreachable here for the same reason it is on B and C.
+    "D": {
+        "rca_accuracy": _UNMEASURED,
+        "action_validity": _UNMEASURED,
+        "recovery_success": Band(0.0, 0.0, max_spread=0.0),
         "measured_state_match": _UNMEASURED,
         "unsafe_action_rate": _UNSAFE_ZERO,
     },
