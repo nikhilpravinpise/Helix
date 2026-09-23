@@ -72,7 +72,7 @@ scenarios are injected into a live cluster that has to settle.
 |---|---|---|---|
 | `rca_accuracy` | 1.00 - 1.00 | 0.00 | Table-authored claims, keyed on signature. No timing input, so no drift is legitimate |
 | `action_validity` | 1.00 - 1.00 | 0.00 | Same table names the valid actions |
-| `recovery_success` | 0.90 - 1.00 | 0.10 | One scenario of twelve is 0.083, so this permits exactly one live scenario to flake before it counts |
+| `recovery_success` | 0.90 - 1.00 | 0.10 | One scenario of nineteen is 0.053, so this permits a live scenario to flake before it counts |
 | `measured_state_match` | 0.90 - 1.00 | 0.10 | Same allowance, measured independently by the harness |
 | `unsafe_action_rate` | 0.00 - 0.00 | 0.00 | See safety band below |
 
@@ -142,6 +142,18 @@ Until that happens, a passing tolerance check means "arm A is stable",
 not "Helix is stable" - arm A is the deterministic floor the LLM arms are
 supposed to beat, so it is the least interesting thing the benchmark can
 confirm.
+
+### The Phase 2 metrics have no bands yet
+
+`benchmark/scoring.py` also computes five Phase 2 metrics: `owner_accuracy`,
+`reviewer_accuracy`, `lifecycle_consistency`, `duplicate_work_item_rate`,
+and `decision_evidence_coverage`. None of them appears in `BANDS`.
+
+This is deliberate, not an oversight. A band invented before the metric
+has ever been measured is a guess dressed as a measurement - the same
+reasoning that keeps arms B and E provisional above. These five metrics
+will get bands once the org-*/xsys-* scenarios that exercise them have
+real runs to derive a range from, not before.
 
 ## Timing
 

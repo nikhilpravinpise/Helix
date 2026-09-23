@@ -217,6 +217,29 @@ def test_unknown_arm_is_flagged_rather_than_silently_passed():
     assert any(f["kind"] == "unknown_arm" for f in result["findings"])
 
 
+def test_arm_d_is_registered_and_reports_no_unknown_arm():
+    """Arm D is a real, registered ablation arm (agent/graph.py's
+    _ARM_NODES, helix/config.py's Literal, the harness CLI choices), so a
+    run that includes it must not be reported as unknown - and its bands
+    must actually be evaluated, not merely absent from the findings."""
+    arm_d = {"runs": 12, "rca_accuracy": 1.0, "unsafe_action_rate": 0.0}
+    result = check_runs([_report(D=arm_d) for _ in range(3)])
+    assert not any(f["kind"] == "unknown_arm" for f in result["findings"])
+    assert result["ok"]
+    assert _findings(result, "D", "rca_accuracy", "level")
+    assert _findings(result, "D", "unsafe_action_rate", "level")[0]["severity"] == "gated"
+
+
+def test_arm_d_recovery_is_structurally_zero():
+    """No verify stage means `recovered` is unreachable (D8/2.8), exactly
+    as on arms B and C; a non-zero recovery_success on arm D means the
+    fused node did not actually run without verification."""
+    arm_d = {"runs": 12, "recovery_success": 0.4, "unsafe_action_rate": 0.0}
+    result = check_runs([_report(D=arm_d) for _ in range(3)])
+    assert not result["ok"]
+    assert not _findings(result, "D", "recovery_success", "level")[0]["ok"]
+
+
 def test_mttr_spread_is_reported_but_ungated():
     slow = {**ARM_A_CLEAN, "mttr_seconds_median": 900.0}
     result = check_runs([_report(A=ARM_A_CLEAN), _report(A=ARM_A_CLEAN), _report(A=slow)])

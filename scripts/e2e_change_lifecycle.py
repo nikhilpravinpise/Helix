@@ -178,8 +178,7 @@ def main() -> int:
     # the memory provider's create/assign/transition/comment ops).
     delivered = [r for r in st["outbox_rows"] if r[2] == "sent"]
     assert len(delivered) == 21, (
-        f"expected 21 delivered outbox ops, got {len(delivered)} "
-        f"of {len(st['outbox_rows'])} rows"
+        f"expected 21 delivered outbox ops, got {len(delivered)} of {len(st['outbox_rows'])} rows"
     )
     print("E2E change lifecycle: PASS")
     return 0

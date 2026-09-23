@@ -460,6 +460,11 @@ class TestArmDKnowledge:
             ("structured", FusedDiagnosisPlan)
         ]
 
+    def test_the_benchmark_accepts_arm_d(self):
+        from benchmark.tolerance import BANDS
+
+        assert "D" in BANDS
+
     def test_fused_provenance_records_arm_d(self, sqlite_sessions, store):
         answer = FusedDiagnosisPlan(
             claim="transient check failure",
