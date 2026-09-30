@@ -58,9 +58,13 @@ services:
     group_add:
       # /var/run/docker.sock is root:root 0660 on Docker Desktop's VM - the
       # socket's group is literally root, so the jenkins user joins gid 0.
-      # On a Linux host it is usually the `docker` group's gid instead:
-      # `docker exec helix-jenkins stat -c %g /var/run/docker.sock`.
+      # On a Linux host it is the `docker` group's gid instead (963 on the
+      # Arch dev box), which scripts/jenkins-up.sh detects into DOCKER_GID.
+      # Both are listed so neither host needs this file edited; without
+      # the second, every Linux build failed at "Build image" with
+      # "permission denied ... /var/run/docker.sock".
       - "0"
+      - "${DOCKER_GID:-0}"
     networks:
       default: {}
       kind:

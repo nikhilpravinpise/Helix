@@ -15,7 +15,26 @@ source "${SCRIPT_DIR}/common.sh"
 
 kctl apply -f "$(winpath "${K8S_DIR}/ingress-nginx/deploy.yaml")"
 
-kctl -n ingress-nginx wait deployment/ingress-nginx-controller \
-  --for=condition=Available --timeout=180s
+# Wait until the admission webhook can actually answer, not for the
+# Deployment's Available condition: a freshly created Deployment can
+# report Available while its pod is still ContainerCreating, and the next
+# Ingress apply then fails on the webhook with "connection refused".
+# Two things must hold. The controller pod, which serves the webhook, is
+# Ready - polled into existence first, since `wait pod --selector` errors
+# on zero matches. And the webhook carries its CA bundle, which the
+# admission-patch job writes; waiting on that job directly is a race,
+# because ttlSecondsAfterFinished: 0 deletes it the moment it finishes.
+for _ in $(seq 90); do
+  kctl -n ingress-nginx get pod --selector=app.kubernetes.io/component=controller \
+    -o name 2>/dev/null | grep -q . && break
+  sleep 2
+done
+kctl -n ingress-nginx wait pod --selector=app.kubernetes.io/component=controller \
+  --for=condition=Ready --timeout=180s
+for _ in $(seq 90); do
+  kctl get validatingwebhookconfiguration ingress-nginx-admission \
+    -o jsonpath='{.webhooks[0].clientConfig.caBundle}' 2>/dev/null | grep -q . && break
+  sleep 2
+done
 
 echo "ingress-nginx up: host :80 -> node :30080, host :443 -> node :30443"

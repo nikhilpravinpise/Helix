@@ -55,3 +55,13 @@ five-arm run, not before. Recorded in `docs/benchmark/tolerance.md`.
 Cosmetic. `plan.md:154` is D14a, `plan.md:156` is D14. Left alone rather
 than renumbering, since decision numbers are referenced from other
 documents.
+
+## 5. The incident page dumps fix-PR file contents as raw JSON
+
+On `/ui/incidents/<id>` for an incident that ran `open_fix_pr`, the
+selected candidate's params and the execution output each render the
+full corrected file as one JSON string with literal `\n` escapes - a
+3.8KB wall of text, shown twice. Nothing is wrong or missing, it is just
+unreadable. Rendering `files[].content` in a `<pre>` block (or showing
+path plus byte count and linking to the PR diff) would fix it. Found
+while testing `./start.sh --run` on 2026-09-30.
