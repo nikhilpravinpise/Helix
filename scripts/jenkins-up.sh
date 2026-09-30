@@ -20,6 +20,13 @@ if ! docker network inspect kind >/dev/null 2>&1; then
   exit 1
 fi
 
+# The docker socket's group on this host, so the non-root jenkins user can
+# build images (infra/jenkins-compose.yml group_add). GNU stat only; on a
+# host without it - or without the socket, as under Docker Desktop's
+# Windows side - fall back to 0, which Docker Desktop's VM socket uses.
+DOCKER_GID="$(stat -c %g /var/run/docker.sock 2>/dev/null || echo 0)"
+export DOCKER_GID
+
 docker compose -f "${COMPOSE_FILE}" up -d --build
 
 echo "waiting for jenkins to come up (timeout ${READY_TIMEOUT}s)"
