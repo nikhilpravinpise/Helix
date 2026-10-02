@@ -65,3 +65,20 @@ full corrected file as one JSON string with literal `\n` escapes - a
 unreadable. Rendering `files[].content` in a `<pre>` block (or showing
 path plus byte count and linking to the PR diff) would fix it. Found
 while testing `./start.sh --run` on 2026-09-30.
+
+## 6. Arm A is no longer 1.00 on RCA by construction
+
+The docs, DEMO.md and the arm A tolerance band (`rca_accuracy:
+Band(1.0, 1.0)`) all say arm A scores 1.00 because every catalogue
+signature has a rule. Phase 2's `xsys-runtime-missing-owner` deliberately
+breaks that: its signature has no arm-A rule by design, so arm A answers
+"no deterministic rule matched this signal signature", escalates (the
+expected final state), and measures correctly - but scores an RCA miss.
+On the 19-scenario catalogue arm A is 13/14 on RCA, deterministically.
+
+Not a contamination signal: it is identical on every run. Decide between
+(a) keeping abstention as a miss and moving arm A's band and the "1.00"
+wording to 13/14 with spread 0, or (b) scoring a rule-table abstention as
+not-measured. (a) is the conservative reading - an abstention found no
+root cause. Do not widen the band just to make a run pass. Found on the
+first full 19-scenario run, 2026-10-02.
