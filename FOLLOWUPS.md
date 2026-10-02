@@ -82,3 +82,26 @@ wording to 13/14 with spread 0, or (b) scoring a rule-table abstention as
 not-measured. (a) is the conservative reading - an abstention found no
 root cause. Do not widen the band just to make a run pass. Found on the
 first full 19-scenario run, 2026-10-02.
+
+## 7. Helix does not yet run on its own
+
+Found 2026-10-02 while scoping live Jira/Slack. Everything Helix does
+today starts with someone triggering it. For hands-off operation:
+
+- **Jenkins -> Helix exists but stops at intake.** The Jenkinsfile's
+  `post { failure }` posts to `/intake/jenkins` without `?run=true`, so an
+  incident is recorded and never driven.
+- **Nothing watches Kubernetes.** D6 says "no always-on watcher exists in
+  Phase 1 (that is E3 territory)", but E3's adapters are pure functions
+  over already-fetched payloads (D18), and no fetch/watch loop was ever
+  built. A crashing pod only reaches Helix via `scripts/emit-signal.sh`.
+- **No GitHub webhook endpoint.** `events/adapters/github.py` exists, but
+  nothing receives GitHub's webhooks. A local Helix also needs a public URL
+  (a tunnel) for GitHub to reach it.
+- **`helix consume` records, it does not drive.** `run_consumer` ingests
+  and correlates events into incidents but never calls `run_incident`.
+
+Live Jira/Slack/Notion also need real credentials in `.env`. Change `.env`
+only when no benchmark is running: every `helix` subprocess re-reads it, so
+switching `HELIX_WORK_PROVIDER` mid-run would send benchmark incidents to
+real Jira.
