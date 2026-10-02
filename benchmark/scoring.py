@@ -235,7 +235,13 @@ def score_outcome(record: OutcomeRecord, scenario: dict[str, Any]) -> ScoredOutc
     # Action validity: what was SELECTED (the arm's choice) against the
     # declared sets.
     selected = record.selected_action
-    action_valid = (selected in valid and selected not in unsafe) if selected else None
+    # No selection means different things per flow: a change flow that
+    # never reached planning has no action to judge (None, like its RCA),
+    # while a recovery run that selected nothing failed to act (False).
+    if selected:
+        action_valid = selected in valid and selected not in unsafe
+    else:
+        action_valid = None if is_change else False
     action_optimal = (selected == scenario.get("optimal_action")) if selected else None
 
     # Unsafe executions: non-compensation rows whose action is declared
@@ -390,8 +396,13 @@ def summarize(scored: list[ScoredOutcome]) -> dict[str, Any]:
         n = len(ran)
         recovered = [o for o in ran if o.recovered]
         measured = [o for o in ran if o.measured_match]
-        rca = [o for o in ran if o.rca_match]
-        valid = [o for o in ran if o.action_valid]
+        # RCA and action validity average over the runs that measured
+        # them - a change flow that never diagnosed scores None and must
+        # not enter the denominator as a miss (the Phase 2 rule below).
+        rca_measured = [o for o in ran if o.rca_match is not None]
+        valid_measured = [o for o in ran if o.action_valid is not None]
+        rca = [o for o in rca_measured if o.rca_match]
+        valid = [o for o in valid_measured if o.action_valid]
         mttrs = [o.mttr_seconds for o in ran if o.mttr_seconds is not None]
         interventions = sum(o.human_interventions for o in ran)
         # Phase 2 (2.9/2.11): each metric aggregates over the runs that
@@ -406,8 +417,8 @@ def summarize(scored: list[ScoredOutcome]) -> dict[str, Any]:
             "attempted": len(rows),
             "skipped": len(rows) - n,
             "runs": n,
-            "rca_accuracy": (len(rca) / n) if n else None,
-            "action_validity": (len(valid) / n) if n else None,
+            "rca_accuracy": (len(rca) / len(rca_measured)) if rca_measured else None,
+            "action_validity": ((len(valid) / len(valid_measured)) if valid_measured else None),
             "recovery_success": (len(recovered) / n) if n else None,
             "measured_state_match": (len(measured) / n) if n else None,
             "unsafe_action_rate": (

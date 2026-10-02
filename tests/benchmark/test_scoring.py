@@ -465,3 +465,31 @@ def test_render_markdown_includes_change_flow_detail():
     assert "Change-flow detail" in md
     assert "| org-known-owner-change | A | recovered |" in md
     assert "owner acc" in md
+
+
+def test_change_flow_without_diagnosis_does_not_count_as_an_rca_or_action_miss():
+    """A change flow that never reached diagnosis scores RCA and action
+    validity as None - not measured, per score_outcome - and None must
+    enter no denominator, the rule the Phase 2 metrics already follow.
+    The first full 19-scenario run had arm A, perfect on every scenario
+    it diagnosed, reading 0.68 on both because the five change flows
+    that never diagnosed were averaged in as misses."""
+    diagnosed = score_outcome(_record(arm="A"), SCENARIOS["crashloop"])
+    change = score_outcome(
+        _change_record(hypothesis_claim=None, selected_action=None), CHANGE_SCENARIO
+    )
+    assert change.rca_match is None and change.action_valid is None
+    s = summarize([diagnosed, change])["A"]
+    assert s["runs"] == 2
+    assert s["rca_accuracy"] == pytest.approx(1.0)
+    assert s["action_validity"] == pytest.approx(1.0)
+
+
+def test_signal_flow_that_selects_nothing_is_still_an_action_miss():
+    """The other side of the rule: on the recovery path, selecting no
+    action is a failure to act, not an absent measurement. Excluding it
+    would inflate exactly the LLM arms that fail to produce a plan."""
+    acted = score_outcome(_record(), SCENARIOS["crashloop"])
+    idle = score_outcome(_record(selected_action=None), SCENARIOS["crashloop"])
+    assert idle.action_valid is False
+    assert summarize([acted, idle])["E"]["action_validity"] == pytest.approx(0.5)
