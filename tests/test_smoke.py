@@ -35,3 +35,19 @@ def test_a_configured_key_is_never_rendered_by_a_failure(monkeypatch):
     monkeypatch.setenv("HELIX_LLM_API_KEY", "gsk_secret_value_do_not_print")
     rendered = repr(Settings())
     assert "gsk_secret_value_do_not_print" not in rendered
+
+
+def test_the_shipped_env_example_loads(tmp_path):
+    """.env.example is what the docs tell people to copy, so copied
+    verbatim it must produce a working config. It ships blank values
+    (HELIX_SLACK_APPROVAL_TIMEOUT= among them), and a blank numeric made
+    every `helix` command die at startup with "Input should be a valid
+    number" - found the first time integration credentials were filled
+    in. A blank line in .env means "not set", so it takes the default."""
+    from pathlib import Path
+
+    example = Path(__file__).resolve().parent.parent / ".env.example"
+    env_file = tmp_path / ".env"
+    env_file.write_text(example.read_text())
+    settings = Settings(_env_file=str(env_file))
+    assert settings.slack_approval_timeout is None
