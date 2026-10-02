@@ -105,3 +105,32 @@ Live Jira/Slack/Notion also need real credentials in `.env`. Change `.env`
 only when no benchmark is running: every `helix` subprocess re-reads it, so
 switching `HELIX_WORK_PROVIDER` mid-run would send benchmark incidents to
 real Jira.
+
+## 8. A provider rate limit is scored as the arm failing
+
+The first five-arm run (`benchmark/reports/phase2-run1.json`,
+2026-10-02) exhausted Groq's daily token budget during arm E: its last
+five scenarios ended `failed` with "diagnosis produced no hypothesis:
+... Error code: 429 ... tokens per day (TPD)". The harness scored them as
+arm E failures. A 429 is the provider refusing, not the arm reasoning
+badly, and should be recorded like a missing key is - skipped with the
+reason, never entering a rate. Until then, recompute arm E without those
+five rows (done by hand in the run's analysis).
+
+## 9. Owner and reviewer accuracy differ by arm
+
+In the same run, arms A and E scored owner 1.00 / reviewer 1.00 while B,
+C and D all scored 0.83 / 0.75. Triage and review are deterministic and
+should not depend on the arm, so either a change scenario takes a
+different path through B/C/D (the fused node has no replan, so one may
+end before review), or something arm-specific leaks into triage.
+Unexplained; check before trusting the Phase 2 lifecycle columns.
+
+## 10. Arm D ran without its graph
+
+`HELIX_GRAPH_ENABLED` defaults to false and Neo4j is not set up, so in
+phase2-run1 arm D received retrieval plus the event timeline but an
+empty graph neighbourhood. The run measures "timeline context" (it made
+diagnosis worse: RCA 0.78 for C, 0.22 for D on the same 13 scenarios),
+not graph context. 2.7's with-and-without-graph comparison is still
+unmeasured.
