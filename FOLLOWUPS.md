@@ -134,3 +134,14 @@ empty graph neighbourhood. The run measures "timeline context" (it made
 diagnosis worse: RCA 0.78 for C, 0.22 for D on the same 13 scenarios),
 not graph context. 2.7's with-and-without-graph comparison is still
 unmeasured.
+
+## 11. Jira declares a "blocked" state that Kanban projects lack
+
+`JiraProvider.capabilities()` is static and always lists `blocked`, but a
+team-managed Kanban project's workflow is only To Do / In Progress / Done.
+Live, `transition_work_item(..., "blocked")` raised a clean WorkItemError
+("jira workflow offers no transition for 'blocked'"), so nothing breaks -
+an escalated incident's item just stays in its previous column. Per
+plan.md 2.10, an undeclared gap is a defect in the abstraction: either
+read the project's workflow (`/rest/api/3/project/{key}/statuses`) into
+the capability map, or add a Blocked column to the project.

@@ -110,9 +110,21 @@ def make_jira_provider(
     seen: list[httpx.Request] | None = None,
     transitions: list[dict] | None = None,
 ) -> JiraProvider:
-    """JiraProvider over a fake Jira REST v3. `transitions` is the fixed
-    set GET /transitions answers - the workflow the fake project has."""
+    """JiraProvider over a fake Jira Cloud REST v3. `transitions` is the
+    fixed set GET /transitions answers - the workflow the fake project has.
+
+    It mirrors behaviour checked against a live Jira Cloud site: the old
+    /rest/api/3/search answers 410 Gone, /search/jql returns only issue
+    ids unless `fields` is passed, assignment takes an accountId resolved
+    through /user/search, and {"name": ...} assignment is rejected 400.
+    The earlier fake served the removed endpoints, which is how the
+    provider passed every test here and failed against real Jira."""
     issues: dict[str, dict] = {}
+    users = [
+        {"accountId": "acc-ona", "displayName": "ona", "emailAddress": "ona@example.com"},
+        {"accountId": "acc-alice", "displayName": "alice", "emailAddress": "alice@example.com"},
+    ]
+    display_for = {u["accountId"]: u["displayName"] for u in users}
     seq = itertools.count(1)
     available = (
         transitions
@@ -155,10 +167,24 @@ def make_jira_provider(
             seen.append(request)
         path = request.url.path
         if path == "/rest/api/3/search":
+            return httpx.Response(410, json={"errorMessages": ["endpoint removed"]})
+        if path == "/rest/api/3/search/jql":
             match = re.search(r'labels\s*=\s*"([^"]+)"', request.url.params.get("jql", ""))
             label = match.group(1) if match else ""
             hits = [i for i in issues.values() if label in i["fields"]["labels"]]
-            return httpx.Response(200, json={"issues": hits, "total": len(hits)})
+            if "fields" not in request.url.params:
+                hits = [{"id": i["id"]} for i in hits]
+            return httpx.Response(200, json={"issues": hits, "isLast": True})
+        if path == "/rest/api/3/user/search":
+            query = request.url.params.get("query", "").lower()
+            return httpx.Response(
+                200,
+                json=[
+                    u
+                    for u in users
+                    if query in (u["displayName"].lower(), u["emailAddress"].lower())
+                ],
+            )
         if path == "/rest/api/3/issueLink" and request.method == "POST":
             body = json.loads(request.content)
             if (
@@ -179,7 +205,7 @@ def make_jira_provider(
                     "description": fields.get("description"),
                     "labels": fields.get("labels") or [],
                     "assignee": (
-                        {"displayName": fields["assignee"]["name"]}
+                        {"displayName": display_for[fields["assignee"]["accountId"]]}
                         if fields.get("assignee")
                         else None
                     ),
@@ -215,8 +241,11 @@ def make_jira_provider(
                 issue["fields"]["priority"] = {"name": fields["priority"]["name"]}
             return httpx.Response(204)
         if sub == "assignee":
-            name = json.loads(request.content).get("name")
-            issue["fields"]["assignee"] = {"displayName": name} if name else None
+            body = json.loads(request.content)
+            if "accountId" not in body:
+                return httpx.Response(400, json={"errorMessages": ["accountId required"]})
+            account = body["accountId"]
+            issue["fields"]["assignee"] = {"displayName": display_for[account]} if account else None
             return httpx.Response(204)
         if sub == "transitions":
             if request.method == "GET":

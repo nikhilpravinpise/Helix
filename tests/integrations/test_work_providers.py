@@ -115,8 +115,11 @@ def test_jira_find_by_incident_uses_label_jql(provider_factory):
     found = provider.find_by_incident("INC-1")
     assert found is not None
     request = seen[-1]
-    assert request.url.path == "/rest/api/3/search"
+    # /rest/api/3/search was removed from Jira Cloud (410 Gone, seen live);
+    # /search/jql replaced it and needs `fields` to return more than ids.
+    assert request.url.path == "/rest/api/3/search/jql"
     assert 'labels = "helix-incident-INC-1"' in request.url.params["jql"]
+    assert "status" in request.url.params["fields"]
 
 
 def test_jira_transition_goes_through_workflow(provider_factory):
@@ -156,7 +159,9 @@ def test_jira_assign_and_comment_and_link_shapes(provider_factory):
     provider.assign_work_item(ref.external_id, "ona")
     assign = next(r for r in seen if r.url.path.endswith("/assignee"))
     assert assign.method == "PUT"
-    assert json.loads(assign.content) == {"name": "ona"}
+    # Jira Cloud rejects {"name": ...} with 400 (seen live); it takes the
+    # accountId the provider resolves through /user/search.
+    assert json.loads(assign.content) == {"accountId": "acc-ona"}
 
     provider.comment_work_item(ref.external_id, "note")
     comment = next(r for r in seen if r.url.path.endswith("/comment"))
@@ -342,3 +347,14 @@ def test_factory_builds_configured_providers(monkeypatch):
     monkeypatch.setenv("HELIX_TRELLO_API_TOKEN", "tok")
     monkeypatch.setenv("HELIX_TRELLO_BOARD_ID", "board")
     assert isinstance(get_work_provider(), TrelloProvider)
+
+
+def test_jira_assignee_with_no_matching_user_raises(provider_factory):
+    """Helix's owners come from a service registry, not from Jira, so an
+    owner may have no Jira account. That must surface as WorkItemError -
+    the drain's failure vocabulary - not leave the item silently
+    unassigned or send Jira a request it rejects."""
+    provider = provider_factory["jira"]()
+    ref = provider.create_work_item(_spec())
+    with pytest.raises(WorkItemError, match="no Jira user"):
+        provider.assign_work_item(ref.external_id, "nobody-in-jira")
