@@ -72,6 +72,20 @@ def test_memory_create_is_idempotent_per_incident(provider_factory):
     assert len(provider.items) == 1
 
 
+def test_memory_ids_are_unique_across_provider_instances(provider_factory):
+    """Every `helix` command is its own process with its own memory
+    provider, so an id that is only unique within one instance is not an
+    id at all. A per-instance counter gave every incident "MEM-1"; the
+    benchmark's settle step then loaded all of them into one shared store,
+    where they overwrote each other and one incident's "blocked" status
+    became every other incident's - four Phase 2 scenarios measured as
+    failed on arm A. Real providers mint keys unique across the whole
+    remote (a Jira key never repeats), and the fake must too."""
+    one = provider_factory["memory"]().create_work_item(_spec("INC-1"))
+    two = provider_factory["memory"]().create_work_item(_spec("INC-2"))
+    assert one.external_id != two.external_id
+
+
 # --- jira -------------------------------------------------------------
 
 

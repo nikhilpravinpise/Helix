@@ -421,12 +421,6 @@ def _settle_integrations(database_url: str) -> list[str]:
                         "comments": [],
                         "linked": [],
                     }
-                seq = [
-                    int(eid[4:])
-                    for eid in work.items
-                    if eid.startswith("MEM-") and eid[4:].isdigit()
-                ]
-                work._seq = max(seq, default=0)  # recreates must not collide
         for _pass in range(8):
             with session_scope(engine) as session:
                 drain_outbox(session, work=work if inject else None)
