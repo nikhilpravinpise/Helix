@@ -21,6 +21,8 @@ import sys
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
+    from collections.abc import Callable
+
     from events.ingest import IngestResult
 
 
@@ -581,6 +583,33 @@ def _cmd_decide(args: argparse.Namespace, approved: bool) -> int:
     return 0
 
 
+def _stop_cleanly_on_signals() -> "Callable[[], None]":
+    """Make SIGTERM and SIGINT both mean "stop gracefully" for the daemons.
+
+    SIGTERM is what `docker stop`, systemd and plain `kill` send, and
+    Python's default for it is to die on the spot - which for `helix
+    consume` meant an incident left stuck `running` mid-remediation. A
+    process started in the background by a non-interactive shell also
+    inherits SIGINT as ignored, so Ctrl-C-style stops never arrived either.
+    Both now raise KeyboardInterrupt, the path each daemon already handles.
+    Returns a function that puts the previous handlers back.
+    """
+    import signal
+
+    def _interrupt(signum: int, frame: object) -> None:
+        raise KeyboardInterrupt
+
+    saved = {sig: signal.getsignal(sig) for sig in (signal.SIGTERM, signal.SIGINT)}
+    signal.signal(signal.SIGTERM, _interrupt)
+    signal.signal(signal.SIGINT, _interrupt)
+
+    def restore() -> None:
+        for sig, handler in saved.items():
+            signal.signal(sig, handler)
+
+    return restore
+
+
 def _cmd_watch(args: argparse.Namespace) -> int:
     """Poll the cluster and publish confirmed pod failures (see events.watch).
 
@@ -609,10 +638,13 @@ def _cmd_watch(args: argparse.Namespace) -> int:
         f"persist {args.polls} polls before it is published",
         flush=True,
     )
+    restore_signals = _stop_cleanly_on_signals()
     try:
         run_watch(fetch, publish, interval=args.interval, polls=args.polls)
     except KeyboardInterrupt:
         print("watch stopped", flush=True)
+    finally:
+        restore_signals()
     return 0
 
 
@@ -633,6 +665,7 @@ def _cmd_consume(args: argparse.Namespace) -> int:
 
     engine = create_engine(get_settings().database_url)
     driver = _IncidentDriver() if args.run else None
+    restore_signals = _stop_cleanly_on_signals()
     try:
         handled = run_consumer(
             functools.partial(session_scope, engine),
@@ -650,6 +683,8 @@ def _cmd_consume(args: argparse.Namespace) -> int:
     else:
         if driver is not None:
             driver.close()
+    finally:
+        restore_signals()
     if handled is not None:
         print(f"handled {handled} event(s)")
     return 0

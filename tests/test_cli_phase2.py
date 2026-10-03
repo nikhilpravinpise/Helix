@@ -254,3 +254,28 @@ def test_watch_wires_the_cluster_feed_to_kafka(monkeypatch, capsys):
     assert seen["interval"] == 5 and seen["polls"] == 2
     assert [e.metadata["waiting_reason"] for e in sent] == ["CrashLoopBackOff"]
     assert "pod.failed" in capsys.readouterr().out
+
+
+def test_daemons_turn_sigterm_into_a_clean_stop():
+    """`docker stop`, systemd and plain `kill` send SIGTERM, and a process
+    started in the background by a non-interactive shell ignores SIGINT.
+    Before this, both daemons died on SIGTERM with no cleanup - a consumer
+    killed mid-run would leave its incident stuck `running` for
+    `helix reclaim`. Now SIGTERM raises KeyboardInterrupt, which `helix
+    consume` handles by finishing the run in progress."""
+    import os
+    import signal
+
+    from helix import cli
+
+    saved = {s: signal.getsignal(s) for s in (signal.SIGTERM, signal.SIGINT)}
+    try:
+        signal.signal(signal.SIGINT, signal.SIG_IGN)  # as a background job inherits it
+        cli._stop_cleanly_on_signals()
+        for sig in (signal.SIGTERM, signal.SIGINT):
+            with pytest.raises(KeyboardInterrupt):
+                os.kill(os.getpid(), sig)
+                signal.pthread_sigmask(signal.SIG_BLOCK, [])  # let the handler run
+    finally:
+        for sig, handler in saved.items():
+            signal.signal(sig, handler)
