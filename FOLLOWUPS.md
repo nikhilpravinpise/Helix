@@ -168,3 +168,27 @@ now keeps a CI failure from reaching rollback at all, and verification
 caught the result (pods_ready=fail -> escalated), so nothing stayed
 broken unnoticed. A stronger fix would roll back to the last revision
 Helix verified healthy rather than to whatever came before.
+
+## 14. A fix PR marks a runtime incident recovered while it is still broken
+
+Found 2026-10-03 in the first fully unattended run (INC-aba102e5). `helix
+watch` caught an injected crashloop, `helix consume --run` drove it, and
+arm E chose open_fix_pr. Verification checked fix_pr_exists=pass, the
+incident went to `recovered`, Jira KAN-116 closed as Done - and the pod was
+still in CrashLoopBackOff. A PR changes nothing until it is merged and
+deployed.
+
+Unattended, this becomes a silent failure. The watcher reports a condition
+once per occurrence, and ingest never attaches to a terminal incident, so
+the still-crashing pod produced nothing further. Nobody would know.
+
+open_fix_pr's verification proves the PR exists, which is the right check
+for a CI or code incident, where the PR is the remediation. For runtime
+evidence (pod.failed, service.unhealthy, deployment.failed) it is not
+recovery. Options: (a) a runtime incident remediated by a PR parks in a
+non-terminal "fix proposed" state until the runtime check passes; (b)
+verification for runtime incidents always includes the runtime legs
+(pods_ready, rollout_complete) whatever the action; (c) the watcher
+re-publishes a condition that persists past a deadline after being
+reported. (b) is closest to plan.md 1.9's intent; (c) alone would just
+open new incidents that close the same way.
