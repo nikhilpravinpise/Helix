@@ -123,6 +123,28 @@ class TestKubernetesAdapter:
             e.event_id for e in kubernetes.pod_events(payload)
         ]
 
+    @pytest.mark.parametrize("reason", ["ContainerCreating", "PodInitializing"])
+    def test_a_pod_that_is_still_starting_is_not_a_failure(self, reason):
+        """Every pod passes through these waiting reasons on a normal start.
+        A healthy `rollout restart` of payment-api, sampled 60 times, made
+        this adapter emit 12 pod.failed events for ContainerCreating - which
+        a live watcher would have turned into an incident per deploy,
+        including every deploy Helix makes to fix something."""
+        pod = {
+            "metadata": {"name": "payment-api-new", "uid": "u-1", "labels": {"app": "payment-api"}},
+            "status": {
+                "phase": "Pending",
+                "containerStatuses": [
+                    {
+                        "name": "payment-api",
+                        "state": {"waiting": {"reason": reason}},
+                        "restartCount": 0,
+                    }
+                ],
+            },
+        }
+        assert kubernetes.pod_events({"items": [pod]}) == []
+
 
 class TestJenkinsAdapter:
     @pytest.mark.parametrize(
