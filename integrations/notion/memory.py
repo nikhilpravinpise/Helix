@@ -12,6 +12,7 @@ outbox must degrade gracefully through (an exception set there is raised
 by every call, before anything is recorded).
 """
 
+import uuid
 from typing import Any
 
 from integrations.notion.client import NotionError
@@ -28,7 +29,6 @@ class MemoryNotionClient:
         self.calls: list[dict[str, Any]] = []
         #: Set to an exception and every call raises it (outage sim).
         self.fail_with: Exception | None = None
-        self._next_id = 0
 
     def _maybe_fail(self) -> None:
         if self.fail_with is not None:
@@ -38,8 +38,11 @@ class MemoryNotionClient:
         self, parent_id: str, title: str, blocks: list[dict[str, Any]]
     ) -> dict[str, Any]:
         self._maybe_fail()
-        self._next_id += 1
-        page_id = f"mem-page-{self._next_id}"
+        # Unique across processes, not just this instance: every `helix`
+        # command builds its own client, and a per-instance counter gave
+        # every incident's page "mem-page-1" (MemoryWorkProvider had the same
+        # defect). Random so a recreated page gets a new id, as Notion's would.
+        page_id = f"mem-page-{uuid.uuid4().hex[:12]}"
         self.pages[page_id] = {
             "title": title,
             "blocks": list(blocks),

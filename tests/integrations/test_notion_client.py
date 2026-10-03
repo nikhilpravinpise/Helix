@@ -33,15 +33,28 @@ class TestMemoryNotionClient:
         client = MemoryNotionClient()
         resp = client.create_page("parent-1", "INC-1: svc (received)", [_block()])
 
-        assert resp == {"id": "mem-page-1", "url": "https://notion.so/mem-page-1"}
-        assert client.pages["mem-page-1"] == {
+        page_id = resp["id"]
+        assert page_id.startswith("mem-page-")
+        assert resp["url"] == f"https://notion.so/{page_id}"
+        assert client.pages[page_id] == {
             "title": "INC-1: svc (received)",
             "blocks": [_block()],
             "parent": "parent-1",
         }
-        # A second page gets the next id - never a duplicate.
+        # A second page gets a different id - never a duplicate.
         resp2 = client.create_page("parent-1", "INC-2: svc (received)", [])
-        assert resp2["id"] == "mem-page-2"
+        assert resp2["id"] != page_id
+
+    def test_page_ids_are_unique_across_client_instances(self):
+        """Every `helix` command is its own process with its own memory
+        client, so a per-instance counter handed every incident's page the
+        id "mem-page-1" - 67 incidents in the dev database shared one page,
+        and `helix graph-sync` faithfully linked all 67 to a single
+        knowledge-page node, making unrelated incidents look connected to
+        the 2.8 knowledge context. The work-item fake had the same defect."""
+        one = MemoryNotionClient().create_page("p", "INC-1", [])["id"]
+        two = MemoryNotionClient().create_page("p", "INC-2", [])["id"]
+        assert one != two
 
     def test_append_blocks_extends_in_order(self):
         client = MemoryNotionClient()

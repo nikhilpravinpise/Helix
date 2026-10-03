@@ -165,8 +165,9 @@ HELIX_JIRA_PROJECT_KEY=HELIX
 HELIX_NOTION_API_KEY=ntn_...
 HELIX_NOTION_PARENT_PAGE_ID=...       # pages are created under this parent
 
-# Relationship graph (2.7/2.8) - needs a Neo4j you run yourself
-# (docker run -p 7687:7687 -e NEO4J_AUTH=neo4j/password neo4j:5):
+# Relationship graph (2.7/2.8) - Neo4j from infra/neo4j-compose.yml, which
+# takes its password from this file:
+#   docker compose -f infra/neo4j-compose.yml --env-file .env up -d
 HELIX_GRAPH_ENABLED=true
 HELIX_NEO4J_URI=bolt://127.0.0.1:7687
 HELIX_NEO4J_USER=neo4j

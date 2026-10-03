@@ -15,6 +15,14 @@ from typing import Any
 from graph.schema import Edge, EdgeType, Node, NodeType
 
 
+def _properties(record_node: Any) -> dict[str, Any]:
+    """A stored node's properties as written. Neo4j keeps the node key as an
+    `id` property so MERGE can match on it; that is storage, not data, and
+    MemoryGraphStore never returns it - both stores behind GraphStore must
+    hand back the same Node for the same write."""
+    return {key: value for key, value in dict(record_node).items() if key != "id"}
+
+
 class Neo4jGraphStore:
     """Cypher-backed `GraphStore`. One node label per `NodeType`, node
     identity is the `id` property (uniqueness enforced by a constraint
@@ -77,12 +85,15 @@ class Neo4jGraphStore:
             ).single()
             if record is None:
                 return None
-            return Node(type=node_type, id=node_id, properties=dict(record["n"]))
+            return Node(type=node_type, id=node_id, properties=_properties(record["n"]))
 
     def nodes_by_type(self, node_type: NodeType) -> list[Node]:
         with self._driver.session(database=self._database) as session:
             result = session.run(f"MATCH (n:`{node_type.value}`) RETURN n")
-            return [Node(type=node_type, id=r["n"]["id"], properties=dict(r["n"])) for r in result]
+            return [
+                Node(type=node_type, id=r["n"]["id"], properties=_properties(r["n"]))
+                for r in result
+            ]
 
     def neighbors(
         self,
@@ -110,7 +121,11 @@ class Neo4jGraphStore:
                 if node_type_found is None:
                     continue
                 out.append(
-                    Node(type=node_type_found, id=record["b"]["id"], properties=dict(record["b"]))
+                    Node(
+                        type=node_type_found,
+                        id=record["b"]["id"],
+                        properties=_properties(record["b"]),
+                    )
                 )
             return out
 
