@@ -100,36 +100,47 @@ def _intake(signal: Signal, expected_source: SignalSource, session: Session) -> 
     return intake_signal(session, signal)
 
 
-def _maybe_run(run: bool, session: Session, result: IntakeResult) -> None:
+def _maybe_run(
+    run: bool, session: Session, result: IntakeResult, background: BackgroundTasks
+) -> None:
     """The intake -> agent hook (D6 direct call, wired in 1.5): POSTs with
     `?run=true` drive the workflow graph in-process after the signal is
     recorded. The signal is committed first so the runner's own sessions
-    see it; a run failure is logged but never fails the intake - the
-    incident is already durable and `helix run` can drive it later."""
+    see it.
+
+    The run is a background task, not part of the request: a run takes
+    minutes, and intake's callers are time-boxed (Jenkins' post-failure
+    curl gives up after 10s), so running inline failed the callers
+    `?run=true` exists for. A run failure is logged but never fails the
+    intake - the incident is already durable and `helix run` can drive it
+    later."""
     if not run:
         return
     session.commit()
+    background.add_task(_run_logged, result.incident_id)
+
+
+def _run_logged(incident_id: str) -> None:
     from agent.runner import run_incident
 
     try:
-        run_incident(result.incident_id)
+        run_incident(incident_id)
     except Exception as exc:  # the run's outcome lives in workflow_runs
-        get_logger().warning(
-            "intake run hook failed", incident_id=result.incident_id, error=str(exc)
-        )
+        get_logger().warning("intake run hook failed", incident_id=incident_id, error=str(exc))
 
 
 @app.post("/intake/kubernetes", response_model=IntakeResult)
 def post_intake_kubernetes(
     signal: Signal,
     session: DbSession,
+    background: BackgroundTasks,
     _: Annotated[None, Depends(require_intake_token)],
     run: bool = False,
 ) -> IntakeResult:
     """Receive a Kubernetes failure signal (e.g. from scripts/emit-signal.sh).
     `?run=true` also drives the incident's workflow in-process."""
     result = _intake(signal, SignalSource.KUBERNETES, session)
-    _maybe_run(run, session, result)
+    _maybe_run(run, session, result, background)
     return result
 
 
@@ -137,13 +148,14 @@ def post_intake_kubernetes(
 def post_intake_jenkins(
     signal: Signal,
     session: DbSession,
+    background: BackgroundTasks,
     _: Annotated[None, Depends(require_intake_token)],
     run: bool = False,
 ) -> IntakeResult:
     """Receive a Jenkins build-failure signal (Jenkinsfile post{failure}).
     `?run=true` also drives the incident's workflow in-process."""
     result = _intake(signal, SignalSource.JENKINS, session)
-    _maybe_run(run, session, result)
+    _maybe_run(run, session, result, background)
     return result
 
 

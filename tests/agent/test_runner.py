@@ -351,3 +351,33 @@ class TestApiRunHook:
         response = client.post("/intake/kubernetes?run=true", json=K8S_SIGNAL)
         assert response.status_code == 200
         assert response.json()["incident_id"].startswith("INC-")
+
+
+def test_intake_run_is_scheduled_after_the_response_not_inside_it(sqlite_engine, monkeypatch):
+    """A run takes minutes (the verify window alone is ~3), and every
+    caller of intake is time-boxed: Jenkins' post-failure curl gives up
+    after 10s, a cluster watcher must not stall on one pod. Running inside
+    the request made `?run=true` fail for exactly the callers it exists
+    for. The run is handed to a background task instead - scheduled, not
+    yet started, when the endpoint returns."""
+    from fastapi import BackgroundTasks
+
+    from helix.api import post_intake_jenkins
+    from state.db import session_scope
+    from state.intake import Signal
+
+    called = []
+    monkeypatch.setattr("agent.runner.run_incident", lambda iid: called.append(iid))
+    background = BackgroundTasks()
+    signal = Signal(
+        source="jenkins",
+        service="payment-api",
+        environment="sandbox",
+        signature={"job": "payment-api", "stage": "Test"},
+    )
+    with session_scope(sqlite_engine) as session:
+        result = post_intake_jenkins(signal, session, background, None, run=True)
+    assert called == []
+    assert len(background.tasks) == 1
+    background.tasks[0].func(*background.tasks[0].args, **background.tasks[0].kwargs)
+    assert called == [result.incident_id]

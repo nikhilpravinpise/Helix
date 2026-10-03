@@ -8,7 +8,7 @@
 #                read it from stdin.
 #
 # Environment:
-#   HELIX_API_URL       intake API base URL (default http://127.0.0.1:8787)
+#   HELIX_API_URL       intake API base URL (default http://<HELIX_API_BIND>:8787)
 #   HELIX_INTAKE_TOKEN  optional bearer token, sent when set
 #
 # The payload is a state.intake.Signal document: source, service,
@@ -37,7 +37,11 @@ case "${SOURCE}" in
   *) usage ;;
 esac
 
-API_URL="${HELIX_API_URL:-http://127.0.0.1:8787}"
+# Default to wherever `helix serve` binds (HELIX_API_BIND in .env), so a
+# Linux box bound to the docker0 bridge does not need HELIX_API_URL set.
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+BIND="$(grep -E '^HELIX_API_BIND=' "${SCRIPT_DIR}/../.env" 2>/dev/null | cut -d= -f2- || true)"
+API_URL="${HELIX_API_URL:-http://${BIND:-127.0.0.1}:8787}"
 
 if [[ "${FILE}" == "-" ]]; then
   PAYLOAD="$(cat)"
