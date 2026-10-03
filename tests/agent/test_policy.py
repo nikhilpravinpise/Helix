@@ -158,9 +158,34 @@ class TestEvidenceCoherence:
         )
         assert verdict.decision == PolicyDecision.REQUIRE_APPROVAL
 
-    def test_k8s_write_on_runtime_evidence_proceeds_normally(self):
-        verdict = decide("rollback_deployment", dict(K8S), "sandbox", evidence_types=self.RUNTIME)
+    def test_k8s_write_on_cluster_evidence_proceeds_normally(self):
+        verdict = decide(
+            "rollback_deployment", dict(K8S), "sandbox", evidence_types=frozenset({"pod.failed"})
+        )
         assert verdict.decision == PolicyDecision.ALLOW_WITH_CHECKS
+
+    def test_k8s_write_on_ci_only_evidence_requires_approval(self):
+        """Live, 2026-10-03: a failing unit test (build.failed) let arm E
+        restart and then roll back the sandbox deployment unapproved - the
+        rollback landed on an earlier injected fault and left a pod
+        crashlooping. CI evidence speaks to the pipeline, not the cluster.
+        This test replaced one that asserted the gap as expected behaviour
+        (rollback allowed on {"build.failed"}); the rule changed with
+        Vraj's confirmation."""
+        verdict = decide("rollback_deployment", dict(K8S), "sandbox", evidence_types=self.RUNTIME)
+        assert verdict.decision == PolicyDecision.REQUIRE_APPROVAL
+        assert "cluster" in verdict.reason
+
+    def test_jenkins_write_on_cluster_only_evidence_requires_approval(self):
+        """The same split, the other way: a crashing pod is not evidence
+        that re-running the pipeline will help."""
+        verdict = decide(
+            "rerun_pipeline",
+            {"job": "payment-api"},
+            "sandbox",
+            evidence_types=frozenset({"pod.failed"}),
+        )
+        assert verdict.decision == PolicyDecision.REQUIRE_APPROVAL
 
     def test_k8s_write_on_mixed_evidence_proceeds_normally(self):
         verdict = decide("rollback_deployment", dict(K8S), "sandbox", evidence_types=self.MIXED)
@@ -221,3 +246,29 @@ class TestFingerprintStability:
         a = decide("scale_deployment", {**K8S, "replicas": 2}, "sandbox")
         b = decide("scale_deployment", {**K8S, "replicas": 3}, "sandbox")
         assert a.fingerprint != b.fingerprint
+
+
+def test_every_scenario_optimal_action_is_coherent_with_its_evidence():
+    """The split must not gate any remediation the catalogue says is right:
+    each scenario's optimal action, judged against the canonical type its
+    own signal or events classify to, has evidence from its executor's
+    domain (or needs none - open_fix_pr is coherent with anything)."""
+    from agent.actions.catalogue import get_action
+    from agent.policy import EXECUTOR_EVIDENCE
+    from benchmark import catalog
+    from events.classify import classify
+
+    for name, scenario in catalog.load_scenarios().items():
+        if "signal" in scenario:
+            signal = scenario["signal"]
+            evidence = {classify(signal["source"], signal.get("signature") or {}).value}
+        else:
+            evidence = {e["type"] for e in scenario.get("events", [])}
+        optimal = scenario.get("optimal_action")
+        spec = get_action(optimal) if optimal else None
+        if spec is None or spec.executor not in EXECUTOR_EVIDENCE:
+            continue
+        assert evidence & EXECUTOR_EVIDENCE[spec.executor], (
+            f"{name}: optimal {optimal} ({spec.executor}) has no evidence from its "
+            f"domain in {sorted(evidence)}"
+        )
