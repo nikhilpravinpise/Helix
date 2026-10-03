@@ -18,6 +18,10 @@ provenance as Markdown).
 import argparse
 import json
 import sys
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from events.ingest import IngestResult
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -137,6 +141,18 @@ def build_parser() -> argparse.ArgumentParser:
         type=int,
         default=None,
         help="stop after handling this many events (default: run until the topic goes quiet)",
+    )
+    consume.add_argument(
+        "--follow",
+        action="store_true",
+        help="keep consuming through quiet periods until interrupted, instead of "
+        "returning when the topic goes quiet - the long-running daemon",
+    )
+    consume.add_argument(
+        "--run",
+        action="store_true",
+        help="also drive each incident a new event lands on, in a background worker; "
+        "a redelivered event drives nothing. Without it, consume only records (D19)",
     )
 
     emit = subparsers.add_parser(
@@ -562,14 +578,71 @@ def _cmd_consume(args: argparse.Namespace) -> int:
     from state.db import session_scope
 
     engine = create_engine(get_settings().database_url)
-    handled = run_consumer(
-        functools.partial(session_scope, engine),
-        group_id=args.group,
-        max_events=args.max_events,
-        from_beginning=args.from_beginning,
-    )
-    print(f"handled {handled} event(s)")
+    driver = _IncidentDriver() if args.run else None
+    try:
+        handled = run_consumer(
+            functools.partial(session_scope, engine),
+            group_id=args.group,
+            max_events=args.max_events,
+            from_beginning=args.from_beginning,
+            follow=args.follow,
+            on_ingested=driver.queue if driver is not None else None,
+        )
+    except KeyboardInterrupt:
+        handled = None
+        print("interrupted - finishing the run in progress, dropping the rest", flush=True)
+        if driver is not None:
+            driver.close(drop_waiting=True)
+    else:
+        if driver is not None:
+            driver.close()
+    if handled is not None:
+        print(f"handled {handled} event(s)")
     return 0
+
+
+class _IncidentDriver:
+    """`helix consume --run`'s worker: one background thread that drives
+    incidents in arrival order. Its progress lines flush immediately: as a
+    daemon its stdout is a log file, which Python block-buffers, so the
+    first live run showed an empty log while it was driving an incident.
+
+    Background, because a run takes minutes and a Kafka consumer that stops
+    polling for longer than max.poll.interval.ms (5 minutes by default) is
+    evicted from its group. One thread, because every remediation targets
+    the same sandbox and two runs must never act on it at once. An incident
+    already waiting is not queued again; once its run has started, a later
+    event for it queues a fresh run from whatever state it reached.
+    """
+
+    def __init__(self) -> None:
+        from concurrent.futures import ThreadPoolExecutor
+
+        self._pool = ThreadPoolExecutor(max_workers=1, thread_name_prefix="helix-run")
+        self._waiting: set[str] = set()
+
+    def queue(self, result: "IngestResult") -> None:
+        incident_id = result.incident_id
+        if incident_id in self._waiting:
+            return
+        self._waiting.add(incident_id)
+        print(f"{incident_id}: queued to run", flush=True)
+        self._pool.submit(self._drive, incident_id)
+
+    def _drive(self, incident_id: str) -> None:
+        from agent.runner import run_incident
+
+        self._waiting.discard(incident_id)
+        try:
+            outcome = run_incident(incident_id)
+            print(f"{incident_id}: {getattr(outcome, 'status', 'ran')}", flush=True)
+        except Exception as exc:  # the outcome lives in workflow_runs
+            print(f"{incident_id}: run failed - {exc}", flush=True)
+
+    def close(self, *, drop_waiting: bool = False) -> None:
+        """Wait for every queued run - or, on an interrupt, only for the one
+        already in progress (a half-finished remediation must complete)."""
+        self._pool.shutdown(wait=True, cancel_futures=drop_waiting)
 
 
 def _cmd_emit(args: argparse.Namespace) -> int:

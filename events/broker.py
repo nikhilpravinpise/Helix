@@ -214,16 +214,17 @@ class EventConsumer:
         handler: Callable[[EngineeringEvent], None],
         max_events: int | None = None,
         timeout: float = 1.0,
-        idle_rounds: int = 3,
+        idle_rounds: int | None = 3,
         join_timeout: float = 30.0,
     ) -> int:
         """Poll and dispatch until `max_events` are handled or the topic
         goes quiet for `idle_rounds` consecutive polls. Returns the number
         of events handed to `handler`.
 
-        Bounded rather than an infinite loop: E2 has no long-running
-        service to own a shutdown signal, and a test harness needs to
-        know when it has drained. E4 owns the daemon.
+        Bounded by default: a test harness needs to know when it has
+        drained. `idle_rounds=None` is follow mode - poll until
+        `max_events` or an interrupt - which is what `helix consume
+        --follow` runs as the long-lived daemon E2 left to E4.
 
         A poll before the group has been assigned any partition does not
         count toward `idle_rounds`. "The topic went quiet" is only
@@ -242,7 +243,7 @@ class EventConsumer:
                 if not self._consumer.assignment() and time.monotonic() < joined_by:
                     continue
                 idle += 1
-                if idle >= idle_rounds:
+                if idle_rounds is not None and idle >= idle_rounds:
                     break
                 continue
             idle = 0

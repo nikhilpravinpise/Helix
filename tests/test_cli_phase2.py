@@ -162,3 +162,41 @@ def test_graph_sync_with_memory_store(env_db):
     # Unreachable Neo4j -> rc 1 with a clear message, not a traceback.
     assert proc.returncode == 1
     assert "graph store unreachable" in proc.stderr
+
+
+def test_consume_run_drives_each_new_incident_once(monkeypatch, capsys):
+    """`helix consume --run` hands every incident a new event lands on to a
+    single background worker, so the consumer keeps polling while a run
+    takes minutes. Two events for one incident queue it once."""
+    from events.ingest import IngestResult
+    from helix import cli
+
+    driven = []
+    monkeypatch.setattr("agent.runner.run_incident", lambda iid: driven.append(iid))
+
+    def fake_run_consumer(session_factory, **kwargs):
+        hook = kwargs["on_ingested"]
+        for iid in ("INC-a", "INC-a", "INC-b"):
+            hook(IngestResult(incident_id=iid, created=True, duplicate=False, correlated=False))
+        return 3
+
+    monkeypatch.setattr("events.ingest.run_consumer", fake_run_consumer)
+    assert cli.main(["consume", "--run"]) == 0
+    assert sorted(set(driven)) == ["INC-a", "INC-b"]
+    assert "INC-a" in capsys.readouterr().out
+
+
+def test_consume_without_run_never_drives(monkeypatch):
+    """Plain `helix consume` keeps D19's contract: it only records."""
+    from helix import cli
+
+    seen = {}
+
+    def fake_run_consumer(session_factory, **kwargs):
+        seen.update(kwargs)
+        return 0
+
+    monkeypatch.setattr("events.ingest.run_consumer", fake_run_consumer)
+    assert cli.main(["consume"]) == 0
+    assert seen["on_ingested"] is None
+    assert seen["follow"] is False

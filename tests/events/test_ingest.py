@@ -410,3 +410,67 @@ class TestKubernetesEventIdentity:
         second = ingest_event(db_session, warning)
         assert second.correlated is True
         assert second.incident_id == first.incident_id
+
+
+class TestConsumerRunHook:
+    """`helix consume --run` drives incidents from the stream through an
+    after-commit hook on run_consumer. Ingest itself still never advances
+    an incident (D19); the hook is the explicit opt-in, the way
+    `helix intake --run` is for signals."""
+
+    def _fake_consumer(self, monkeypatch, events):
+        class FakeConsumer:
+            def __init__(self, **kwargs):
+                pass
+
+            def consume(self, handler, max_events=None, idle_rounds=3):
+                for item in events:
+                    handler(item)
+                return len(events)
+
+            def close(self):
+                pass
+
+        monkeypatch.setattr("events.broker.EventConsumer", FakeConsumer)
+
+    def test_hook_sees_each_new_event_after_its_transaction_commits(
+        self, sqlite_engine, monkeypatch
+    ):
+        import functools
+
+        from events.ingest import run_consumer
+        from state.db import session_scope
+
+        first = event(EventType.POD_FAILED, EventSource.KUBERNETES, pod="payment-api-1")
+        self._fake_consumer(monkeypatch, [first])
+        seen = []
+
+        def hook(result):
+            # After commit: a fresh session already sees the incident.
+            with session_scope(sqlite_engine) as session:
+                found = (
+                    session.query(models.Incident)
+                    .filter_by(incident_id=result.incident_id)
+                    .one_or_none()
+                )
+            seen.append((result.incident_id, found is not None))
+
+        run_consumer(functools.partial(session_scope, sqlite_engine), on_ingested=hook)
+        assert len(seen) == 1 and seen[0][1] is True
+
+    def test_a_redelivered_event_never_reaches_the_hook(self, sqlite_engine, monkeypatch):
+        """D19's whole reason: replaying an event must not re-execute an
+        action. A duplicate writes nothing and triggers nothing."""
+        import functools
+
+        from events.ingest import run_consumer
+        from state.db import session_scope
+
+        once = event(EventType.POD_FAILED, EventSource.KUBERNETES, pod="payment-api-1")
+        self._fake_consumer(monkeypatch, [once, once])
+        seen = []
+        run_consumer(
+            functools.partial(session_scope, sqlite_engine),
+            on_ingested=lambda result: seen.append(result.incident_id),
+        )
+        assert len(seen) == 1
