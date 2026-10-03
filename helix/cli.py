@@ -155,6 +155,25 @@ def build_parser() -> argparse.ArgumentParser:
         "a redelivered event drives nothing. Without it, consume only records (D19)",
     )
 
+    watch = subparsers.add_parser(
+        "watch",
+        help="watch the cluster's pods and publish confirmed failures to Kafka, "
+        "where `helix consume --run` acts on them; decides and executes nothing",
+    )
+    watch.add_argument(
+        "--namespace", default="payment-api", help="namespace to watch (default: payment-api)"
+    )
+    watch.add_argument(
+        "--interval", type=float, default=10.0, help="seconds between polls (default: 10)"
+    )
+    watch.add_argument(
+        "--polls",
+        type=int,
+        default=3,
+        help="consecutive polls a problem must persist before it is published "
+        "(default: 3) - filters the not-Ready window every healthy rollout has",
+    )
+
     emit = subparsers.add_parser(
         "emit",
         help="publish Helix's own lifecycle events to Kafka (subphase E5). "
@@ -559,6 +578,41 @@ def _cmd_decide(args: argparse.Namespace, approved: bool) -> int:
     if result.error:
         print(f"helix {verb}: run failed: {result.error}", file=sys.stderr)
         return 1
+    return 0
+
+
+def _cmd_watch(args: argparse.Namespace) -> int:
+    """Poll the cluster and publish confirmed pod failures (see events.watch).
+
+    Runs until interrupted. The read goes through the same Kubernetes client
+    and HELIX_KUBE_CONTEXT as every other cluster read.
+    """
+    from events.adapters.kubernetes import pod_events
+    from events.broker import EventProducer
+    from events.watch import run_watch
+    from integrations.kubernetes.client import KubernetesEvidenceClient
+
+    cluster = KubernetesEvidenceClient()
+    producer = EventProducer()
+
+    def fetch() -> list:
+        return pod_events(cluster.list_pods_raw(args.namespace))
+
+    def publish(event) -> None:
+        producer.publish(event)
+        producer.flush()
+        pod = event.metadata.get("pod")
+        print(f"published {event.event_type} for {pod} ({event.event_id})", flush=True)
+
+    print(
+        f"watching namespace {args.namespace} every {args.interval:g}s; a problem must "
+        f"persist {args.polls} polls before it is published",
+        flush=True,
+    )
+    try:
+        run_watch(fetch, publish, interval=args.interval, polls=args.polls)
+    except KeyboardInterrupt:
+        print("watch stopped", flush=True)
     return 0
 
 
@@ -974,6 +1028,8 @@ def main(argv: list[str] | None = None) -> int:
         return _cmd_decide(args, approved=False)
     if args.command == "consume":
         return _cmd_consume(args)
+    if args.command == "watch":
+        return _cmd_watch(args)
     if args.command == "emit":
         return _cmd_emit(args)
     if args.command == "provenance":

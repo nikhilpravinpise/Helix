@@ -200,3 +200,57 @@ def test_consume_without_run_never_drives(monkeypatch):
     assert cli.main(["consume"]) == 0
     assert seen["on_ingested"] is None
     assert seen["follow"] is False
+
+
+def test_watch_wires_the_cluster_feed_to_kafka(monkeypatch, capsys):
+    """`helix watch` fetches the namespace's pods, adapts them, and hands
+    confirmed problems to the Kafka producer - nothing else."""
+    from helix import cli
+
+    raw = {
+        "items": [
+            {
+                "metadata": {"name": "payment-api-x", "uid": "u-9", "namespace": "payment-api"},
+                "status": {
+                    "phase": "Running",
+                    "containerStatuses": [
+                        {
+                            "name": "payment-api",
+                            "state": {"waiting": {"reason": "CrashLoopBackOff"}},
+                            "restartCount": 2,
+                        }
+                    ],
+                },
+            }
+        ]
+    }
+
+    class FakeClient:
+        def list_pods_raw(self, namespace):
+            assert namespace == "payment-api"
+            return raw
+
+    sent = []
+
+    class FakeProducer:
+        def publish(self, event):
+            sent.append(event)
+
+        def flush(self, timeout=10.0):
+            return 0
+
+    monkeypatch.setattr("integrations.kubernetes.client.KubernetesEvidenceClient", FakeClient)
+    monkeypatch.setattr("events.broker.EventProducer", FakeProducer)
+    seen = {}
+
+    def fake_run_watch(fetch, publish, **kwargs):
+        seen.update(kwargs)
+        for event in fetch():
+            publish(event)
+        return 1
+
+    monkeypatch.setattr("events.watch.run_watch", fake_run_watch)
+    assert cli.main(["watch", "--interval", "5", "--polls", "2"]) == 0
+    assert seen["interval"] == 5 and seen["polls"] == 2
+    assert [e.metadata["waiting_reason"] for e in sent] == ["CrashLoopBackOff"]
+    assert "pod.failed" in capsys.readouterr().out
