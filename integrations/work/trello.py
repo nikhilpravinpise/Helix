@@ -33,6 +33,7 @@ from integrations.work.contract import (
     ProviderCapabilities,
     WorkItemError,
     WorkItemRef,
+    WorkItemRejected,
     WorkItemSpec,
 )
 from integrations.work.memory import NEUTRAL_LINK_TYPES
@@ -157,7 +158,7 @@ class TrelloProvider:
             }
             if wanted in names:
                 return str(member["id"])
-        raise WorkItemError(f"no trello member matches {assignee!r}")
+        raise WorkItemRejected(f"no trello member matches {assignee!r}")
 
     def _label_ids(self, names: list[str]) -> list[str]:
         labels = self._board_labels()
@@ -292,7 +293,7 @@ class TrelloProvider:
         elif status == "closed":
             body = {"closed": True}  # archival IS Trello's native closed
         else:
-            raise WorkItemError(
+            raise WorkItemRejected(
                 f"trello board has no list for {status!r} - an undeclared capability gap"
             )
         card = self._json(self._request("PUT", f"/cards/{external_id}", json=body))

@@ -40,6 +40,7 @@ from integrations.work.contract import (
     ProviderCapabilities,
     WorkItemError,
     WorkItemRef,
+    WorkItemRejected,
     WorkItemSpec,
 )
 
@@ -288,7 +289,7 @@ class JiraProvider:
         for user in users if isinstance(users, list) else []:
             if user.get("accountId"):
                 return str(user["accountId"])
-        raise WorkItemError(f"no Jira user matches assignee {assignee!r}")
+        raise WorkItemRejected(f"no Jira user matches assignee {assignee!r}")
 
     def _pick_transition(self, transitions: list[dict[str, Any]], status: str) -> dict[str, Any]:
         names, categories = _NEUTRAL_TO_JIRA[status]
@@ -315,7 +316,7 @@ class JiraProvider:
             )
             if category in categories:
                 return transition
-        raise WorkItemError(f"jira workflow offers no transition for {status!r}")
+        raise WorkItemRejected(f"jira workflow offers no transition for {status!r}")
 
     def transition_work_item(self, external_id: str, status: str) -> WorkItemRef:
         if status not in NEUTRAL_STATUSES:
