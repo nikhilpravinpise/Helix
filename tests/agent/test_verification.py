@@ -832,6 +832,33 @@ class TestDispatch:
         assert sampled == []
         assert len(oneshots) == 1
 
+    def test_open_fix_pr_on_a_runtime_incident_also_checks_the_pods(self):
+        """Live, 2026-10-03: `helix watch` caught an injected crashloop, arm
+        E opened a fix PR, the PR-exists check passed, and the incident
+        closed as recovered while the pod was still in CrashLoopBackOff. A
+        PR changes nothing until it is merged and deployed, so when the
+        incident is about the running system, recovered must mean the
+        workload is healthy whatever the remediation."""
+        sampled, oneshots = build_checks(
+            _ctx(_healthy_doc(), runtime_incident=True),
+            "open_fix_pr",
+            TestFixPrCheck.PARAMS,
+            {},
+            poll_s=2,
+        )
+        assert [c.name for c in sampled] == ["pods_ready", "rollout_complete"]
+        assert len(oneshots) == 1  # the PR leg still runs
+
+    def test_rerun_pipeline_on_a_runtime_incident_also_checks_the_pods(self):
+        sampled, _ = build_checks(
+            _ctx(_jenkins_doc("SUCCESS"), runtime_incident=True),
+            "rerun_pipeline",
+            {"job": "payment-api"},
+            {},
+            poll_s=2,
+        )
+        assert [c.name for c in sampled] == ["build_green", "pods_ready", "rollout_complete"]
+
     def test_unknown_action_gets_an_unrunnable_check(self):
         sampled, oneshots = build_checks(_ctx(_healthy_doc()), "nuke_the_cluster", {}, {}, poll_s=2)
         assert sampled == []
@@ -1065,7 +1092,43 @@ class TestVerificationE2E:
         row = _rows(sqlite_sessions, models.Verification, incident_id)[0]
         assert row.outcome == models.VerificationOutcome.PASS
         checks = {c["name"]: c["status"] for c in row.checks}
-        assert checks == {"fix_pr_exists": "pass"}
+        # A Kubernetes-signal incident is a runtime incident, so the workload
+        # legs run beside the PR check (requirement changed 2026-10-03, with
+        # Vraj's confirmation, after a live false "recovered").
+        assert checks == {"fix_pr_exists": "pass", "pods_ready": "pass", "rollout_complete": "pass"}
+
+    def test_a_fix_pr_does_not_recover_a_pod_that_is_still_crashing(self, sqlite_sessions, store):
+        """The live failure, reproduced: a crashloop incident, a fix PR that
+        exists, and the pod still in CrashLoopBackOff. It used to verify as
+        recovered on the PR alone; now it must not."""
+        params = {
+            "branch": "helix/INC-1",
+            "title": "helix: restore payment-api deployment",
+            "files": [
+                {
+                    "path": "sandbox/payment-api/k8s/04-deployment.yaml",
+                    "content": (
+                        "apiVersion: apps/v1\nkind: Deployment\nmetadata:\n  name: payment-api\n"
+                    ),
+                }
+            ],
+        }
+        doc = _healthy_doc()
+        doc["evidence"]["pods_payment_api"] = {
+            "items": [_pod(waiting="CrashLoopBackOff", ready=False)]
+        }
+        plan = _plan("open_fix_pr", params, "persist the fix as a PR")
+        deps, _ = _verify_deps(sqlite_sessions, _llm([plan]), doc, store)
+        incident_id = _make_incident(sqlite_sessions, K8S_SIGNAL)
+
+        result = run_incident(incident_id, deps=deps)
+
+        assert result.status != IncidentStatus.RECOVERED
+        row = _rows(sqlite_sessions, models.Verification, incident_id)[0]
+        assert row.outcome == models.VerificationOutcome.FAIL
+        checks = {c["name"]: c["status"] for c in row.checks}
+        assert checks["fix_pr_exists"] == "pass"
+        assert checks["pods_ready"] == "fail"
 
     def test_rerun_pipeline_green_build_recovers(self, sqlite_sessions, store):
         plan = _plan("rerun_pipeline", {"job": "payment-api"})

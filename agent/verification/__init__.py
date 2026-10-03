@@ -9,8 +9,11 @@ assertions dispatched on the executed action:
   leg proves the service actually answers.
 - `rerun_pipeline`: the job's latest build is green.
 - `open_fix_pr`: the PR exists and carries the intended files - the PR IS
-  the remediation for persistent fixes (CONTEXT.md section 3), so no
-  runtime leg applies to it.
+  the remediation for persistent fixes (CONTEXT.md section 3). On a
+  runtime incident (VerificationContext.runtime_incident) the workload
+  legs are added, here and for `rerun_pipeline`: a PR does not mend a
+  crashing pod until it is merged and deployed, and the first unattended
+  run closed exactly that case as recovered.
 
 Two check shapes exist behind the same contract:
 
@@ -133,6 +136,12 @@ class VerificationContext:
     # payment-api.local ingress surface) instead of opening a kubectl
     # port-forward. Mirrors HELIX_VERIFY_BASE_URL.
     functional_base_url: str | None = None
+    #: The incident's evidence is about the running system (cluster-domain
+    #: types). Then "recovered" includes the workload being healthy whatever
+    #: the action - a fix PR or a pipeline rerun alone does not mend a
+    #: crashing pod. Off for code and CI incidents, whose remediation the PR
+    #: or the green build is.
+    runtime_incident: bool = False
     functional_probe: Callable[["VerificationContext"], CheckResult] | None = None
 
     @property
@@ -282,10 +291,13 @@ def build_checks(
             )
         )
         return sampled, [lambda: functional.run(ctx)]
+    # On a runtime incident, the non-cluster actions must also leave the
+    # workload healthy (see VerificationContext.runtime_incident).
+    workload = runtime.workload_checks(ctx, action, {}) if ctx.runtime_incident else []
     if action == ActionName.RERUN_PIPELINE.value:
-        return [pipeline.BuildGreenCheck(ctx.jenkins, str(params.get("job") or ""))], []
+        return [pipeline.BuildGreenCheck(ctx.jenkins, str(params.get("job") or "")), *workload], []
     if action == ActionName.OPEN_FIX_PR.value:
-        return [], [lambda: pull_request.run(ctx, params, execution_output)]
+        return workload, [lambda: pull_request.run(ctx, params, execution_output)]
     # A non-catalogue action cannot have executed (the executor refuses),
     # so this is a defensive path - recorded as an un-runnable check.
     return [], [

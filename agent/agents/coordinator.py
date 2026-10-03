@@ -81,10 +81,10 @@ from typing import TYPE_CHECKING, Any
 from sqlalchemy import select
 
 from agent.actions.catalogue import Reversibility, get_action
+from agent.evidence_kinds import incident_evidence_types
 from agent.policy import PolicyDecision, PolicyVerdict, decide
 from agent.state import WorkflowState
 from agent.validation import candidate_fingerprint
-from events.classify import UnclassifiedSignal, classify
 from events.schemas import EventType
 from helix.config import get_settings
 from helix.observability import trace_workflow_step
@@ -781,20 +781,7 @@ def coordinator_node(deps: "GraphDeps", arm: str = "E"):
                 # uses it: a runtime-mutating action proposed on
                 # code-review-only evidence escalates to approval instead
                 # of executing (the 1.5 ablation's defect).
-                evidence_kinds: set[str] = set()
-                for record in incident.event_records:
-                    if record.source != "helix" and record.event_type in {
-                        t.value for t in EventType
-                    }:
-                        evidence_kinds.add(record.event_type)
-                for signal in incident.signals:
-                    try:
-                        evidence_kinds.add(
-                            classify(signal.source, dict(signal.signature or {})).value
-                        )
-                    except UnclassifiedSignal:
-                        pass  # an unnamed signal contributes no kind
-                evidence_types = frozenset(evidence_kinds)
+                evidence_types = incident_evidence_types(incident)
                 decision = _decide(
                     state,
                     approval,
