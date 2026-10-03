@@ -15,6 +15,7 @@ from integrations.work.contract import (
     ProviderCapabilities,
     WorkItemError,
     WorkItemRef,
+    WorkItemRejected,
     WorkItemSpec,
     WorkManagementProvider,
 )
@@ -32,6 +33,7 @@ __all__ = [
     "ProviderCapabilities",
     "TrelloProvider",
     "WorkItemError",
+    "WorkItemRejected",
     "WorkItemRef",
     "WorkItemSpec",
     "WorkManagementProvider",

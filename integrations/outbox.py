@@ -34,6 +34,7 @@ from sqlalchemy.orm import Session
 
 from helix.config import get_settings
 from helix.logging import get_logger
+from integrations.work.contract import WorkItemRejected
 from state import models
 from state.models import OutboxStatus
 
@@ -451,7 +452,9 @@ def drain_outbox(
             # without burning retry budget.
             summary["pending"] += 1
             continue
-        except PermanentDeliveryError as exc:
+        except (PermanentDeliveryError, WorkItemRejected) as exc:
+            # WorkItemRejected: the provider refused (no such workflow
+            # state, no such user). Retrying cannot change the answer.
             row.status = OutboxStatus.FAILED
             row.last_error = str(exc)
             summary["failed"] += 1

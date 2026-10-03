@@ -40,6 +40,13 @@ class WorkItemError(RuntimeError):
     vocabulary evidence capabilities share."""
 
 
+class WorkItemRejected(WorkItemError):
+    """The provider understood the request and refused it in a way no retry
+    can change: its workflow has no state for the neutral status, or no
+    user matches the assignee. The outbox drain fails these on the first
+    attempt instead of spending the retry budget meant for outages."""
+
+
 class WorkItemSpec(BaseModel):
     """What to create. `incident_id` is the Helix INC-* external id and
     doubles as the duplicate-prevention key: providers index it (Jira

@@ -241,17 +241,28 @@ def _ingest_via_events(
 
 
 def _inject_live(scenario: dict[str, Any]) -> str | None:
-    """Run the declared fault script; None on success, else the failure
-    detail the record carries."""
+    """Reset the sandbox to the committed manifests, then run the declared
+    fault script; None on success, else the failure detail the record
+    carries.
+
+    The reset is what makes live scenarios independent. Arms without a
+    verify or compensate stage (B, C, D) leave their fault - or their
+    half-applied action - in the cluster, and only crashloop.sh reset
+    itself, so the next scenario's injection ran against the previous
+    one's wreckage and failed (missing-secret stuck at ImagePullBackOff
+    after failed-rollout). A reset that fails stops here: injecting into a
+    cluster in an unknown state would measure the leftover again."""
+    reset = REPO_ROOT / "scripts" / "reset.sh"
     script = REPO_ROOT / "scripts" / scenario["fault_script"]
-    try:
-        proc = subprocess.run(
-            ["bash", str(script)], cwd=REPO_ROOT, capture_output=True, text=True, timeout=420
-        )
-    except (OSError, subprocess.TimeoutExpired) as exc:
-        return f"fault script could not run: {exc}"
-    if proc.returncode != 0:
-        return f"fault script exited {proc.returncode}: {proc.stderr.strip()[:300]}"
+    for label, path in (("reset", reset), ("fault script", script)):
+        try:
+            proc = subprocess.run(
+                ["bash", str(path)], cwd=REPO_ROOT, capture_output=True, text=True, timeout=420
+            )
+        except (OSError, subprocess.TimeoutExpired) as exc:
+            return f"{label} could not run: {exc}"
+        if proc.returncode != 0:
+            return f"{label} exited {proc.returncode}: {proc.stderr.strip()[:300]}"
     return None
 
 
@@ -421,12 +432,6 @@ def _settle_integrations(database_url: str) -> list[str]:
                         "comments": [],
                         "linked": [],
                     }
-                seq = [
-                    int(eid[4:])
-                    for eid in work.items
-                    if eid.startswith("MEM-") and eid[4:].isdigit()
-                ]
-                work._seq = max(seq, default=0)  # recreates must not collide
         for _pass in range(8):
             with session_scope(engine) as session:
                 drain_outbox(session, work=work if inject else None)

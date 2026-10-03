@@ -81,10 +81,10 @@ def test_get_node_builds_a_schema_node_from_the_row() -> None:
     store, driver = _store()
     driver.next_result = _FakeResult([{"n": {"id": "payment-api", "team": "payments"}}])
     node = store.get_node(NodeType.SERVICE, "payment-api")
-    expected = Node(
-        NodeType.SERVICE, "payment-api", properties={"id": "payment-api", "team": "payments"}
-    )
-    assert node == expected
+    # Neo4j keeps the key as an `id` property; it is not node data, and
+    # MemoryGraphStore returns the same node without it (checked against a
+    # live Neo4j 5.26, where the two stores used to disagree).
+    assert node == Node(NodeType.SERVICE, "payment-api", properties={"team": "payments"})
 
 
 def test_neighbors_out_direction_query_shape() -> None:
@@ -94,7 +94,7 @@ def test_neighbors_out_direction_query_shape() -> None:
     query, params = driver.queries[-1]
     assert "(a {id: $id})-[:`OWNS`]->(b)" in query
     assert params == {"id": "alice"}
-    assert result == [Node(NodeType.SERVICE, "payment-api", properties={"id": "payment-api"})]
+    assert result == [Node(NodeType.SERVICE, "payment-api")]
 
 
 def test_neighbors_in_direction_query_shape() -> None:
@@ -135,3 +135,19 @@ def test_close_closes_the_driver() -> None:
     store, driver = _store()
     store.close()
     assert ("CLOSE", {}) in driver.queries
+
+
+def test_a_node_reads_back_identically_from_both_stores() -> None:
+    """GraphStore's contract: the same write reads back as the same Node,
+    whichever store holds it. The Neo4j store used to add its storage key
+    to `properties`, so the fake and the real store disagreed."""
+    from graph.memory_store import MemoryGraphStore
+
+    written = Node(NodeType.SERVICE, "payment-api", properties={"team": "payments"})
+    memory = MemoryGraphStore()
+    memory.upsert_node(written)
+    store, driver = _store()
+    driver.next_result = _FakeResult([{"n": {"id": "payment-api", "team": "payments"}}])
+    assert store.get_node(NodeType.SERVICE, "payment-api") == memory.get_node(
+        NodeType.SERVICE, "payment-api"
+    )

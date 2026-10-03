@@ -50,31 +50,31 @@ class PolicyDecision(StrEnum):
 #: and anything unexpected both fail safe into REQUIRE_APPROVAL.
 NON_PROD_ENVIRONMENTS: frozenset[str] = frozenset({"sandbox", "staging"})
 
-#: Action executors that mutate a running system - the cluster or the CI
-#: pipeline - rather than code/config. `github` is deliberately absent:
-#: a fix PR is the legitimate remediation shape for evidence from ANY
-#: domain (a code review can fix a k8s manifest).
-RUNTIME_EXECUTORS: frozenset[str] = frozenset({"kubernetes", "jenkins"})
-
-#: Canonical event types that count as runtime evidence - something
-#: actually observed the running system or the pipeline misbehave. The
-#: type, not the vendor source, carries the meaning: a `build.failed`
-#: surfaced through GitHub's check-run webhook is still CI evidence,
-#: while a `pr.rejected` from Jenkins's own feed is still only a code
-#: signal. Source control types (push/pr/branch) are deliberately absent:
-#: a rejected PR cannot honestly authorize a cluster rollback.
-RUNTIME_EVIDENCE_TYPES: frozenset[str] = frozenset(
-    {
-        "build.started",
-        "build.passed",
-        "build.failed",
-        "deployment.started",
-        "deployment.failed",
-        "deployment.succeeded",
-        "pod.failed",
-        "service.unhealthy",
-    }
-)
+#: Executors that mutate a running system, and the observed domain each
+#: one's writes must be grounded in. `github` is deliberately absent: a fix
+#: PR is the legitimate remediation shape for evidence from ANY domain (a
+#: code review can fix a k8s manifest).
+#:
+#: The type, not the vendor source, carries the meaning: a `build.failed`
+#: surfaced through GitHub's check-run webhook is still CI evidence, and a
+#: `pr.rejected` from anywhere is only a code signal. Cluster and pipeline
+#: are separate domains. They were one "runtime" set until a live run on
+#: 2026-10-03, where a failing unit test (build.failed) let arm E restart
+#: and then roll back the sandbox deployment unapproved - the rollback
+#: landed on an earlier injected fault. CI evidence says nothing about the
+#: cluster, and a crashing pod says nothing about the pipeline.
+EXECUTOR_EVIDENCE: dict[str, frozenset[str]] = {
+    "kubernetes": frozenset(
+        {
+            "deployment.started",
+            "deployment.failed",
+            "deployment.succeeded",
+            "pod.failed",
+            "service.unhealthy",
+        }
+    ),
+    "jenkins": frozenset({"build.started", "build.passed", "build.failed"}),
+}
 
 
 @dataclass(frozen=True)
@@ -160,24 +160,23 @@ def decide(
     fingerprint = candidate_fingerprint(spec.name, normalized)
     tier = spec.risk_tier(validated)
 
-    if (
-        evidence_types is not None
-        and spec.executor in RUNTIME_EXECUTORS
-        and not (evidence_types & RUNTIME_EVIDENCE_TYPES)
-    ):
-        # Evidence coherence (the 1.5 ablation's defect): a code-review
-        # event cannot, on its own, justify mutating a running cluster or
-        # pipeline. Escalate to the human gate rather than deny outright -
-        # the action may still be right, but only a person may say so.
+    required = EXECUTOR_EVIDENCE.get(spec.executor)
+    if evidence_types is not None and required is not None and not (evidence_types & required):
+        # Evidence coherence (the 1.5 ablation's defect, narrowed per
+        # executor): a write to the cluster or the pipeline needs evidence
+        # from that same domain. Escalate to the human gate rather than
+        # deny outright - the action may still be right, but only a person
+        # may say so.
         kinds = ",".join(sorted(evidence_types)) or "none"
+        domain = "cluster" if spec.executor == "kubernetes" else "pipeline"
         return PolicyVerdict(
             decision=PolicyDecision.REQUIRE_APPROVAL,
             action=spec.name,
             risk_tier=tier.value,
             reason=(
                 f"{spec.executor} write proposed on evidence of only [{kinds}]: "
-                "a runtime-mutating action needs runtime evidence or a human's "
-                "explicit approval"
+                f"a runtime-mutating {domain} action needs {domain} evidence "
+                "or a human's explicit approval"
             ),
             verification_required=True,
             params=normalized,

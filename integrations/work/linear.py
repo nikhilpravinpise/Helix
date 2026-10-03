@@ -31,6 +31,7 @@ from integrations.work.contract import (
     ProviderCapabilities,
     WorkItemError,
     WorkItemRef,
+    WorkItemRejected,
     WorkItemSpec,
 )
 
@@ -200,7 +201,7 @@ class LinearProvider:
             }
             if wanted in names:
                 return str(member["id"])
-        raise WorkItemError(f"no linear member matches {assignee!r}")
+        raise WorkItemRejected(f"no linear member matches {assignee!r}")
 
     def _label_ids(self, names: list[str]) -> list[str]:
         labels = (self._team().get("labels") or {}).setdefault("nodes", [])
@@ -342,7 +343,7 @@ class LinearProvider:
             raise WorkItemError(f"unknown neutral status {status!r}")
         state = self._state_for(status)
         if state is None:
-            raise WorkItemError(
+            raise WorkItemRejected(
                 f"linear team has no state for {status!r} - an undeclared capability gap"
             )
         return self._update(external_id, {"stateId": state["id"]})

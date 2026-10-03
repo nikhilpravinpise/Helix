@@ -1,0 +1,47 @@
+# Neo4j for the relationship graph (subphases 2.7 and 2.8, D26).
+#
+# The graph is a derived projection of Postgres, re-built by `helix sync` /
+# `helix graph-sync`, and off unless HELIX_GRAPH_ENABLED=true - so losing
+# this container loses nothing that cannot be re-derived. It runs on the
+# host beside Postgres for the same reason as D1 and D3.
+#
+# Start it with the repo-root .env, which holds HELIX_NEO4J_PASSWORD. Compose
+# only reads a .env beside the compose file by default, and this one lives
+# in infra/:
+#
+#   docker compose -f infra/neo4j-compose.yml --env-file .env up -d
+#
+# Memory is capped deliberately: Neo4j sizes its heap and page cache from
+# host RAM when unset, and the dev box is tight. A graph of tens of
+# incidents needs a fraction of these limits.
+#
+# The project name is pinned for the same reason as every other compose
+# file here: the default ("infra") collides with unrelated projects on
+# this host.
+name: helix-neo4j
+
+services:
+  neo4j:
+    image: neo4j:5.26-community
+    container_name: helix-neo4j
+    restart: unless-stopped
+    environment:
+      NEO4J_AUTH: "neo4j/${HELIX_NEO4J_PASSWORD:?set HELIX_NEO4J_PASSWORD in .env and pass --env-file .env}"
+      NEO4J_server_memory_heap_initial__size: 256m
+      NEO4J_server_memory_heap_max__size: 512m
+      NEO4J_server_memory_pagecache_size: 128m
+    ports:
+      # Loopback only: the bolt port carries the graph's credentials.
+      - "127.0.0.1:7474:7474"
+      - "127.0.0.1:7687:7687"
+    volumes:
+      - neo4j-data:/data
+    mem_limit: 1g
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q --spider http://localhost:7474 || exit 1"]
+      interval: 5s
+      timeout: 3s
+      retries: 30
+
+volumes:
+  neo4j-data:

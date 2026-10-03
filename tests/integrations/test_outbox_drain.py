@@ -246,7 +246,8 @@ def test_drain_create_work_item_persists_mirror_and_dedups(sessions):
         enqueue_for_transition(session, incident, IncidentStatus.TRIAGED)
         drain_outbox(session, slack=_RecordingSlack(), work=work, notion=_RecordingNotion())
         item = session.scalar(select(models.WorkItem))
-        assert item is not None and item.external_id == "MEM-1"
+        # The mirror points at the item the provider actually holds.
+        assert item is not None and item.external_id in work.items
         # A second create op (re-enqueued or replayed) must not create a
         # second item - 2.3's duplicate-prevention exit criterion.
         enqueue_for_transition(session, incident, IncidentStatus.DIAGNOSING)
@@ -263,9 +264,10 @@ def test_drain_transition_and_comment_ops_hit_the_mirrored_item(sessions):
         enqueue_for_transition(session, incident, IncidentStatus.REVIEW_PENDING, cause="bob")
         enqueue_for_transition(session, incident, IncidentStatus.RECOVERED, cause="done")
         drain_outbox(session, slack=_RecordingSlack(), work=work, notion=_RecordingNotion())
+        mirrored = session.scalar(select(models.WorkItem)).external_id
         transitions = [c for c in work.calls if c[0] == "transition"]
-        assert ("transition", "MEM-1", "in_progress") in transitions
-        assert ("transition", "MEM-1", "done") in transitions
+        assert ("transition", mirrored, "in_progress") in transitions
+        assert ("transition", mirrored, "done") in transitions
         comments = [c for c in work.calls if c[0] == "comment"]
         assert comments  # review_pending + recovered each comment
         # And the local comment audit row exists.
@@ -334,6 +336,7 @@ def test_drift_deleted_work_item_is_recreated(sessions):
         enqueue_for_transition(session, incident, IncidentStatus.TRIAGED)
         drain_outbox(session, slack=_RecordingSlack(), work=work, notion=_RecordingNotion())
         item = session.scalar(select(models.WorkItem))
+        original = item.external_id
         session.delete(item)  # mirror lost
         work.items.clear()  # remote lost too
         session.flush()
@@ -342,7 +345,7 @@ def test_drift_deleted_work_item_is_recreated(sessions):
         # The recovered comment/transition ops had nowhere to land, so the
         # drain recreated the item first (2.9 drift reconciliation).
         item = session.scalar(select(models.WorkItem))
-        assert item is not None and item.external_id != "MEM-1"
+        assert item is not None and item.external_id != original
 
 
 def test_notion_sync_creates_then_appends_and_recreates(sessions):
@@ -433,3 +436,29 @@ def test_unknown_integration_marks_failed(sessions):
             session, slack=_RecordingSlack(), work=_RecordingWork(), notion=_RecordingNotion()
         )
         assert summary["failed"] == 1
+
+
+def test_a_provider_refusal_fails_at_once_instead_of_retrying(sessions):
+    """Live Jira, 2026-10-03: an escalated incident's ticket could not move
+    to "blocked" because the Kanban board has no such column. The provider
+    raised a plain WorkItemError, so the drain treated a refusal no retry
+    can change like a network blip and kept the row pending, spending its
+    retry budget while the ticket sat in "In Progress". A WorkItemRejected
+    is the provider saying no, and fails the row on the first attempt."""
+    from integrations.work.contract import WorkItemRejected
+
+    work = _RecordingWork()
+    with sessions() as session:
+        incident = _incident(session)
+        enqueue_for_transition(session, incident, IncidentStatus.TRIAGED)
+        drain_outbox(session, slack=_RecordingSlack(), work=work, notion=_RecordingNotion())
+        work.fail_with = WorkItemRejected("jira workflow offers no transition for 'blocked'")
+        enqueue_for_transition(session, incident, IncidentStatus.ESCALATED, cause="gave up")
+        drain_outbox(session, slack=_RecordingSlack(), work=work, notion=_RecordingNotion())
+        refused = session.scalars(
+            select(models.IntegrationOutbox).where(
+                models.IntegrationOutbox.op == "transition_work_item"
+            )
+        ).all()[-1]
+        assert refused.status == OutboxStatus.FAILED
+        assert "no transition" in refused.last_error

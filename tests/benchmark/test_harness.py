@@ -936,3 +936,37 @@ class TestClosePreexistingIncidents:
         url = _sqlite_url(tmp_path)
         models.Base.metadata.create_all(create_engine(url))
         assert harness._close_preexisting_incidents(url, SCENARIOS) == 0
+
+
+class TestLiveInjectionStartsFromBaseline:
+    """Each live scenario must start from the committed manifests, not from
+    whatever the previous scenario left behind. Only crashloop.sh reset
+    the cluster itself, so after an arm without verify or compensate (B,
+    C, D) left failed-rollout's bad image in place, missing-secret's new
+    pod stopped at ImagePullBackOff instead of CreateContainerConfigError
+    - having already deleted the secret - and oom-killed then could not
+    start a pod at all. Two of arm B's six live scenarios measured the
+    cluster, not the arm."""
+
+    def _fake_run(self, calls, fail_on=None):
+        def run(cmd, **kwargs):
+            calls.append(cmd[-1])
+            code = 1 if fail_on and cmd[-1].endswith(fail_on) else 0
+            return SimpleNamespace(returncode=code, stderr="boom", stdout="")
+
+        return run
+
+    def test_reset_runs_before_the_fault_script(self, monkeypatch):
+        calls = []
+        monkeypatch.setattr(harness.subprocess, "run", self._fake_run(calls))
+        assert harness._inject_live({"fault_script": "faults/missing-secret.sh"}) is None
+        assert [c.rsplit("/", 1)[-1] for c in calls] == ["reset.sh", "missing-secret.sh"]
+
+    def test_a_failed_reset_stops_before_injecting(self, monkeypatch):
+        """Injecting into a cluster that could not be reset would measure
+        the leftover state again - report it instead."""
+        calls = []
+        monkeypatch.setattr(harness.subprocess, "run", self._fake_run(calls, fail_on="reset.sh"))
+        detail = harness._inject_live({"fault_script": "faults/missing-secret.sh"})
+        assert detail is not None and "reset" in detail
+        assert len(calls) == 1

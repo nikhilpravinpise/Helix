@@ -39,6 +39,7 @@ The event's own tokens still bridge the two for anything reading the
 token table.
 """
 
+from collections.abc import Callable
 from datetime import UTC, datetime
 from typing import Any
 
@@ -257,6 +258,9 @@ def run_consumer(
     group_id: str = "helix-ingest",
     max_events: int | None = None,
     from_beginning: bool = False,
+    *,
+    follow: bool = False,
+    on_ingested: Callable[[IngestResult], None] | None = None,
 ) -> int:
     """Consume canonical events and drive state. Returns events handled.
 
@@ -265,6 +269,14 @@ def run_consumer(
     transaction, so one poison event cannot roll back the incidents its
     predecessors opened - and because ingest is idempotent, the redelivery
     that follows a mid-batch crash is harmless.
+
+    `follow` keeps consuming through quiet periods instead of returning.
+    `on_ingested` is called after each NEW event's transaction commits -
+    never for a duplicate, so a redelivered event can trigger nothing.
+    Ingest itself still never advances an incident (D19); the hook is how
+    `helix consume --run` opts in to driving, the way `--run` does for
+    `helix intake`. It must not raise: an exception leaves the offset
+    uncommitted, and the redelivery would then be a duplicate.
     """
     from events.broker import EventConsumer
 
@@ -272,9 +284,11 @@ def run_consumer(
 
     def handle(event: EngineeringEvent) -> None:
         with session_factory() as session:
-            ingest_event(session, event)
+            result = ingest_event(session, event)
+        if on_ingested is not None and not result.duplicate:
+            on_ingested(result)
 
     try:
-        return consumer.consume(handle, max_events=max_events)
+        return consumer.consume(handle, max_events=max_events, idle_rounds=None if follow else 3)
     finally:
         consumer.close()

@@ -15,6 +15,7 @@ tests need (a provider outage must degrade delivery, never canonical
 state).
 """
 
+import uuid
 from typing import Any
 
 from integrations.work.contract import (
@@ -41,7 +42,6 @@ class MemoryWorkProvider:
         self.items: dict[str, dict[str, Any]] = {}
         self.calls: list[dict[str, Any]] = []
         self.fail_with: Exception | None = None
-        self._seq = 0
 
     def _gate(self) -> None:
         if self.fail_with is not None:
@@ -83,8 +83,12 @@ class MemoryWorkProvider:
             if item["incident_id"] == spec.incident_id:
                 self._record("create_work_item", incident_id=spec.incident_id, deduplicated=True)
                 return self._ref(external_id, item)
-        self._seq += 1
-        external_id = f"MEM-{self._seq}"
+        # Unique across processes, not just this instance: every `helix`
+        # command builds its own provider, and a per-instance counter
+        # handed every incident "MEM-1" (a real remote never reuses a key).
+        # Random rather than incident-derived so a recreated item gets a
+        # new id, as a live provider's would.
+        external_id = f"MEM-{uuid.uuid4().hex[:12]}"
         self.items[external_id] = {
             "incident_id": spec.incident_id,
             "title": spec.title,

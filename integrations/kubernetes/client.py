@@ -254,6 +254,13 @@ class KubernetesEvidenceClient:
         except urllib3.exceptions.HTTPError as exc:
             raise EvidenceError(f"kubernetes transport error: {exc}") from exc
 
+    def list_pods_raw(self, namespace: str) -> dict:
+        """The namespace's pods exactly as `kubectl get pods -o json` shapes
+        them - the input `events.adapters.kubernetes.pod_events` expects.
+        Unlike `get_pods` this is not evidence for a diagnosis but the
+        watcher's raw feed (D18: fetching lives here, adapting there)."""
+        return _as_dict(self._call(self._core_v1().list_namespaced_pod, namespace=namespace))
+
     def get_pods(
         self,
         namespace: str,

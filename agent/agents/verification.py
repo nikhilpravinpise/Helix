@@ -35,6 +35,8 @@ from typing import TYPE_CHECKING, Any
 from sqlalchemy import select
 
 from agent.agents.compensation import outstanding_compensation
+from agent.evidence_kinds import incident_evidence_types
+from agent.policy import EXECUTOR_EVIDENCE
 from agent.state import WorkflowState
 from agent.verification import VerificationContext, run_verification
 from helix.observability import trace_workflow_step
@@ -118,6 +120,12 @@ def verification_node(deps: "GraphDeps"):
                         functional_enabled=deps.verify_functional,
                         elk_error_threshold=deps.elk_error_threshold,
                         functional_base_url=deps.verify_base_url,
+                        runtime_incident=bool(
+                            incident_evidence_types(
+                                session.get(models.Incident, execution.incident_id)
+                            )
+                            & EXECUTOR_EVIDENCE["kubernetes"]
+                        ),
                     )
                     report = run_verification(
                         ctx,

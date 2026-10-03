@@ -30,6 +30,7 @@ pipeline {
     stages {
         stage('Install dependencies') {
             steps {
+                script { env.HELIX_STAGE = env.STAGE_NAME }  // read by post { failure }
                 sh '''
                     set -euo pipefail
                     rm -rf "${BUILD_DIR}"
@@ -42,6 +43,7 @@ pipeline {
 
         stage('Test') {
             steps {
+                script { env.HELIX_STAGE = env.STAGE_NAME }  // read by post { failure }
                 sh '''
                     set -euo pipefail
                     cd "${BUILD_DIR}"
@@ -65,6 +67,7 @@ pipeline {
         // deployed.
         stage('SonarQube analysis') {
             steps {
+                script { env.HELIX_STAGE = env.STAGE_NAME }  // read by post { failure }
                 script {
                     env.SONAR_ANALYZED = 'false'
                     def sonarUp = sh(
@@ -127,6 +130,7 @@ pipeline {
                 expression { env.SONAR_ANALYZED == 'true' }
             }
             steps {
+                script { env.HELIX_STAGE = env.STAGE_NAME }  // read by post { failure }
                 timeout(time: 10, unit: 'MINUTES') {
                     // Hard gate: aborted (failed) gate fails the build.
                     waitForQualityGate abortPipeline: true
@@ -136,6 +140,7 @@ pipeline {
 
         stage('Build image') {
             steps {
+                script { env.HELIX_STAGE = env.STAGE_NAME }  // read by post { failure }
                 sh '''
                     set -euo pipefail
                     docker build --provenance=false -t "${IMAGE_TAG}" "${SRC}"
@@ -145,6 +150,7 @@ pipeline {
 
         stage('Deploy to kind') {
             steps {
+                script { env.HELIX_STAGE = env.STAGE_NAME }  // read by post { failure }
                 sh '''
                     set -euo pipefail
 
@@ -209,8 +215,11 @@ pipeline {
             // intake being down must NEVER change the pipeline outcome - a
             // signal that cannot be delivered is lost, not retried.
             // signature.job + signature.stage are the dedup fingerprint's
-            // jenkins fields; STAGE_NAME may be unset in a pipeline-level
-            // post block, hence the fallback.
+            // jenkins fields, and the rule tables key on the stage. Inside
+            // post, STAGE_NAME is "Declarative: Post Actions", not the stage
+            // that failed, so every stage records itself in HELIX_STAGE.
+            // `?run=true` makes Helix act on the signal, not only record it;
+            // the intake answers at once and runs in the background.
             catchError(buildResult: 'SUCCESS', stageResult: 'SUCCESS') {
                 // The payload is single-quoted: ${STAGE_NAME} can contain
                 // spaces ("Declarative: Post Actions") and unquoted it used
@@ -220,8 +229,8 @@ pipeline {
                 sh '''
                     curl -sS --max-time 10 -o /dev/null -X POST \
                       -H 'Content-Type: application/json' \
-                      -d '{"source":"jenkins","service":"payment-api","environment":"sandbox","signature":{"job":"'"${JOB_NAME}"'","stage":"'"${STAGE_NAME:-unknown}"'"},"raw":{"job":"'"${JOB_NAME}"'","build_number":'"${BUILD_NUMBER}"',"build_url":"'"${BUILD_URL}"'"}}' \
-                      http://host.docker.internal:8787/intake/jenkins || true
+                      -d '{"source":"jenkins","service":"payment-api","environment":"sandbox","signature":{"job":"'"${JOB_NAME}"'","stage":"'"${HELIX_STAGE:-unknown}"'"},"raw":{"job":"'"${JOB_NAME}"'","build_number":'"${BUILD_NUMBER}"',"build_url":"'"${BUILD_URL}"'"}}' \
+                      'http://host.docker.internal:8787/intake/jenkins?run=true' || true
                 '''
             }
         }

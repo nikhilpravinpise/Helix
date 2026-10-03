@@ -40,6 +40,11 @@ from events.schemas import (
 #: Pods in these phases are finished on purpose, not broken.
 _TERMINAL_PHASES = {"Succeeded"}
 
+#: Waiting reasons every pod passes through on a normal start. They are not
+#: failures: sampled during a healthy `rollout restart`, treating them as
+#: such produced a pod.failed per deploy - including Helix's own fixes.
+_STARTING_REASONS = {"ContainerCreating", "PodInitializing"}
+
 
 def _service_of(pod: dict[str, Any], default: str) -> str:
     labels = (pod.get("metadata") or {}).get("labels") or {}
@@ -82,6 +87,17 @@ def _deleting(pod: dict[str, Any]) -> bool:
     return bool((pod.get("metadata") or {}).get("deletionTimestamp"))
 
 
+def _starting(pod: dict[str, Any]) -> bool:
+    """A container still being created. The whole pod is skipped, not just
+    the container: it is also not Ready yet, and reporting that as
+    service.unhealthy would be the same false alarm under another name."""
+    for cs in (pod.get("status") or {}).get("containerStatuses") or []:
+        waiting = (cs.get("state") or {}).get("waiting") or {}
+        if waiting.get("reason") in _STARTING_REASONS:
+            return True
+    return False
+
+
 def pod_events(
     payload: dict[str, Any],
     service: str = "payment-api",
@@ -93,7 +109,7 @@ def pod_events(
     for pod in payload.get("items") or []:
         status = pod.get("status") or {}
         metadata = pod.get("metadata") or {}
-        if status.get("phase") in _TERMINAL_PHASES or _deleting(pod):
+        if status.get("phase") in _TERMINAL_PHASES or _deleting(pod) or _starting(pod):
             # A pod mid-deletion is the intended end of a rollout, not a
             # failure - the same exclusion the 1.9 verification leg makes.
             continue

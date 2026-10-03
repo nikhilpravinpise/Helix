@@ -11,7 +11,12 @@ set -euo pipefail
 cd "$(dirname "$0")"
 
 PORT="${HELIX_API_PORT:-8787}"
-UI="http://127.0.0.1:${PORT}/ui/"
+# The address `helix serve` binds (HELIX_API_BIND in .env). On Linux it is
+# the docker0 bridge (172.17.0.1) so the Jenkins container can reach the
+# intake without exposing Helix to the LAN; see docs/bring-up.md.
+HOST="$(grep -E '^HELIX_API_BIND=' .env 2>/dev/null | cut -d= -f2- || true)"
+HOST="${HOST:-127.0.0.1}"
+UI="http://${HOST}:${PORT}/ui/"
 PIDFILE=".helix-serve.pid"
 SIGNAL=".helix-demo-signal.json"
 
@@ -41,17 +46,17 @@ echo "schema current"
 
 # --- 2. Operator UI ----------------------------------------------------------
 say "2/3  Operator UI"
-if curl -fsS -o /dev/null "http://127.0.0.1:${PORT}/incidents" 2>/dev/null; then
+if curl -fsS -o /dev/null "http://${HOST}:${PORT}/incidents" 2>/dev/null; then
     echo "already serving"
 else
     rm -f "$PIDFILE"
     uv run helix serve >.helix-serve.log 2>&1 &
     echo $! >"$PIDFILE"
     for _ in $(seq 20); do
-        curl -fsS -o /dev/null "http://127.0.0.1:${PORT}/incidents" 2>/dev/null && break
+        curl -fsS -o /dev/null "http://${HOST}:${PORT}/incidents" 2>/dev/null && break
         sleep 0.5
     done
-    curl -fsS -o /dev/null "http://127.0.0.1:${PORT}/incidents" 2>/dev/null \
+    curl -fsS -o /dev/null "http://${HOST}:${PORT}/incidents" 2>/dev/null \
         || { echo "UI failed to start, see .helix-serve.log"; exit 1; }
     echo "started (pid $(cat "$PIDFILE"), log .helix-serve.log)"
 fi

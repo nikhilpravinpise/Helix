@@ -25,13 +25,23 @@ inputs, same verdict, no I/O. It returns a `PolicyVerdict`:
 
 Evidence coherence (2.1, the 1.5 ablation's open defect): when the caller
 supplies `evidence_types` (canonical event types - signals classified
-through `events.classify`, event records directly), a kubernetes/jenkins
-executor action proposed on evidence with no runtime type
-(`build.*`, `deployment.*`, `pod.failed`, `service.unhealthy`) escalates
-to REQUIRE_APPROVAL. The domain is the event TYPE, not the vendor source:
-a `build.failed` via a GitHub check-run is CI evidence and proceeds,
-while a `pr.rejected` cannot authorize a cluster rollback. `None` skips
-the check (the executor's re-decide relies on the coordinator's verdict).
+through `events.classify`, event records directly), a write must be
+grounded in evidence from its own executor's domain, or it escalates to
+REQUIRE_APPROVAL (`agent/policy.py::EXECUTOR_EVIDENCE`):
+
+| Executor | Needs evidence of type |
+|---|---|
+| `kubernetes` (cluster) | `deployment.*`, `pod.failed`, `service.unhealthy` |
+| `jenkins` (pipeline) | `build.*` |
+| `github` (fix PR) | anything - a code fix is coherent with every domain |
+
+The domain is the event TYPE, not the vendor source: a `build.failed` via a
+GitHub check-run is CI evidence and lets `rerun_pipeline` proceed, while a
+`pr.rejected` cannot authorize a cluster rollback. Cluster and pipeline were
+one "runtime" set until 2026-10-03, when a failing unit test (`build.failed`)
+let arm E restart and then roll back the live sandbox deployment unapproved.
+CI evidence says nothing about the cluster. `None` skips the check (the
+executor's re-decide relies on the coordinator's verdict).
 
 Environment semantics: `decide` gates on the **incident's** target
 environment (`signal.environment` -> `incidents.environment`), never on

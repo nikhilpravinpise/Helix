@@ -5,9 +5,9 @@ Secrets (API keys, tokens) are read from environment variables or a local
 variable names.
 """
 
-from typing import Literal
+from typing import Any, Literal
 
-from pydantic import Field
+from pydantic import Field, ValidationInfo, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -15,6 +15,21 @@ class Settings(BaseSettings):
     """Helix configuration. All fields have safe defaults for local dev."""
 
     model_config = SettingsConfigDict(env_file=".env", env_prefix="HELIX_", extra="ignore")
+
+    @field_validator("*", mode="before")
+    @classmethod
+    def _blank_means_unset(cls, value: Any, info: ValidationInfo) -> Any:
+        """A blank value is "not set" for any setting whose default is None.
+
+        .env.example ships blank lines, and a blank numeric
+        (HELIX_SLACK_APPROVAL_TIMEOUT=) stopped every command at startup.
+        Mapping blank to None here, rather than env_ignore_empty, keeps an
+        explicit `HELIX_X=""` in the environment working as an override of
+        .env - env_ignore_empty would skip it and let .env's value through.
+        """
+        if value == "" and cls.model_fields[info.field_name].default is None:
+            return None
+        return value
 
     environment: str = "development"
     log_level: str = "INFO"

@@ -341,3 +341,50 @@ class TestDeclaredTopics:
         assert config["helix.events"]["partitions"] == 3
         assert config["helix.events.dlq"]["exists"]
         assert config["helix.events.dlq"]["partitions"] == 1
+
+
+class TestFollowMode:
+    """`helix consume --follow` has to outlive a quiet topic: E2 bounded the
+    loop at three idle polls and left the daemon to E4, which never built
+    it, so a consumer exited within seconds of the topic going quiet."""
+
+    def _consumer_over(self, polls):
+        class Msg:
+            def __init__(self, payload):
+                self._payload = payload
+
+            def error(self):
+                return None
+
+            def value(self):
+                return self._payload
+
+        class Inner:
+            def __init__(self):
+                self._polls = list(polls)
+
+            def poll(self, timeout):
+                item = self._polls.pop(0)
+                return None if item is None else Msg(serialize(item))
+
+            def assignment(self):
+                return ["partition-0"]
+
+            def commit(self, msg, asynchronous=False):
+                pass
+
+        consumer = EventConsumer.__new__(EventConsumer)
+        consumer._consumer = Inner()
+        return consumer
+
+    def test_bounded_mode_stops_when_the_topic_goes_quiet(self):
+        late = make_event(correlation_id="INC-late")
+        consumer = self._consumer_over([None, None, None, None, None, late])
+        assert consumer.consume(lambda e: None, max_events=1, timeout=0) == 0
+
+    def test_follow_mode_outlasts_a_quiet_topic(self):
+        late = make_event(correlation_id="INC-late")
+        consumer = self._consumer_over([None, None, None, None, None, late])
+        got = []
+        assert consumer.consume(got.append, max_events=1, timeout=0, idle_rounds=None) == 1
+        assert got == [late]

@@ -18,7 +18,10 @@ Neutral-vocabulary mapping (CONTEXT.md section 11):
   done -> done) with the status name breaking the blocked/closed ties
   the category model cannot express.
 - priority: the neutral four map onto Jira's Lowest..Highest names.
-- assignee: name-based assignment; None clears.
+- assignee: resolved to a Jira Cloud accountId through /user/search
+  (Cloud dropped username assignment for privacy, so {"name": ...} is
+  rejected with 400); None clears. An assignee no Jira user matches
+  raises WorkItemError rather than silently leaving the item unassigned.
 
 Every failure path raises WorkItemError - the single exception
 vocabulary the outbox drain records, mirroring EvidenceError on the
@@ -37,6 +40,7 @@ from integrations.work.contract import (
     ProviderCapabilities,
     WorkItemError,
     WorkItemRef,
+    WorkItemRejected,
     WorkItemSpec,
 )
 
@@ -84,6 +88,9 @@ _JIRA_PRIORITY_BACK = {
 }
 
 _JIRA_LINK_TYPES = {"relates": "Relates", "duplicates": "Duplicate", "blocks": "Blocks"}
+
+#: The fields find_by_incident asks /search/jql for - exactly what _ref reads.
+_SEARCH_FIELDS = "summary,status,assignee,priority,labels"
 
 _CLOSED_STATUS_NAMES = frozenset(_NEUTRAL_TO_JIRA["closed"][0])
 _BLOCKED_STATUS_NAMES = frozenset(_NEUTRAL_TO_JIRA["blocked"][0])
@@ -209,7 +216,7 @@ class JiraProvider:
                 raise WorkItemError(f"unknown neutral priority {spec.priority!r}")
             fields["priority"] = {"name": _JIRA_PRIORITY[spec.priority]}
         if spec.assignee:
-            fields["assignee"] = {"name": spec.assignee}
+            fields["assignee"] = {"accountId": self._account_id(spec.assignee)}
         data = self._json(self._request("POST", "/rest/api/3/issue", json={"fields": fields}))
         key = data.get("key")
         return WorkItemRef(
@@ -231,8 +238,15 @@ class JiraProvider:
 
     def find_by_incident(self, incident_id: str) -> WorkItemRef | None:
         jql = f'project = "{self._project_key}" AND labels = "helix-incident-{incident_id}"'
+        # /rest/api/3/search was removed from Jira Cloud (it answers 410
+        # Gone); /search/jql replaced it and returns only issue ids unless
+        # `fields` names what _ref reads.
         data = self._json(
-            self._request("GET", "/rest/api/3/search", params={"jql": jql, "maxResults": "2"})
+            self._request(
+                "GET",
+                "/rest/api/3/search/jql",
+                params={"jql": jql, "maxResults": "2", "fields": _SEARCH_FIELDS},
+            )
         )
         issues = data.get("issues") or []
         return self._ref(issues[0]) if issues else None
@@ -262,9 +276,20 @@ class JiraProvider:
         self._request(
             "PUT",
             f"/rest/api/3/issue/{external_id}/assignee",
-            json={"name": assignee},
+            json={"accountId": self._account_id(assignee) if assignee else None},
         )
         return self._require(external_id)
+
+    def _account_id(self, assignee: str) -> str:
+        """The Jira Cloud accountId for an assignee given as an email or a
+        display name - the only identity Cloud's assignee field accepts."""
+        users = self._json(
+            self._request("GET", "/rest/api/3/user/search", params={"query": assignee})
+        )
+        for user in users if isinstance(users, list) else []:
+            if user.get("accountId"):
+                return str(user["accountId"])
+        raise WorkItemRejected(f"no Jira user matches assignee {assignee!r}")
 
     def _pick_transition(self, transitions: list[dict[str, Any]], status: str) -> dict[str, Any]:
         names, categories = _NEUTRAL_TO_JIRA[status]
@@ -291,7 +316,7 @@ class JiraProvider:
             )
             if category in categories:
                 return transition
-        raise WorkItemError(f"jira workflow offers no transition for {status!r}")
+        raise WorkItemRejected(f"jira workflow offers no transition for {status!r}")
 
     def transition_work_item(self, external_id: str, status: str) -> WorkItemRef:
         if status not in NEUTRAL_STATUSES:

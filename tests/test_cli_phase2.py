@@ -162,3 +162,120 @@ def test_graph_sync_with_memory_store(env_db):
     # Unreachable Neo4j -> rc 1 with a clear message, not a traceback.
     assert proc.returncode == 1
     assert "graph store unreachable" in proc.stderr
+
+
+def test_consume_run_drives_each_new_incident_once(monkeypatch, capsys):
+    """`helix consume --run` hands every incident a new event lands on to a
+    single background worker, so the consumer keeps polling while a run
+    takes minutes. Two events for one incident queue it once."""
+    from events.ingest import IngestResult
+    from helix import cli
+
+    driven = []
+    monkeypatch.setattr("agent.runner.run_incident", lambda iid: driven.append(iid))
+
+    def fake_run_consumer(session_factory, **kwargs):
+        hook = kwargs["on_ingested"]
+        for iid in ("INC-a", "INC-a", "INC-b"):
+            hook(IngestResult(incident_id=iid, created=True, duplicate=False, correlated=False))
+        return 3
+
+    monkeypatch.setattr("events.ingest.run_consumer", fake_run_consumer)
+    assert cli.main(["consume", "--run"]) == 0
+    assert sorted(set(driven)) == ["INC-a", "INC-b"]
+    assert "INC-a" in capsys.readouterr().out
+
+
+def test_consume_without_run_never_drives(monkeypatch):
+    """Plain `helix consume` keeps D19's contract: it only records."""
+    from helix import cli
+
+    seen = {}
+
+    def fake_run_consumer(session_factory, **kwargs):
+        seen.update(kwargs)
+        return 0
+
+    monkeypatch.setattr("events.ingest.run_consumer", fake_run_consumer)
+    assert cli.main(["consume"]) == 0
+    assert seen["on_ingested"] is None
+    assert seen["follow"] is False
+
+
+def test_watch_wires_the_cluster_feed_to_kafka(monkeypatch, capsys):
+    """`helix watch` fetches the namespace's pods, adapts them, and hands
+    confirmed problems to the Kafka producer - nothing else."""
+    from helix import cli
+
+    raw = {
+        "items": [
+            {
+                "metadata": {"name": "payment-api-x", "uid": "u-9", "namespace": "payment-api"},
+                "status": {
+                    "phase": "Running",
+                    "containerStatuses": [
+                        {
+                            "name": "payment-api",
+                            "state": {"waiting": {"reason": "CrashLoopBackOff"}},
+                            "restartCount": 2,
+                        }
+                    ],
+                },
+            }
+        ]
+    }
+
+    class FakeClient:
+        def list_pods_raw(self, namespace):
+            assert namespace == "payment-api"
+            return raw
+
+    sent = []
+
+    class FakeProducer:
+        def publish(self, event):
+            sent.append(event)
+
+        def flush(self, timeout=10.0):
+            return 0
+
+    monkeypatch.setattr("integrations.kubernetes.client.KubernetesEvidenceClient", FakeClient)
+    monkeypatch.setattr("events.broker.EventProducer", FakeProducer)
+    seen = {}
+
+    def fake_run_watch(fetch, publish, **kwargs):
+        seen.update(kwargs)
+        for event in fetch():
+            publish(event)
+        return 1
+
+    monkeypatch.setattr("events.watch.run_watch", fake_run_watch)
+    assert cli.main(["watch", "--interval", "5", "--polls", "2"]) == 0
+    assert seen["interval"] == 5 and seen["polls"] == 2
+    assert [e.metadata["waiting_reason"] for e in sent] == ["CrashLoopBackOff"]
+    assert "pod.failed" in capsys.readouterr().out
+
+
+def test_daemons_turn_sigterm_into_a_clean_stop():
+    """`docker stop`, systemd and plain `kill` send SIGTERM, and a process
+    started in the background by a non-interactive shell ignores SIGINT.
+    Before this, both daemons died on SIGTERM with no cleanup - a consumer
+    killed mid-run would leave its incident stuck `running` for
+    `helix reclaim`. Now SIGTERM raises KeyboardInterrupt, which `helix
+    consume` handles by finishing the run in progress."""
+    import os
+    import signal
+
+    from helix import cli
+
+    saved = {s: signal.getsignal(s) for s in (signal.SIGTERM, signal.SIGINT)}
+    try:
+        signal.signal(signal.SIGINT, signal.SIG_IGN)  # as a background job inherits it
+        cli._stop_cleanly_on_signals()
+        for sig in (signal.SIGTERM, signal.SIGINT):
+            with pytest.raises(KeyboardInterrupt):
+                os.kill(os.getpid(), sig)
+                signal.pthread_sigmask(signal.SIG_BLOCK, [])  # let the handler run
+    finally:
+        for sig, handler in saved.items():
+            signal.signal(sig, handler)

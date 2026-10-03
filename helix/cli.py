@@ -18,6 +18,12 @@ provenance as Markdown).
 import argparse
 import json
 import sys
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from collections.abc import Callable
+
+    from events.ingest import IngestResult
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -137,6 +143,37 @@ def build_parser() -> argparse.ArgumentParser:
         type=int,
         default=None,
         help="stop after handling this many events (default: run until the topic goes quiet)",
+    )
+    consume.add_argument(
+        "--follow",
+        action="store_true",
+        help="keep consuming through quiet periods until interrupted, instead of "
+        "returning when the topic goes quiet - the long-running daemon",
+    )
+    consume.add_argument(
+        "--run",
+        action="store_true",
+        help="also drive each incident a new event lands on, in a background worker; "
+        "a redelivered event drives nothing. Without it, consume only records (D19)",
+    )
+
+    watch = subparsers.add_parser(
+        "watch",
+        help="watch the cluster's pods and publish confirmed failures to Kafka, "
+        "where `helix consume --run` acts on them; decides and executes nothing",
+    )
+    watch.add_argument(
+        "--namespace", default="payment-api", help="namespace to watch (default: payment-api)"
+    )
+    watch.add_argument(
+        "--interval", type=float, default=10.0, help="seconds between polls (default: 10)"
+    )
+    watch.add_argument(
+        "--polls",
+        type=int,
+        default=3,
+        help="consecutive polls a problem must persist before it is published "
+        "(default: 3) - filters the not-Ready window every healthy rollout has",
     )
 
     emit = subparsers.add_parser(
@@ -546,6 +583,71 @@ def _cmd_decide(args: argparse.Namespace, approved: bool) -> int:
     return 0
 
 
+def _stop_cleanly_on_signals() -> "Callable[[], None]":
+    """Make SIGTERM and SIGINT both mean "stop gracefully" for the daemons.
+
+    SIGTERM is what `docker stop`, systemd and plain `kill` send, and
+    Python's default for it is to die on the spot - which for `helix
+    consume` meant an incident left stuck `running` mid-remediation. A
+    process started in the background by a non-interactive shell also
+    inherits SIGINT as ignored, so Ctrl-C-style stops never arrived either.
+    Both now raise KeyboardInterrupt, the path each daemon already handles.
+    Returns a function that puts the previous handlers back.
+    """
+    import signal
+
+    def _interrupt(signum: int, frame: object) -> None:
+        raise KeyboardInterrupt
+
+    saved = {sig: signal.getsignal(sig) for sig in (signal.SIGTERM, signal.SIGINT)}
+    signal.signal(signal.SIGTERM, _interrupt)
+    signal.signal(signal.SIGINT, _interrupt)
+
+    def restore() -> None:
+        for sig, handler in saved.items():
+            signal.signal(sig, handler)
+
+    return restore
+
+
+def _cmd_watch(args: argparse.Namespace) -> int:
+    """Poll the cluster and publish confirmed pod failures (see events.watch).
+
+    Runs until interrupted. The read goes through the same Kubernetes client
+    and HELIX_KUBE_CONTEXT as every other cluster read.
+    """
+    from events.adapters.kubernetes import pod_events
+    from events.broker import EventProducer
+    from events.watch import run_watch
+    from integrations.kubernetes.client import KubernetesEvidenceClient
+
+    cluster = KubernetesEvidenceClient()
+    producer = EventProducer()
+
+    def fetch() -> list:
+        return pod_events(cluster.list_pods_raw(args.namespace))
+
+    def publish(event) -> None:
+        producer.publish(event)
+        producer.flush()
+        pod = event.metadata.get("pod")
+        print(f"published {event.event_type} for {pod} ({event.event_id})", flush=True)
+
+    print(
+        f"watching namespace {args.namespace} every {args.interval:g}s; a problem must "
+        f"persist {args.polls} polls before it is published",
+        flush=True,
+    )
+    restore_signals = _stop_cleanly_on_signals()
+    try:
+        run_watch(fetch, publish, interval=args.interval, polls=args.polls)
+    except KeyboardInterrupt:
+        print("watch stopped", flush=True)
+    finally:
+        restore_signals()
+    return 0
+
+
 def _cmd_consume(args: argparse.Namespace) -> int:
     """Drive incident state from the event stream (subphase E4).
 
@@ -562,14 +664,74 @@ def _cmd_consume(args: argparse.Namespace) -> int:
     from state.db import session_scope
 
     engine = create_engine(get_settings().database_url)
-    handled = run_consumer(
-        functools.partial(session_scope, engine),
-        group_id=args.group,
-        max_events=args.max_events,
-        from_beginning=args.from_beginning,
-    )
-    print(f"handled {handled} event(s)")
+    driver = _IncidentDriver() if args.run else None
+    restore_signals = _stop_cleanly_on_signals()
+    try:
+        handled = run_consumer(
+            functools.partial(session_scope, engine),
+            group_id=args.group,
+            max_events=args.max_events,
+            from_beginning=args.from_beginning,
+            follow=args.follow,
+            on_ingested=driver.queue if driver is not None else None,
+        )
+    except KeyboardInterrupt:
+        handled = None
+        print("interrupted - finishing the run in progress, dropping the rest", flush=True)
+        if driver is not None:
+            driver.close(drop_waiting=True)
+    else:
+        if driver is not None:
+            driver.close()
+    finally:
+        restore_signals()
+    if handled is not None:
+        print(f"handled {handled} event(s)")
     return 0
+
+
+class _IncidentDriver:
+    """`helix consume --run`'s worker: one background thread that drives
+    incidents in arrival order. Its progress lines flush immediately: as a
+    daemon its stdout is a log file, which Python block-buffers, so the
+    first live run showed an empty log while it was driving an incident.
+
+    Background, because a run takes minutes and a Kafka consumer that stops
+    polling for longer than max.poll.interval.ms (5 minutes by default) is
+    evicted from its group. One thread, because every remediation targets
+    the same sandbox and two runs must never act on it at once. An incident
+    already waiting is not queued again; once its run has started, a later
+    event for it queues a fresh run from whatever state it reached.
+    """
+
+    def __init__(self) -> None:
+        from concurrent.futures import ThreadPoolExecutor
+
+        self._pool = ThreadPoolExecutor(max_workers=1, thread_name_prefix="helix-run")
+        self._waiting: set[str] = set()
+
+    def queue(self, result: "IngestResult") -> None:
+        incident_id = result.incident_id
+        if incident_id in self._waiting:
+            return
+        self._waiting.add(incident_id)
+        print(f"{incident_id}: queued to run", flush=True)
+        self._pool.submit(self._drive, incident_id)
+
+    def _drive(self, incident_id: str) -> None:
+        from agent.runner import run_incident
+
+        self._waiting.discard(incident_id)
+        try:
+            outcome = run_incident(incident_id)
+            print(f"{incident_id}: {getattr(outcome, 'status', 'ran')}", flush=True)
+        except Exception as exc:  # the outcome lives in workflow_runs
+            print(f"{incident_id}: run failed - {exc}", flush=True)
+
+    def close(self, *, drop_waiting: bool = False) -> None:
+        """Wait for every queued run - or, on an interrupt, only for the one
+        already in progress (a half-finished remediation must complete)."""
+        self._pool.shutdown(wait=True, cancel_futures=drop_waiting)
 
 
 def _cmd_emit(args: argparse.Namespace) -> int:
@@ -901,6 +1063,8 @@ def main(argv: list[str] | None = None) -> int:
         return _cmd_decide(args, approved=False)
     if args.command == "consume":
         return _cmd_consume(args)
+    if args.command == "watch":
+        return _cmd_watch(args)
     if args.command == "emit":
         return _cmd_emit(args)
     if args.command == "provenance":
