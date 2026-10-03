@@ -156,3 +156,15 @@ every postMessage response returns. Dormant: no production path calls
 the first message). If edits are ever used - e.g. replacing approval
 buttons after a decision - store the `channel` id from the post response
 alongside `ts` and pass that.
+
+## 13. rollback_deployment can roll back onto a broken revision
+
+Live 2026-10-03 (INC-6b5c0922): arm E's rollback ran `rollout undo`, which
+goes to the previous ReplicaSet revision, and on the sandbox that was an
+earlier injected fault - the new pod crashlooped. Rollback assumes the
+previous revision was healthy, which holds for a normal release history
+and fails for one full of benchmark faults. The per-domain coherence check
+now keeps a CI failure from reaching rollback at all, and verification
+caught the result (pods_ready=fail -> escalated), so nothing stayed
+broken unnoticed. A stronger fix would roll back to the last revision
+Helix verified healthy rather than to whatever came before.
