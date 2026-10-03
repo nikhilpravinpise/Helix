@@ -145,3 +145,14 @@ an escalated incident's item just stays in its previous column. Per
 plan.md 2.10, an undeclared gap is a defect in the abstraction: either
 read the project's workflow (`/rest/api/3/project/{key}/statuses`) into
 the capability map, or add a Blocked column to the project.
+
+## 12. Slack message edits need a channel id, not a name
+
+Live test 2026-10-03: `WebSlackClient.update_message("#helix-incidents",
+...)` fails with `channel_not_found`. Slack's chat.postMessage accepts a
+channel name, but chat.update only accepts the channel id (`C...`), which
+every postMessage response returns. Dormant: no production path calls
+`update_message` today (the outbox only posts, threading updates under
+the first message). If edits are ever used - e.g. replacing approval
+buttons after a decision - store the `channel` id from the post response
+alongside `ts` and pass that.
