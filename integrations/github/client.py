@@ -116,6 +116,15 @@ class GitHubEvidenceClient:
             total=len(files),
         )
 
+    def list_open_pull_requests_raw(self) -> list[dict[str, Any]]:
+        """The repository's open pull requests as GitHub returns them - the
+        `helix watch --source github` feed, not diagnosis evidence (D18:
+        fetching lives here, turning it into events does not)."""
+        data = self._get_json(f"/repos/{self._repo}/pulls", state="open", per_page=100)
+        if not isinstance(data, list):
+            raise EvidencePartialError("github open-PR listing was not a list")
+        return data
+
     def get_pull_request(self, number: int) -> Evidence:
         data = self._get_json(f"/repos/{self._repo}/pulls/{number}")
         if "number" not in data:

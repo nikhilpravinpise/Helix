@@ -279,3 +279,49 @@ def test_daemons_turn_sigterm_into_a_clean_stop():
     finally:
         for sig, handler in saved.items():
             signal.signal(sig, handler)
+
+
+def test_watch_github_publishes_pr_activity_not_existing_prs(monkeypatch, capsys):
+    """`helix watch --source github` polls open PRs: those open at start
+    are the baseline, a new one is published as pr.opened."""
+    from helix import cli
+
+    listings = [
+        [{"number": 1, "user": {"login": "a"}, "head": {"ref": "x", "sha": "1" * 40}}],
+        [
+            {"number": 1, "user": {"login": "a"}, "head": {"ref": "x", "sha": "1" * 40}},
+            {"number": 2, "user": {"login": "dana"}, "head": {"ref": "feature/y", "sha": "2" * 40}},
+        ],
+    ]
+
+    class FakeGitHub:
+        def list_open_pull_requests_raw(self):
+            return listings.pop(0)
+
+    sent = []
+
+    class FakeProducer:
+        def publish(self, event):
+            sent.append(event)
+
+        def flush(self, timeout=10.0):
+            return 0
+
+    monkeypatch.setattr("integrations.github.client.GitHubEvidenceClient", FakeGitHub)
+    monkeypatch.setattr("events.broker.EventProducer", FakeProducer)
+    seen = {}
+
+    def fake_run_watch(fetch, publish, **kwargs):
+        seen.update(kwargs)
+        for _ in range(2):
+            for event in fetch():
+                publish(event)
+        return 2
+
+    monkeypatch.setattr("events.watch.run_watch", fake_run_watch)
+    assert cli.main(["watch", "--source", "github"]) == 0
+    assert seen["polls"] == 1  # a PR event is a fact, not a condition to confirm
+    assert [(str(e.event_type), e.metadata["pr"], e.actor) for e in sent] == [
+        ("pr.opened", 2, "dana")
+    ]
+    assert "pr.opened" in capsys.readouterr().out
