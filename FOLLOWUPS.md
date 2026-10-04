@@ -223,3 +223,23 @@ HELIX_GITHUB_APP_PRIVATE_KEY_PATH (key kept outside the repo). Code: mint
 a JWT from the private key, exchange it for an installation token, and use
 that in the read and write clients, falling back to HELIX_GITHUB_TOKEN when
 the app settings are absent.
+
+## 16. Instant GitHub webhooks through an ngrok tunnel (deferred)
+
+Decided 2026-10-04: Vraj wants a tunnel, using ngrok, picked up later.
+Helix works without one today - `helix watch --source github` polls every
+~10s and `helix slack-socket` receives Slack clicks over Socket Mode - so
+this adds speed and reach, not function.
+
+Plan when picked up:
+- A `/webhooks/github` endpoint that verifies `X-Hub-Signature-256` against
+  a new HELIX_GITHUB_WEBHOOK_SECRET (an unset secret closes the surface,
+  like Slack's), routes `pull_request` deliveries through the same
+  `pull_request_events` adapter polling uses, and ingests them. Ingest's
+  event-id dedup makes polling and webhooks safe to run together.
+- Serve ONLY the webhook routes on a separate small public app and port,
+  and point the tunnel at that, never at `helix serve`: the dashboard and
+  the approval/review API must not be reachable through a public URL.
+- ngrok: free account, authtoken, one static domain; binary installable to
+  ~/.local/bin without sudo. Set the repo webhook (pull_request events,
+  JSON, the secret) to https://<static-domain>/webhooks/github once.
