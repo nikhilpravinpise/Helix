@@ -136,6 +136,25 @@ def _correlated_incident(
     return None
 
 
+def _addressed_incident(session: Session, event: EngineeringEvent) -> models.Incident | None:
+    """The open incident an event names by `correlation_id`, if any.
+
+    A name is stronger than any shared token. Without this, a deploy
+    verdict sent to one change incident joined an older open incident on
+    the same service token instead, and the one it named never left
+    `deploying`. A closed or unknown name falls back to token correlation,
+    the same rule that keeps terminal incidents from absorbing events.
+    """
+    if not event.correlation_id:
+        return None
+    incident = session.scalar(
+        select(models.Incident).where(models.Incident.incident_id == event.correlation_id)
+    )
+    if incident is None or incident.status in machine.TERMINAL_STATUSES:
+        return None
+    return incident
+
+
 #: Token kinds that name exactly one subject per incident. An event that
 #: carries one never joins an incident holding a DIFFERENT value of it, even
 #: on a shared service token: live, PR #21's pr.opened joined PR #20's open
@@ -199,7 +218,9 @@ def ingest_event(session: Session, event: EngineeringEvent) -> IngestResult:
 
     tokens = tokens_for(event)
     occurred_at = _aware(event.timestamp)
-    incident = _correlated_incident(session, tokens, occurred_at)
+    incident = _addressed_incident(session, event) or _correlated_incident(
+        session, tokens, occurred_at
+    )
     created = incident is None
     correlated = not created
 

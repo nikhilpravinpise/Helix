@@ -12,6 +12,7 @@ one integration test at the end.
 from datetime import UTC, datetime, timedelta
 
 import pytest
+from sqlalchemy import select
 
 from events.correlation import CORRELATION_WINDOW, strong_tokens, tokens_for
 from events.ingest import correlated_sources, ingest_event
@@ -522,3 +523,67 @@ class TestConflictingIdentity:
             ),
         )
         assert build.incident_id == opened.incident_id
+
+
+class TestAddressedEvents:
+    """Phase 2 run 2, 2026-10-04: the deployment.succeeded the harness sent
+    with correlation_id=INC-70b00b57 landed on INC-754d6602, an older
+    incident still open on the same service, because ingest matched on the
+    service token and never read correlation_id. INC-70b00b57 sat at
+    `deploying` forever. An event that names its incident goes there."""
+
+    def _two_open_incidents(self, db_session):
+        older = ingest_event(db_session, event(EventType.PR_OPENED, EventSource.GITHUB, pr=20))
+        newer = ingest_event(
+            db_session,
+            event(EventType.PR_OPENED, EventSource.GITHUB, at=T0 + timedelta(minutes=5), pr=21),
+        )
+        return older, newer
+
+    def test_an_event_lands_on_the_incident_it_names(self, db_session):
+        older, newer = self._two_open_incidents(db_session)
+        deployed = EngineeringEvent(
+            event_type=EventType.DEPLOYMENT_SUCCEEDED,
+            source=EventSource.JENKINS,
+            correlation_id=newer.incident_id,
+            service="payment-api",
+            environment="sandbox",
+            timestamp=T0 + timedelta(minutes=6),
+            metadata={"deployment": "payment-api"},
+        )
+        result = ingest_event(db_session, deployed)
+        assert result.incident_id == newer.incident_id
+        assert result.created is False
+        assert older.incident_id != newer.incident_id
+
+    def test_a_terminal_named_incident_falls_back_to_tokens(self, db_session):
+        """A closed incident takes no new events, named or not - the same
+        rule token correlation follows."""
+        older, newer = self._two_open_incidents(db_session)
+        closed = db_session.scalar(
+            select(models.Incident).where(models.Incident.incident_id == newer.incident_id)
+        )
+        closed.status = IncidentStatus.ESCALATED
+        db_session.flush()
+        deployed = EngineeringEvent(
+            event_type=EventType.DEPLOYMENT_SUCCEEDED,
+            source=EventSource.JENKINS,
+            correlation_id=newer.incident_id,
+            service="payment-api",
+            environment="sandbox",
+            timestamp=T0 + timedelta(minutes=6),
+        )
+        result = ingest_event(db_session, deployed)
+        assert result.incident_id == older.incident_id
+
+    def test_an_unknown_named_incident_falls_back_to_tokens(self, db_session):
+        older, _ = self._two_open_incidents(db_session)
+        stray = EngineeringEvent(
+            event_type=EventType.BUILD_FAILED,
+            source=EventSource.JENKINS,
+            correlation_id="INC-doesnotexist",
+            service="payment-api",
+            environment="sandbox",
+            timestamp=T0 + timedelta(minutes=6),
+        )
+        assert ingest_event(db_session, stray).incident_id == older.incident_id
