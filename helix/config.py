@@ -42,6 +42,10 @@ class Settings(BaseSettings):
     # API key in plaintext - a failing test must not be a disclosure
     # channel, and neither must a stack trace or a debug log.
     llm_api_key: str | None = Field(default=None, repr=False)
+    #: Extra keys, comma-separated, tried in order after llm_api_key when a
+    #: key is rate-limited or rejected (helix/llm.py). Groq limits are per
+    #: organization, so keys from the same org share one budget.
+    llm_api_keys: str | None = Field(default=None, repr=False)
     llm_base_url: str = "https://api.groq.com/openai/v1"
     llm_model: str = "openai/gpt-oss-120b"
 
@@ -205,6 +209,15 @@ class Settings(BaseSettings):
     # Notion (subphase 2.4).
     notion_api_key: str | None = Field(default=None, repr=False)
     notion_parent_page_id: str = ""
+
+    def llm_api_key_pool(self) -> list[str]:
+        """llm_api_key followed by llm_api_keys, blanks and repeats dropped."""
+        pool: list[str] = []
+        for key in [self.llm_api_key or "", *(self.llm_api_keys or "").split(",")]:
+            key = key.strip()
+            if key and key not in pool:
+                pool.append(key)
+        return pool
 
     def allowed_kube_context_set(self) -> frozenset[str]:
         """HELIX_ALLOWED_KUBE_CONTEXTS parsed into a set of context names."""
