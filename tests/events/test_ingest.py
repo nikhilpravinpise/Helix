@@ -474,3 +474,51 @@ class TestConsumerRunHook:
             on_ingested=lambda result: seen.append(result.incident_id),
         )
         assert len(seen) == 1
+
+
+class TestConflictingIdentity:
+    """Live, 2026-10-04: PR #21 was opened a few minutes after PR #20 and its
+    pr.opened joined PR #20's open change incident on the shared
+    service:payment-api token alone. Two unrelated changes became one, and
+    PR #21 was never reviewed because that incident was already deploying.
+    Identity beats proximity: an event naming one PR never joins an
+    incident about another."""
+
+    def test_two_prs_on_one_service_are_two_incidents(self, db_session):
+        first = ingest_event(db_session, event(EventType.PR_OPENED, EventSource.GITHUB, pr=20))
+        second = ingest_event(
+            db_session,
+            event(EventType.PR_OPENED, EventSource.GITHUB, at=T0 + timedelta(minutes=5), pr=21),
+        )
+        assert second.created is True
+        assert second.incident_id != first.incident_id
+
+    def test_events_about_the_same_pr_still_join(self, db_session):
+        opened = ingest_event(db_session, event(EventType.PR_OPENED, EventSource.GITHUB, pr=20))
+        updated = ingest_event(
+            db_session,
+            event(
+                EventType.PR_UPDATED,
+                EventSource.GITHUB,
+                at=T0 + timedelta(minutes=5),
+                pr=20,
+                sha="b" * 40,
+            ),
+        )
+        assert updated.incident_id == opened.incident_id
+
+    def test_a_build_without_a_pr_still_joins_the_pr_it_followed(self, db_session):
+        """The cross-system path (xsys-pr-deploy-failure): the deploy that
+        follows a PR carries no PR number and still lands on its change."""
+        opened = ingest_event(db_session, event(EventType.PR_OPENED, EventSource.GITHUB, pr=20))
+        build = ingest_event(
+            db_session,
+            event(
+                EventType.BUILD_FAILED,
+                EventSource.JENKINS,
+                at=T0 + timedelta(minutes=5),
+                job="payment-api",
+                build_number=7,
+            ),
+        )
+        assert build.incident_id == opened.incident_id
