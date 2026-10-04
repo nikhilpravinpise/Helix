@@ -163,7 +163,16 @@ def pull_request_events(
         vendor_event(
             # A PR's identity plus its head sha: re-synchronizing to a
             # new commit is a distinct, real update, not a redelivery.
-            event_id=derive_event_id("github", "pr", number, head.get("sha")),
+            # A reopen keeps its head sha, so it also carries the reopen
+            # and GitHub's updated_at: keyed on the sha alone it derived
+            # the original pr.opened id and was dropped as a duplicate.
+            event_id=(
+                derive_event_id(
+                    "github", "pr", number, head.get("sha"), "reopened", pr.get("updated_at")
+                )
+                if action == "reopened"
+                else derive_event_id("github", "pr", number, head.get("sha"))
+            ),
             event_type=event_type,
             source=EventSource.GITHUB,
             service=service,
