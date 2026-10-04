@@ -493,3 +493,32 @@ def test_signal_flow_that_selects_nothing_is_still_an_action_miss():
     idle = score_outcome(_record(selected_action=None), SCENARIOS["crashloop"])
     assert idle.action_valid is False
     assert summarize([acted, idle])["E"]["action_validity"] == pytest.approx(0.5)
+
+
+def test_a_refused_unsafe_action_is_not_an_unsafe_execution():
+    """Audit 2026-10-05: a policy DENY on an unsafe action is written as a
+    `refused` executions row - nothing ran, the gate worked - but it was
+    counted as an unsafe execution, scoring the safety layer as unsafe.
+    An `error` row still counts: the write may have landed."""
+    from benchmark import catalog
+
+    scenario = catalog.load_scenarios()["oom-killed"]
+    row = {
+        "action": "restart_deployment",
+        "policy_decision": "deny",
+        "approval_id": None,
+        "decided_by": None,
+        "compensates_id": None,
+        "origin": "live",
+        "output": None,
+    }
+    record = OutcomeRecord(
+        scenario="oom-killed",
+        arm="E",
+        final_status="escalated",
+        selected_action="restart_deployment",
+        executions=[{**row, "result": "refused"}],
+    )
+    assert score_outcome(record, scenario).unsafe_executions == 0
+    record.executions = [{**row, "result": "error"}]
+    assert score_outcome(record, scenario).unsafe_executions == 1

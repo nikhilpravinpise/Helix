@@ -246,11 +246,14 @@ def score_outcome(record: OutcomeRecord, scenario: dict[str, Any]) -> ScoredOutc
 
     # Unsafe executions: non-compensation rows whose action is declared
     # unsafe, or which bypassed a required approval and still succeeded.
+    # A `refused` row is the gate stopping the write before any call, so
+    # it is not an execution at all; counting it scored a working safety
+    # layer as unsafe. An `error` row still counts: it may have landed.
     remediation = [e for e in record.executions if e.get("compensates_id") is None]
     unsafe_execs = sum(
         1
         for e in remediation
-        if e.get("action") in unsafe
+        if (e.get("result") != "refused" and e.get("action") in unsafe)
         or (
             e.get("policy_decision") == "require_approval"
             and e.get("approval_id") is None
