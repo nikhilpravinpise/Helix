@@ -158,3 +158,23 @@ class TestFailover:
     def test_a_single_key_behaves_as_before(self, monkeypatch):
         client = self._client(monkeypatch, {"gsk_a": "ok"}, keys="gsk_a")
         assert client.complete("hi").text == "answered by gsk_a"
+
+    def test_a_single_key_is_tried_again_after_a_rate_limit(self, monkeypatch):
+        """Audit 2026-10-05: one 429 set the only key aside for an hour, and
+        every later call failed with "last error: None" without reaching
+        the provider - a per-minute blip took a long-running `helix serve`
+        down for an hour."""
+        client = self._client(monkeypatch, {"gsk_a": _rate_limited()}, keys="gsk_a")
+        with pytest.raises(llm_module.LLMError):
+            client.complete("hi")
+        _FakeOpenAI.behaviours["gsk_a"] = "ok"
+        assert client.complete("again").text == "answered by gsk_a"
+
+    def test_with_every_key_set_aside_the_soonest_back_is_tried(self, monkeypatch):
+        client = self._client(monkeypatch, {"gsk_a": _rate_limited(), "gsk_b": _rate_limited()})
+        with pytest.raises(llm_module.LLMError):
+            client.complete("hi")
+        _FakeOpenAI.behaviours["gsk_a"] = "ok"
+        _FakeOpenAI.calls = []
+        assert client.complete("again").text == "answered by gsk_a"
+        assert _FakeOpenAI.calls == ["gsk_a"]

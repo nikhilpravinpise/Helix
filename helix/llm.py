@@ -189,12 +189,18 @@ class OpenAICompatibleLLMClient:
         the next key. Any other error is the request's fault, not the
         key's, and is raised at once - trying more keys would only spend
         their budgets.
+
+        Setting a key aside reorders, it never bans: when every key is set
+        aside, the one due back soonest is tried anyway. Skipping them all
+        turned a single per-minute 429 on a one-key setup into an hour of
+        calls failing without reaching the provider.
         """
         now = time.monotonic()
         last: openai.OpenAIError | None = None
-        for key in self._keys:
-            if _EXHAUSTED.get(key, 0.0) > now:
-                continue
+        ready = [key for key in self._keys if _EXHAUSTED.get(key, 0.0) <= now]
+        if not ready:
+            ready = [min(self._keys, key=lambda key: _EXHAUSTED.get(key, 0.0))]
+        for key in ready:
             try:
                 return self._client_for(key).chat.completions.create(**kwargs)
             except (openai.RateLimitError, openai.AuthenticationError) as exc:
