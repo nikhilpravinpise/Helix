@@ -71,7 +71,7 @@ from pathlib import Path
 from typing import Any
 
 from pydantic import ValidationError
-from sqlalchemy import create_engine, select
+from sqlalchemy import create_engine, or_, select
 from sqlalchemy.orm import Session
 
 from benchmark import catalog, reviewer
@@ -610,25 +610,40 @@ def _close_preexisting_incidents(database_url: str, scenarios: dict[str, Any]) -
     incident ids were all distinct, because the contamination arrived
     before the run rather than during it.
 
-    Scoped to fingerprints this run will actually produce, so it cannot
-    touch unrelated incidents, and it closes through the ordinary
-    validated transition rather than deleting anything.
+    Event scenarios (`events:`) are scoped by the (service, environment)
+    their events name instead: ingest correlates on the service token, not
+    a fingerprint, so a leftover there is invisible to the fingerprint
+    scope. A graph-on run that ended on arm D left a billing-worker
+    incident at `verifying`, and the next run's arm A reported arm D's LLM
+    hypothesis as its own on two scenarios.
+
+    Scoped to what this run will actually produce, so it cannot touch
+    unrelated incidents, and it closes through the ordinary validated
+    transition rather than deleting anything.
     """
     fingerprints: set[str] = set()
+    places: set[tuple[str, str]] = set()
     for scenario in scenarios.values():
+        for event in scenario.get("events") or []:
+            places.add((event.get("service") or "", event.get("environment") or ""))
         try:
             fingerprints.add(fingerprint(Signal.model_validate(scenario["signal"])))
         except (ValidationError, KeyError):
             continue  # a malformed scenario is caught by catalog validation
-    if not fingerprints:
+    if not fingerprints and not places:
         return 0
 
     closed = 0
     engine = create_engine(database_url)
     with Session(engine) as session:
+        scope = [models.Incident.fingerprint.in_(sorted(fingerprints))]
+        scope += [
+            (models.Incident.service == service) & (models.Incident.environment == environment)
+            for service, environment in sorted(places)
+        ]
         stale = session.scalars(
             select(models.Incident)
-            .where(models.Incident.fingerprint.in_(sorted(fingerprints)))
+            .where(or_(*scope))
             .where(models.Incident.status.not_in(TERMINAL_STATUSES))
         ).all()
         for incident in stale:

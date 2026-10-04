@@ -943,6 +943,46 @@ class TestClosePreexistingIncidents:
         models.Base.metadata.create_all(create_engine(url))
         assert harness._close_preexisting_incidents(url, SCENARIOS) == 0
 
+    def _seed_event_leftover(self, url, service, environment="sandbox"):
+        engine = create_engine(url)
+        models.Base.metadata.create_all(engine)
+        with Session(engine) as session:
+            session.add(
+                models.Incident(
+                    incident_id="INC-leftover",
+                    fingerprint="evt-an-event-id",
+                    service=service,
+                    environment=environment,
+                    severity="medium",
+                    status=IncidentStatus.VERIFYING,
+                )
+            )
+            session.commit()
+        return engine
+
+    def test_an_event_scenario_leftover_is_closed(self, tmp_path):
+        """2026-10-04: a graph-on run ended on arm D, leaving
+        xsys-runtime-missing-owner's billing-worker incident at `verifying`.
+        The next run's arm A org-missing-owner and xsys-runtime-missing-owner
+        both joined it on the service token and reported arm D's LLM
+        hypothesis as arm A's. Event scenarios open incidents keyed by
+        event id, not a signal fingerprint, so the fingerprint scope never
+        saw it."""
+        url = _sqlite_url(tmp_path)
+        engine = self._seed_event_leftover(url, "billing-worker")
+        run = {"org-missing-owner": SCENARIOS["org-missing-owner"]}
+        assert harness._close_preexisting_incidents(url, run) == 1
+        with Session(engine) as session:
+            assert session.scalar(select(models.Incident)).status in TERMINAL_STATUSES
+
+    def test_an_event_leftover_on_a_service_this_run_skips_is_kept(self, tmp_path):
+        url = _sqlite_url(tmp_path)
+        engine = self._seed_event_leftover(url, "billing-worker")
+        run = {"xsys-stale-work-item": SCENARIOS["xsys-stale-work-item"]}
+        assert harness._close_preexisting_incidents(url, run) == 0
+        with Session(engine) as session:
+            assert session.scalar(select(models.Incident)).status is IncidentStatus.VERIFYING
+
 
 class TestLiveInjectionStartsFromBaseline:
     """Each live scenario must start from the committed manifests, not from
