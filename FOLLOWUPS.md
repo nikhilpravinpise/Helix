@@ -132,6 +132,9 @@ five rows (done by hand in the run's analysis).
 
 ## 9. Owner and reviewer accuracy differ by arm
 
+**Status 2026-10-05: closed.** In phase2-run2 and phase2-run3 every arm
+scored owner 6/6 and reviewer 4/4 (docs/benchmark/phase-2-evaluation.md).
+
 In the same run, arms A and E scored owner 1.00 / reviewer 1.00 while B,
 C and D all scored 0.83 / 0.75. Triage and review are deterministic and
 should not depend on the arm, so either a change scenario takes a
@@ -140,6 +143,11 @@ end before review), or something arm-specific leaks into triage.
 Unexplained; check before trusting the Phase 2 lifecycle columns.
 
 ## 10. Arm D ran without its graph
+
+**Status 2026-10-05: closed.** Measured with the graph on
+(phase2-graph-on.json). The graph made owner and reviewer answers worse;
+fixed in d19ecd1 and measured again (phase2-graph-on-fixed.json). D's
+diagnosis was no better with the graph than without.
 
 `HELIX_GRAPH_ENABLED` defaults to false and Neo4j is not set up, so in
 phase2-run1 arm D received retrieval plus the event timeline but an
@@ -250,3 +258,21 @@ Plan when picked up:
 - ngrok: free account, authtoken, one static domain; binary installable to
   ~/.local/bin without sudo. Set the repo webhook (pull_request events,
   JSON, the secret) to https://<static-domain>/webhooks/github once.
+
+## 17. The tolerance check still describes Phase 1
+
+`python -m benchmark.tolerance` fails Phase 2 runs for reasons that are
+about the checker, not Helix (phase-2-evaluation.md section 6):
+
+- B, C and D's `recovery_success` band is `[0, 0]`. Change scenarios
+  recover on every arm, so those arms now score 0.31 to 0.38.
+- `_approval_gating_findings` counts PR review decisions as approval-gate
+  interventions, so every reviewed change scenario fails.
+- Arm A's `rca_accuracy` band is `[1, 1]`; `xsys-runtime-missing-owner` is
+  scored for root cause although A correctly escalates it.
+- No Phase 2 metric has a band (`docs/benchmark/tolerance.md`).
+
+Needs a decision on what Phase 2 is held to: likely bands per scenario
+flow (recovery vs change), reviews excluded from the gating count, and
+bands for the five Phase 2 metrics set from the measured runs. Then a
+third comparable 13-scenario run to apply them to.
