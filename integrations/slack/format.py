@@ -39,6 +39,17 @@ _STATUS = {
 _SEVERITY_ICON = {"critical": "🔴", "high": "🔴", "medium": "🟠", "low": "🟡"}
 
 
+def escape(value: Any) -> str:
+    """Slack's mrkdwn escaping for text from outside Helix.
+
+    A PR title, a pod reason or a transition cause is written by someone
+    else, and `<!channel>` or `<https://evil|Re-login>` in it rendered as a
+    channel-wide ping or a fake link inside Helix's own card. Slack decodes
+    these three entities back, so ordinary text reads unchanged.
+    """
+    return str(value).replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
+
+
 @dataclass
 class IncidentView:
     """The facts a Slack message needs, read off one incident."""
@@ -61,7 +72,7 @@ def mention(handle: str | None, people: dict[str, Any]) -> str:
     if person is not None and getattr(person, "slack", None):
         return f"<@{person.slack}>"
     name = getattr(person, "name", None) or handle
-    return f"*{name}*"
+    return f"*{escape(name)}*"
 
 
 def _display(handle: str | None, people: dict[str, Any]) -> str:
@@ -99,34 +110,37 @@ def describe_incident(
         number = facts["pr"]
         title = facts.get("title") or "untitled"
         verb = "updated" if facts.get("_type") == "pr.updated" else "opened"
-        summary = f"PR #{number} *{title}* {verb} by {_display(actor, people)}"
+        summary = (
+            f"PR #{escape(number)} *{escape(title)}* {verb} by {escape(_display(actor, people))}"
+        )
         if facts.get("branch"):
-            summary += f" on `{facts['branch']}`"
+            summary += f" on `{escape(facts['branch'])}`"
         links.append((f"PR #{number}", f"https://github.com/{repo}/pull/{number}"))
     elif source == "jenkins" or facts.get("stage"):
         job = facts.get("job") or incident.service
         build = facts.get("build_number")
         label = f"Jenkins build #{build}" if build is not None else "A Jenkins build"
-        summary = f"{label} of `{job}` failed at stage *{facts.get('stage') or 'unknown'}*"
+        stage = facts.get("stage") or "unknown"
+        summary = f"{escape(label)} of `{escape(job)}` failed at stage *{escape(stage)}*"
         if facts.get("build_url"):
             links.append((label, str(facts["build_url"])))
     elif facts.get("waiting_reason") or facts.get("pod"):
-        pod = facts.get("pod") or incident.service
-        reason = facts.get("waiting_reason")
+        pod = escape(facts.get("pod") or incident.service)
+        reason = escape(facts.get("waiting_reason") or "")
         if reason:
             summary = f"Pod `{pod}` is in *{reason}*"
             detail = []
             if facts.get("terminated_reason"):
-                detail.append(f"last exit: {facts['terminated_reason']}")
+                detail.append(f"last exit: {escape(facts['terminated_reason'])}")
             if facts.get("restart_count"):
-                detail.append(f"{facts['restart_count']} restarts")
+                detail.append(f"{escape(facts['restart_count'])} restarts")
             if detail:
                 summary += f" ({', '.join(detail)})"
         else:
             summary = f"Pod `{pod}` is running but not Ready"
     else:
         what = facts.get("_type") or "a failure signal"
-        summary = f"{what} from {source or 'an unknown source'}"
+        summary = f"{escape(what)} from {escape(source or 'an unknown source')}"
 
     for item in incident.work_items:
         if getattr(item, "external_url", None):
@@ -150,7 +164,7 @@ def describe_incident(
 
 
 def _links_line(view: IncidentView) -> str:
-    return "  ·  ".join(f"<{url}|{label}>" for label, url in view.links)
+    return "  ·  ".join(f"<{escape(url)}|{escape(label)}>" for label, url in view.links)
 
 
 def incident_card(view: IncidentView, people: dict[str, Any]) -> list[dict[str, Any]]:
@@ -169,10 +183,10 @@ def incident_card(view: IncidentView, people: dict[str, Any]) -> list[dict[str, 
         {
             "type": "section",
             "fields": [
-                {"type": "mrkdwn", "text": f"*Severity*\n{view.severity}"},
-                {"type": "mrkdwn", "text": f"*Environment*\n{view.environment}"},
+                {"type": "mrkdwn", "text": f"*Severity*\n{escape(view.severity)}"},
+                {"type": "mrkdwn", "text": f"*Environment*\n{escape(view.environment)}"},
                 {"type": "mrkdwn", "text": f"*Owner*\n{mention(view.owner, people)}"},
-                {"type": "mrkdwn", "text": f"*Kind*\n{view.kind}"},
+                {"type": "mrkdwn", "text": f"*Kind*\n{escape(view.kind)}"},
             ],
         },
         {"type": "context", "elements": [{"type": "mrkdwn", "text": _links_line(view)}]},
@@ -189,7 +203,7 @@ def update_text(status: str, cause: str, *, owner: str | None, people: dict[str,
     icon, label, ping = _STATUS.get(status, ("•", status.replace("_", " "), False))
     line = f"{icon} *{label}*"
     if cause:
-        line += f" - {cause}"
+        line += f" - {escape(cause)}"
     if ping:
         line += f"\n{mention(owner, people)} this needs you."
     return line
@@ -230,7 +244,10 @@ def review_card(
                 "text": f"👀 {mention(reviewer, people)}, please review: {view.summary}",
             },
         },
-        {"type": "context", "elements": [{"type": "mrkdwn", "text": f"Why you: {rationale}"}]},
+        {
+            "type": "context",
+            "elements": [{"type": "mrkdwn", "text": f"Why you: {escape(rationale)}"}],
+        },
         {"type": "context", "elements": [{"type": "mrkdwn", "text": _links_line(view)}]},
         _buttons(
             f"helix_review:{review_id}",
@@ -251,8 +268,8 @@ def approval_card(
             "text": {
                 "type": "mrkdwn",
                 "text": (
-                    f"✋ {mention(view.owner, people)}, Helix wants to run `{action}` on "
-                    f"*{view.service}* ({view.environment}) for {view.incident_id}."
+                    f"✋ {mention(view.owner, people)}, Helix wants to run `{escape(action)}` on "
+                    f"*{escape(view.service)}* ({escape(view.environment)}) for {view.incident_id}."
                 ),
             },
         },
@@ -260,7 +277,7 @@ def approval_card(
         {
             "type": "context",
             "elements": [
-                {"type": "mrkdwn", "text": f"Why it needs approval: {reason or 'policy'}"}
+                {"type": "mrkdwn", "text": f"Why it needs approval: {escape(reason or 'policy')}"}
             ],
         },
         {"type": "context", "elements": [{"type": "mrkdwn", "text": _links_line(view)}]},

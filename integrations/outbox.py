@@ -177,6 +177,7 @@ def _send_slack(
     from integrations.slack.format import (
         approval_card,
         describe_incident,
+        escape,
         incident_card,
         mention,
         review_card,
@@ -185,7 +186,7 @@ def _send_slack(
 
     settings = get_settings()
     channel = row.payload.get("channel") or settings.slack_default_channel
-    text = str(row.payload.get("text") or f"{incident.incident_id} update")
+    text = escape(row.payload.get("text") or f"{incident.incident_id} update")
     registry = load_registry()
     people = registry.people
     view = describe_incident(
@@ -217,7 +218,10 @@ def _send_slack(
             reason=reason,
             people=people,
         )
-        fallback = f"{mention(view.owner, people)} approval needed: {action} for {view.incident_id}"
+        fallback = (
+            f"{mention(view.owner, people)} approval needed: {escape(action)} "
+            f"for {view.incident_id}"
+        )
         resp = slack.post_message(channel, fallback, blocks=blocks)
     elif row.op == "review_request":
         # 2.6: the reviewer's ask is interactive too - the buttons record
