@@ -83,6 +83,15 @@ def _is_ready(pod: dict[str, Any]) -> bool:
     return True  # no Ready condition reported: do not invent a failure
 
 
+def _ready_since(pod: dict[str, Any]) -> str | None:
+    """When the Ready condition last changed: one value per not-Ready
+    episode, repeated verbatim on every read of that episode."""
+    for condition in (pod.get("status") or {}).get("conditions") or []:
+        if condition.get("type") == "Ready":
+            return condition.get("lastTransitionTime")
+    return None
+
+
 def _deleting(pod: dict[str, Any]) -> bool:
     return bool((pod.get("metadata") or {}).get("deletionTimestamp"))
 
@@ -145,7 +154,11 @@ def pod_events(
         elif not _is_ready(pod):
             out.append(
                 vendor_event(
-                    event_id=derive_event_id("kubernetes", uid, "not-ready"),
+                    # The Ready condition's transition time tells episodes
+                    # apart: keyed on the uid alone, a pod that went
+                    # not-Ready a second time hours later was dropped as
+                    # a duplicate of the first.
+                    event_id=derive_event_id("kubernetes", uid, "not-ready", _ready_since(pod)),
                     event_type=EventType.SERVICE_UNHEALTHY,
                     metadata={
                         "pod": metadata.get("name"),
