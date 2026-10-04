@@ -7,6 +7,7 @@ No live systems: the kube client runs an injected argv runner, the
 github/jenkins clients run on httpx.MockTransport.
 """
 
+import json
 import subprocess
 
 import httpx
@@ -337,3 +338,100 @@ class TestWriteFactorySelection:
         assert isinstance(get_kubernetes_write(), KubernetesWriteClient)
         assert isinstance(get_github_write(), GitHubWriteClient)
         assert isinstance(get_jenkins_write(), JenkinsWriteClient)
+
+
+def _deployment(revision: int, uid: str = "dep-uid") -> dict:
+    return {
+        "metadata": {
+            "uid": uid,
+            "annotations": {"deployment.kubernetes.io/revision": str(revision)},
+        }
+    }
+
+
+def _rs(revision: int, ready: int, owner: str = "dep-uid") -> dict:
+    return {
+        "metadata": {
+            "name": f"payment-api-r{revision}",
+            "annotations": {"deployment.kubernetes.io/revision": str(revision)},
+            "ownerReferences": [{"kind": "Deployment", "uid": owner}],
+        },
+        "status": {"readyReplicas": ready} if ready else {},
+    }
+
+
+class TestRollbackTarget:
+    """FOLLOWUPS #13, seen live twice: `rollout undo` goes to revision N-1,
+    and after earlier faults N-1 was itself a broken version with no pods -
+    while the last good version was still up and serving. A broken rollout
+    never becomes ready, so Kubernetes keeps the previous good ReplicaSet
+    serving; that ReplicaSet is the revision to return to."""
+
+    def test_the_serving_revision_wins_over_the_previous_one(self):
+        from integrations.kubernetes.write import serving_rollback_revision
+
+        replicasets = {"items": [_rs(5, 0), _rs(4, 0), _rs(3, 1)]}
+        assert serving_rollback_revision(_deployment(5), replicasets) == 3
+
+    def test_the_current_revision_is_never_the_target(self):
+        from integrations.kubernetes.write import serving_rollback_revision
+
+        replicasets = {"items": [_rs(5, 2), _rs(4, 0)]}
+        assert serving_rollback_revision(_deployment(5), replicasets) is None
+
+    def test_another_deployments_replicasets_are_ignored(self):
+        from integrations.kubernetes.write import serving_rollback_revision
+
+        replicasets = {"items": [_rs(5, 0), _rs(9, 3, owner="other-uid")]}
+        assert serving_rollback_revision(_deployment(5), replicasets) is None
+
+    def test_the_newest_serving_revision_is_chosen(self):
+        from integrations.kubernetes.write import serving_rollback_revision
+
+        replicasets = {"items": [_rs(6, 0), _rs(4, 1), _rs(5, 1)]}
+        assert serving_rollback_revision(_deployment(6), replicasets) == 5
+
+
+class TestRollbackCommand:
+    def _client(self, outputs, seen):
+        def runner(argv, **kwargs):
+            seen.append(argv)
+            return _proc(stdout=outputs.pop(0))
+
+        return KubernetesWriteClient(context="kind-helix-sandbox", runner=runner)
+
+    def test_rolls_back_to_the_serving_revision(self, monkeypatch):
+        monkeypatch.setenv("HELIX_ALLOWED_KUBE_CONTEXTS", "kind-helix-sandbox")
+        seen = []
+        client = self._client(
+            [
+                json.dumps(_deployment(5)),
+                json.dumps({"items": [_rs(5, 0), _rs(4, 0), _rs(3, 1)]}),
+                "rolled back",
+            ],
+            seen,
+        )
+        out = client.rollout_undo("payment-api", "payment-api")
+        assert "--to-revision=3" in seen[-1]
+        assert out["target_revision"] == 3
+        assert out["basis"] == "serving"
+
+    def test_with_nothing_serving_it_falls_back_and_says_so(self, monkeypatch):
+        monkeypatch.setenv("HELIX_ALLOWED_KUBE_CONTEXTS", "kind-helix-sandbox")
+        seen = []
+        client = self._client(
+            [json.dumps(_deployment(5)), json.dumps({"items": [_rs(5, 0), _rs(4, 0)]}), "ok"],
+            seen,
+        )
+        out = client.rollout_undo("payment-api", "payment-api")
+        assert not any(arg.startswith("--to-revision") for arg in seen[-1])
+        assert out["basis"] == "previous"
+
+    def test_unreadable_history_still_rolls_back(self, monkeypatch):
+        """Failing to read the history must not cancel the remediation."""
+        monkeypatch.setenv("HELIX_ALLOWED_KUBE_CONTEXTS", "kind-helix-sandbox")
+        seen = []
+        client = self._client(["not json", "not json", "ok"], seen)
+        out = client.rollout_undo("payment-api", "payment-api")
+        assert out["op"] == "rollout_undo"
+        assert out["basis"] == "previous"

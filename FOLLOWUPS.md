@@ -172,6 +172,13 @@ alongside `ts` and pass that.
 
 ## 13. rollback_deployment can roll back onto a broken revision
 
+**Status 2026-10-04: fixed.** Rollback now targets the newest older revision
+whose ReplicaSet still has ready pods, falling back to plain undo (and
+saying so in the result's `basis`) only when none is serving. Verified live
+on a history with a broken N-1: Helix chose the serving revision, not N-1.
+
+Original notes:
+
 Live 2026-10-03 (INC-6b5c0922): arm E's rollback ran `rollout undo`, which
 goes to the previous ReplicaSet revision, and on the sandbox that was an
 earlier injected fault - the new pod crashlooped. Rollback assumes the

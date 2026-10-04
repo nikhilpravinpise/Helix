@@ -15,6 +15,7 @@ Error mapping: missing CLI -> WriteError, TimeoutExpired ->
 WriteTimeoutError, non-zero exit -> WriteError carrying stderr.
 """
 
+import json
 import subprocess
 from typing import Any
 
@@ -82,10 +83,35 @@ class KubernetesWriteClient:
         return self._result("rollout_restart", tail, self._exec(*tail))
 
     def rollout_undo(self, deployment: str, namespace: str) -> dict[str, Any]:
-        """Roll back to the previous revision (undoes out-of-band set
-        image/env/resources changes)."""
+        """Roll back to the newest older revision that is still serving.
+
+        `kubectl rollout undo` alone goes to revision N-1, and live that was
+        an earlier broken version with no pods while the last good version
+        was still up (FOLLOWUPS #13). A broken rollout never becomes ready,
+        so Kubernetes keeps the previous good ReplicaSet serving; that is the
+        revision to return to. With no older revision serving - or history
+        that cannot be read - it falls back to plain undo, and `basis` in
+        the result says which happened, so the incident records whether the
+        target was known good or a guess.
+        """
+        target: int | None = None
+        try:
+            current = json.loads(
+                self._exec("get", f"deployment/{deployment}", "-n", namespace, "-o", "json")
+            )
+            replicasets = json.loads(
+                self._exec("get", "replicasets", "-n", namespace, "-o", "json")
+            )
+            target = serving_rollback_revision(current, replicasets)
+        except (ValueError, WriteError):
+            target = None  # unreadable history must not cancel the rollback
         tail = ["rollout", "undo", f"deployment/{deployment}", "-n", namespace]
-        return self._result("rollout_undo", tail, self._exec(*tail))
+        if target is not None:
+            tail.append(f"--to-revision={target}")
+        result = self._result("rollout_undo", tail, self._exec(*tail))
+        result["target_revision"] = target
+        result["basis"] = "serving" if target is not None else "previous"
+        return result
 
     def scale(self, deployment: str, namespace: str, replicas: int) -> dict[str, Any]:
         tail = [
@@ -103,3 +129,28 @@ class KubernetesWriteClient:
         re-asserted by the caller - this client applies what it is given."""
         tail = ["apply", "-f", str(path)]
         return self._result("apply_manifest", tail, self._exec(*tail))
+
+
+_REVISION = "deployment.kubernetes.io/revision"
+
+
+def serving_rollback_revision(
+    deployment: dict[str, Any], replicasets: dict[str, Any]
+) -> int | None:
+    """The newest revision of `deployment`, other than its current one, whose
+    ReplicaSet has ready pods - the version still serving traffic. None when
+    no older revision is serving."""
+    meta = deployment.get("metadata") or {}
+    uid = meta.get("uid")
+    current = int((meta.get("annotations") or {}).get(_REVISION) or 0)
+    serving: list[int] = []
+    for rs in replicasets.get("items") or []:
+        rs_meta = rs.get("metadata") or {}
+        owners = rs_meta.get("ownerReferences") or []
+        if not any(o.get("kind") == "Deployment" and o.get("uid") == uid for o in owners):
+            continue
+        revision = int((rs_meta.get("annotations") or {}).get(_REVISION) or 0)
+        ready = int((rs.get("status") or {}).get("readyReplicas") or 0)
+        if revision and revision != current and ready > 0:
+            serving.append(revision)
+    return max(serving) if serving else None
