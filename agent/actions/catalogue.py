@@ -28,6 +28,7 @@ k8s manifest allowlist, `open_fix_pr` refuses branches outside
 `helix/INC-*` and files outside `sandbox/payment-api/`.
 """
 
+import posixpath
 import re
 from collections.abc import Callable
 from dataclasses import dataclass
@@ -141,6 +142,10 @@ class FileChange(BaseModel):
         normalized = value.replace("\\", "/").lstrip("./")
         if ".." in normalized.split("/"):
             raise ValueError(f"path {value!r} may not contain '..'")
+        # Collapse `./` and `//` inside the path too. Policy compares the
+        # result to the Secret manifest's path as an exact string, and
+        # `sandbox/payment-api/./k8s/03-secret.yaml` skipped its approval.
+        normalized = posixpath.normpath(normalized)
         if not normalized.startswith(REPO_WRITE_ROOT):
             raise ValueError(f"path {value!r} is outside {REPO_WRITE_ROOT}")
         return normalized
