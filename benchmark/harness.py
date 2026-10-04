@@ -1068,7 +1068,7 @@ def run_scenario(
     # the key exactly where every document says to put it left all three
     # LLM arms skipping with a message naming the variable that was, as
     # far as the user could tell, already set.
-    if arm in ("B", "C", "D", "E") and not get_settings().llm_api_key:
+    if arm in ("B", "C", "D", "E") and not get_settings().llm_api_key_pool():
         record.skipped = f"arm {arm} requires HELIX_LLM_API_KEY (set it in .env or the environment)"
         return record
 

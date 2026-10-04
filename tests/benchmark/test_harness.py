@@ -48,7 +48,9 @@ def test_run_scenario_skips_on_unmet_requirements():
 
 
 def test_arm_b_and_e_skip_without_llm_key(monkeypatch):
-    monkeypatch.setattr(harness, "get_settings", lambda: SimpleNamespace(llm_api_key=None))
+    monkeypatch.setattr(
+        harness, "get_settings", lambda: SimpleNamespace(llm_api_key_pool=lambda: [])
+    )
     cfg = HarnessConfig(arms=["B"], database_url=BAD_URL)
     record = run_scenario("ci-test-regression", SCENARIOS["ci-test-regression"], "B", cfg)
     assert record.skipped.startswith("arm B requires HELIX_LLM_API_KEY")
@@ -63,7 +65,9 @@ def test_a_key_in_dot_env_is_enough_to_run_an_llm_arm(monkeypatch, arm):
     already set. Reaching the requirements check at all is the assertion:
     it proves the arm was not refused for a missing key."""
     monkeypatch.delenv("HELIX_LLM_API_KEY", raising=False)  # .env only, not the environment
-    monkeypatch.setattr(harness, "get_settings", lambda: SimpleNamespace(llm_api_key="gsk_x"))
+    monkeypatch.setattr(
+        harness, "get_settings", lambda: SimpleNamespace(llm_api_key_pool=lambda: ["gsk_x"])
+    )
     cfg = HarnessConfig(arms=[arm], database_url=BAD_URL)
     record = run_scenario("ci-test-regression", SCENARIOS["ci-test-regression"], arm, cfg)
     assert "requires HELIX_LLM_API_KEY" not in (record.skipped or "")
@@ -256,7 +260,9 @@ def test_change_flow_skips_on_unmet_requirements_before_ingesting():
 def test_change_flow_arm_d_needs_the_llm_key(monkeypatch):
     """Arm D reasons through the LLM like B/C/E - no key is an honest
     skip, not a failed run."""
-    monkeypatch.setattr(harness, "get_settings", lambda: SimpleNamespace(llm_api_key=None))
+    monkeypatch.setattr(
+        harness, "get_settings", lambda: SimpleNamespace(llm_api_key_pool=lambda: [])
+    )
     cfg = HarnessConfig(arms=["D"], database_url=BAD_URL)
     record = run_scenario("org-known-owner-change", SCENARIOS["org-known-owner-change"], "D", cfg)
     assert record.skipped.startswith("arm D requires HELIX_LLM_API_KEY")
@@ -995,3 +1001,16 @@ def test_the_harness_process_itself_is_pinned_too(monkeypatch):
     import os
 
     assert os.environ["HELIX_WORK_PROVIDER"] == "memory"
+
+
+def test_keys_only_in_the_extra_keys_setting_still_run_the_llm_arms(monkeypatch):
+    """Live, 2026-10-04: with both Groq keys in HELIX_LLM_API_KEYS and
+    HELIX_LLM_API_KEY left blank - a natural way to configure two keys -
+    the LLM client had keys but this check read only the first setting, so
+    every arm B to E scenario of a three-hour run skipped. The check reads
+    the whole key pool."""
+    monkeypatch.setenv("HELIX_LLM_API_KEY", "")
+    monkeypatch.setenv("HELIX_LLM_API_KEYS", "gsk_one,gsk_two")
+    cfg = HarnessConfig(arms=["B"], database_url=BAD_URL)
+    record = run_scenario("ci-test-regression", SCENARIOS["ci-test-regression"], "B", cfg)
+    assert "requires HELIX_LLM_API_KEY" not in (record.skipped or "")
