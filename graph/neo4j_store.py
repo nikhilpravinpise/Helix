@@ -105,7 +105,7 @@ class Neo4jGraphStore:
     ) -> list[Node]:
         if direction not in ("out", "in"):
             raise ValueError(f"direction must be 'out' or 'in', got {direction!r}")
-        rel = f":`{edge_type.value}`" if edge_type is not None else ""
+        rel = f"r:`{edge_type.value}`" if edge_type is not None else "r"
         label = f":`{target_type.value}`" if target_type is not None else ""
         pattern = (
             f"(a {{id: $id}})-[{rel}]->(b{label})"
@@ -113,7 +113,10 @@ class Neo4jGraphStore:
             else f"(a {{id: $id}})<-[{rel}]-(b{label})"
         )
         with self._driver.session(database=self._database) as session:
-            result = session.run(f"MATCH {pattern} RETURN b, labels(b) AS labels", id=node_id)
+            result = session.run(
+                f"MATCH {pattern} RETURN b, labels(b) AS labels ORDER BY coalesce(r.rank, 0)",
+                id=node_id,
+            )
             out: list[Node] = []
             for record in result:
                 labels = record["labels"]

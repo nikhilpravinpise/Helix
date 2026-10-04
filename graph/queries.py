@@ -27,18 +27,22 @@ def owners_of(store: GraphStore, service: str) -> list[str]:
 
 
 def reviewers_for(store: GraphStore, service: str, *, author: str | None = None) -> list[str]:
-    """Who should review a change to `service`? Owners and reviewers of
-    the service, excluding the change's own author - "who should review
-    this PR if the owner authored it" (CONTEXT.md section 12) resolves by
-    construction: the author is filtered out, so the remaining owners (or
-    the repository's other reviewers) are what is left to choose from."""
+    """Who should review a change to `service`? Its reviewers in registry
+    order, then its owners as the fallback, excluding the change's own
+    author - "who should review this PR if the owner authored it"
+    (CONTEXT.md section 12) resolves by construction: the author is
+    filtered out and the rest are what is left to choose from.
+
+    Reviewers come first because that is who the registry names to
+    review: listing owners first made the owner review every change, and
+    the graph-on benchmark scored reviewer accuracy 0/4 against 4/4."""
     candidates = list(
         dict.fromkeys(
             [
                 n.id
                 for n in store.neighbors(
                     service,
-                    edge_type=EdgeType.OWNS,
+                    edge_type=EdgeType.REVIEWS,
                     direction="in",
                     target_type=NodeType.DEVELOPER,
                 )
@@ -47,7 +51,7 @@ def reviewers_for(store: GraphStore, service: str, *, author: str | None = None)
                 n.id
                 for n in store.neighbors(
                     service,
-                    edge_type=EdgeType.REVIEWS,
+                    edge_type=EdgeType.OWNS,
                     direction="in",
                     target_type=NodeType.DEVELOPER,
                 )

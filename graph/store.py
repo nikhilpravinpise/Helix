@@ -53,6 +53,10 @@ class GraphStore(Protocol):
         walk. Unknown `node_id` returns an empty list, never an error -
         "the graph knows nothing about this yet" is a normal, honest
         answer for a freshly-ingested or partially-populated graph.
+
+        Ordered by the edge's `rank` property (unranked edges count as 0,
+        ties keep insertion order), so an ordered fact such as "the default
+        owner first" reads back the same from every store.
         """
         ...
 

@@ -92,7 +92,8 @@ def test_neighbors_out_direction_query_shape() -> None:
     driver.next_result = _FakeResult([{"b": {"id": "payment-api"}, "labels": ["service"]}])
     result = store.neighbors("alice", edge_type=EdgeType.OWNS, direction="out")
     query, params = driver.queries[-1]
-    assert "(a {id: $id})-[:`OWNS`]->(b)" in query
+    assert "(a {id: $id})-[r:`OWNS`]->(b)" in query
+    assert "ORDER BY coalesce(r.rank, 0)" in query
     assert params == {"id": "alice"}
     assert result == [Node(NodeType.SERVICE, "payment-api")]
 
@@ -102,7 +103,7 @@ def test_neighbors_in_direction_query_shape() -> None:
     driver.next_result = _FakeResult([])
     store.neighbors("payment-api", edge_type=EdgeType.OWNS, direction="in")
     query, _ = driver.queries[-1]
-    assert "(a {id: $id})<-[:`OWNS`]-(b)" in query
+    assert "(a {id: $id})<-[r:`OWNS`]-(b)" in query
 
 
 def test_neighbors_invalid_direction_raises() -> None:

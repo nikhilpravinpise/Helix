@@ -40,7 +40,29 @@ def test_ingest_registry_seeds_owners_and_reviewers() -> None:
     )
     ingest_registry(store, registry)
     assert owners_of(store, "payment-api") == ["alice"]
-    assert reviewers_for(store, "payment-api") == ["alice", "bob"]
+    # Reviewers before owners: an owner is only the fallback reviewer.
+    assert reviewers_for(store, "payment-api") == ["bob", "alice"]
+
+
+def test_graph_answers_keep_the_registrys_order() -> None:
+    """The default owner first, then the reviewers in the order the registry
+    lists them - the same answers resolve_owner/resolve_reviewer give."""
+    store = MemoryGraphStore()
+    registry = ServiceRegistry(
+        services={
+            "payment-api": ServiceEntry.model_validate(
+                {
+                    "default_owner": "alice",
+                    "owners": ["bob", "alice"],
+                    "default_reviewers": ["bob", "carol"],
+                }
+            )
+        }
+    )
+    ingest_registry(store, registry)
+    assert owners_of(store, "payment-api") == ["alice", "bob"]
+    assert reviewers_for(store, "payment-api") == ["bob", "carol", "alice"]
+    assert reviewers_for(store, "payment-api", author="bob") == ["carol", "alice"]
 
 
 def test_ingest_incident_links_service_and_owner(sqlite_engine: Engine) -> None:

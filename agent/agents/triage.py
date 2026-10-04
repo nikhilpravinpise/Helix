@@ -76,13 +76,16 @@ def _graph_owner(service: str) -> tuple[str | None, str] | None:
     from graph import get_graph_store
     from graph.queries import owners_of
 
-    store = get_graph_store()
     try:
-        owners = owners_of(store, service)
-    finally:
-        close = getattr(store, "close", None)
-        if callable(close):
-            close()
+        store = get_graph_store()
+        try:
+            owners = owners_of(store, service)
+        finally:
+            close = getattr(store, "close", None)
+            if callable(close):
+                close()
+    except Exception:  # advisory: an unreachable graph falls back, never fails triage
+        return None
     return (owners[0], "graph") if owners else None
 
 
@@ -157,7 +160,13 @@ def triage_node(deps: "GraphDeps"):
                     changed_paths=files,
                     commit_author=commit_author,
                 )
-                graph_answer = _graph_owner(incident.service)
+                # The graph knows who owns the service, not who owns each
+                # file, so a path-specific answer is the more precise one
+                # and stands (graph on, a Dockerfile change went to the
+                # service owner instead of its path owner).
+                graph_answer = (
+                    None if registry_source == "codeowners" else _graph_owner(incident.service)
+                )
                 owner, source = graph_answer if graph_answer else (registry_owner, registry_source)
 
                 report: dict[str, Any] = {
