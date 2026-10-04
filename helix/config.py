@@ -173,6 +173,10 @@ class Settings(BaseSettings):
     # approve is a no-op the outbox records as skipped, never a crash.
     slack_bot_token: str | None = Field(default=None, repr=False)
     slack_signing_secret: str | None = Field(default=None, repr=False)
+    #: App-level token (`xapp-`, scope connections:write) for Slack Socket
+    #: Mode: `helix slack-socket` receives button clicks over an outbound
+    #: connection, so no public URL into this machine is needed.
+    slack_app_token: str | None = Field(default=None, repr=False)
     slack_default_channel: str = "#helix-incidents"
     # How long an interactive Slack approval may sit undecided before the
     # same escalate-on-timeout contract 1.8's approval_timeout uses

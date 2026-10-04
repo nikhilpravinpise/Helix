@@ -505,12 +505,23 @@ async def slack_interactions(
     except ValueError:
         raise HTTPException(status_code=400, detail="malformed slack payload") from None
 
-    ptype = payload.get("type")
-    if ptype == "url_verification":
+    if payload.get("type") == "url_verification":
         return {"challenge": payload.get("challenge")}
+    return handle_slack_interaction(payload, session, background)
+
+
+def handle_slack_interaction(payload: dict, session: Session, background: BackgroundTasks) -> dict:
+    """Decide the button presses in one authenticated Slack interaction.
+
+    Shared by the HTTP route above (authenticated by the request signature)
+    and `helix slack-socket` (authenticated by its Socket Mode connection),
+    so a click is handled identically however it arrived. The decision is
+    committed here; the workflow resume is left on `background` for the
+    caller to run after acknowledging Slack."""
+    ptype = payload.get("type")
     if ptype != "block_actions":
         return {"ok": True, "ignored": ptype}
-
+    settings = get_settings()
     user = payload.get("user") or {}
     actor = user.get("username") or user.get("name") or user.get("id") or "slack"
     timeout = settings.slack_approval_timeout

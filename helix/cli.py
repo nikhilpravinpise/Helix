@@ -187,6 +187,12 @@ def build_parser() -> argparse.ArgumentParser:
         "(default: 3) - filters the not-Ready window every healthy rollout has",
     )
 
+    subparsers.add_parser(
+        "slack-socket",
+        help="receive Slack button clicks over Socket Mode (needs HELIX_SLACK_APP_TOKEN), "
+        "so Approve/Reject work with no public URL into this machine",
+    )
+
     emit = subparsers.add_parser(
         "emit",
         help="publish Helix's own lifecycle events to Kafka (subphase E5). "
@@ -683,6 +689,89 @@ def _cmd_watch(args: argparse.Namespace) -> int:
     return 0
 
 
+#: apps.connections.open errors that mean the token itself is wrong.
+_SLACK_TOKEN_ERRORS = ("invalid_auth", "not_allowed_token_type", "token_revoked", "not_authed")
+
+
+def _cmd_slack_socket(args: argparse.Namespace) -> int:
+    """Receive Slack button clicks over Socket Mode until interrupted.
+
+    Each click goes to `helix.api.handle_slack_interaction`, the handler the
+    HTTP route uses, so a decision lands identically however it arrived.
+    The workflow resume it queues runs on its own thread after the ack. A
+    dropped or recycled connection is reopened after a short pause.
+    """
+    import json
+    import threading
+    import time
+
+    import websocket
+    from fastapi import BackgroundTasks
+    from sqlalchemy import create_engine
+
+    from helix import api
+    from helix.config import get_settings
+    from integrations.slack import socket as slack_socket
+    from state.db import session_scope
+
+    token = get_settings().slack_app_token
+    if not token:
+        print(
+            "helix slack-socket: HELIX_SLACK_APP_TOKEN is not set (Slack app settings -> "
+            "Socket Mode -> app-level token with connections:write)",
+            file=sys.stderr,
+        )
+        return 2
+    engine = create_engine(get_settings().database_url)
+
+    def on_interactive(payload: dict) -> None:
+        background = BackgroundTasks()
+        with session_scope(engine) as session:
+            result = api.handle_slack_interaction(payload, session, background)
+        print(f"slack click: {result}", flush=True)
+        for task in background.tasks:
+            threading.Thread(target=task.func, args=task.args, kwargs=task.kwargs).start()
+
+    restore_signals = _stop_cleanly_on_signals()
+    try:
+        while True:
+            try:
+                ws = websocket.create_connection(slack_socket.open_connection_url(token))
+            except KeyboardInterrupt:
+                raise
+            except slack_socket.SlackError as exc:
+                if any(code in str(exc) for code in _SLACK_TOKEN_ERRORS):
+                    # A wrong token never starts working; retrying is noise.
+                    print(f"helix slack-socket: {exc}", file=sys.stderr)
+                    return 2
+                print(f"slack-socket: connect failed ({exc}); retrying in 5s", flush=True)
+                time.sleep(5)
+                continue
+            except Exception as exc:  # Slack or the network briefly away
+                print(f"slack-socket: connect failed ({exc}); retrying in 5s", flush=True)
+                time.sleep(5)
+                continue
+            print("slack-socket: connected", flush=True)
+            try:
+                while slack_socket.process_envelope(
+                    json.loads(ws.recv()),
+                    send_ack=lambda ack: ws.send(json.dumps(ack)),
+                    on_interactive=on_interactive,
+                ):
+                    pass
+            except KeyboardInterrupt:
+                raise
+            except Exception as exc:
+                print(f"slack-socket: connection dropped ({exc}); reconnecting", flush=True)
+            finally:
+                ws.close()
+    except KeyboardInterrupt:
+        print("slack-socket stopped", flush=True)
+    finally:
+        restore_signals()
+    return 0
+
+
 def _cmd_consume(args: argparse.Namespace) -> int:
     """Drive incident state from the event stream (subphase E4).
 
@@ -1102,6 +1191,8 @@ def main(argv: list[str] | None = None) -> int:
         return _cmd_consume(args)
     if args.command == "watch":
         return _cmd_watch(args)
+    if args.command == "slack-socket":
+        return _cmd_slack_socket(args)
     if args.command == "emit":
         return _cmd_emit(args)
     if args.command == "provenance":
