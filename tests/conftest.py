@@ -13,6 +13,8 @@ systems - and a test that needs a specific provider still sets it itself
 with monkeypatch, which runs after this fixture.
 """
 
+from pathlib import Path
+
 import pytest
 
 #: Every setting that can send traffic to a third-party integration.
@@ -30,8 +32,14 @@ _LIVE_INTEGRATIONS = {
 }
 
 
+#: The fixed cast tests name (alice, bob, carol). config/service_registry.yaml
+#: is the real team and may change; test expectations must not.
+_TEST_REGISTRY = Path(__file__).resolve().parents[1] / "benchmark" / "service_registry.yaml"
+
+
 @pytest.fixture(autouse=True)
 def _no_live_integrations(request, monkeypatch):
+    monkeypatch.setenv("HELIX_SERVICE_REGISTRY", str(_TEST_REGISTRY))
     if request.node.get_closest_marker("integration") is not None:
         return
     for name, value in _LIVE_INTEGRATIONS.items():

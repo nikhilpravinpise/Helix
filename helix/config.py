@@ -160,6 +160,11 @@ class Settings(BaseSettings):
     # until deliberately turned on; graph_enabled=true with no reachable
     # Neo4j instance is handled by the same "advisory, never fails a
     # workflow" contract retrieval already follows (E6).
+    #: Which service registry to read (owners, reviewers, people). Relative
+    #: paths resolve from the repo root. The benchmark and tests point this at
+    #: benchmark/service_registry.yaml, a fixed cast their expectations are
+    #: written against, so the live file can describe the real team.
+    service_registry: str = "config/service_registry.yaml"
     graph_enabled: bool = False
     neo4j_uri: str = "bolt://127.0.0.1:7687"
     neo4j_user: str = "neo4j"

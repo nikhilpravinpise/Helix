@@ -39,7 +39,6 @@ import yaml
 from pydantic import BaseModel, Field
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
-DEFAULT_REGISTRY_PATH = REPO_ROOT / "config" / "service_registry.yaml"
 
 
 class PathOwnerRule(BaseModel):
@@ -65,23 +64,46 @@ class ServiceEntry(BaseModel):
     depends_on: list[str] = Field(default_factory=list)
 
 
+class Person(BaseModel):
+    """How to show and reach one person. Keyed in the registry by the handle
+    owners and reviewers use - a GitHub login, so self-review exclusion can
+    compare it with a PR's author directly."""
+
+    name: str = ""
+    #: Slack member id (`U...`) to @-mention; None shows the name unpinged.
+    slack: str | None = None
+
+
 @dataclass(frozen=True)
 class ServiceRegistry:
-    """The loaded registry: service name -> `ServiceEntry`."""
+    """The loaded registry: service name -> `ServiceEntry`, plus people."""
 
     services: dict[str, ServiceEntry] = field(default_factory=dict)
+    people: dict[str, Person] = field(default_factory=dict)
 
     def get(self, service: str) -> ServiceEntry | None:
         return self.services.get(service)
 
+    def person(self, handle: str) -> Person | None:
+        return self.people.get(handle)
+
+
+def _configured_path() -> Path:
+    """HELIX_SERVICE_REGISTRY, resolved from the repo root when relative."""
+    from helix.config import get_settings
+
+    configured = Path(get_settings().service_registry)
+    return configured if configured.is_absolute() else REPO_ROOT / configured
+
 
 def load_registry(path: Path | None = None) -> ServiceRegistry:
-    """Load and validate `config/service_registry.yaml` (or `path`).
+    """Load and validate the configured registry (HELIX_SERVICE_REGISTRY,
+    default `config/service_registry.yaml`), or `path`.
 
     A missing file is not an error - it means no services are registered
     yet, and every resolution falls through to "unknown" honestly rather
     than the loader inventing a default."""
-    target = path or DEFAULT_REGISTRY_PATH
+    target = path or _configured_path()
     if not target.is_file():
         return ServiceRegistry(services={})
     raw = yaml.safe_load(target.read_text(encoding="utf-8")) or {}
@@ -89,7 +111,11 @@ def load_registry(path: Path | None = None) -> ServiceRegistry:
         name: ServiceEntry.model_validate(entry or {})
         for name, entry in (raw.get("services") or {}).items()
     }
-    return ServiceRegistry(services=services)
+    people = {
+        handle: Person.model_validate(entry or {})
+        for handle, entry in (raw.get("people") or {}).items()
+    }
+    return ServiceRegistry(services=services, people=people)
 
 
 def _code_owners(entry: ServiceEntry, changed_paths: list[str]) -> list[str]:

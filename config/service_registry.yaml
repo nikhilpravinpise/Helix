@@ -1,46 +1,39 @@
-# Service registry (subphase 2.1): the provider-neutral ownership
-# primitive CONTEXT.md section 11 and plan.md 2.5 need - "ownership
-# resolution from code ownership, commit history, and the service
-# registry". `path_owners` is Helix's own code-ownership signal: patterns
-# checked most-specific-match-wins, the same semantics a GitHub CODEOWNERS
-# file uses, sourced here rather than by adding a live GitHub
-# file-content capability the rest of the evidence layer does not
-# otherwise need (agent/ops/registry.py has the matching code).
+# Service registry: who owns and reviews each service, and how to reach
+# them. This is the LIVE team. Owners and reviewers are GitHub logins, which
+# is what Review's self-review exclusion compares with a PR's author. The
+# benchmark and tests read benchmark/service_registry.yaml instead (a fixed
+# cast their expectations name), so edit this file freely.
 #
-# One entry exists today because one service exists in the sandbox
-# (sandbox/payment-api). A second service is a second entry, not a schema
-# change.
+# Select another file with HELIX_SERVICE_REGISTRY.
+#
+# path_owners follow git CODEOWNERS order: the LAST matching pattern wins, so
+# list broad rules first and specific ones after. fnmatch's `*` matches `/`.
 services:
   payment-api:
     team: payments
-    repo: nikhilpravinpise/Helix
-    default_owner: alice
+    repo: VrajVed/helix-sandbox
+    default_owner: VrajVed
     owners:
-      - alice
-      - bob
+      - VrajVed
+      - nikhilpravinpise
     default_reviewers:
-      - bob
-      - carol
-    # What payment-api actually depends on at runtime (its Postgres
-    # backing store) - the graph turns each name into a DEPENDS_ON edge
-    # so "a failure here may originate there" is a real answer, not an
-    # empty section.
+      - nikhilpravinpise
+      - VrajVed
     depends_on:
       - postgres
-    # Ordered broadest-to-narrowest, git CODEOWNERS style: the LAST
-    # matching pattern wins, so a later, more specific rule overrides an
-    # earlier catch-all - not the other way around. fnmatch's `*` matches
-    # `/` too, so "sandbox/payment-api/*" matches every path under the
-    # service, including k8s/ ones; it must come FIRST for the k8s- and
-    # Secret-specific rules below to actually override it.
     path_owners:
       - pattern: "sandbox/payment-api/*"
         owners:
-          - bob
+          - VrajVed
       - pattern: "sandbox/payment-api/k8s/*"
         owners:
-          - alice
-          - bob
-      - pattern: "sandbox/payment-api/k8s/03-secret.yaml"
-        owners:
-          - alice
+          - VrajVed
+          - nikhilpravinpise
+
+# How to show and ping each person. `slack` is a Slack member id (profile ->
+# ... -> Copy member ID); without one the name is shown and nobody is pinged.
+people:
+  VrajVed:
+    name: Vraj
+  nikhilpravinpise:
+    name: Nikhil

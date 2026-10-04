@@ -87,6 +87,7 @@ from state.intake import Signal, build_event, fingerprint
 from state.machine import TERMINAL_STATUSES, IncidentStatus, transition
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
+BENCHMARK_REGISTRY = REPO_ROOT / "benchmark" / "service_registry.yaml"
 REPORTS_DIR = REPO_ROOT / "benchmark" / "reports"
 
 TERMINAL = {
@@ -1082,6 +1083,9 @@ def run_scenario(
     env = dict(os.environ)
     env["HELIX_ARM"] = arm
     env["HELIX_DATABASE_URL"] = database_url
+    # The fixed cast the scenarios' expected owners and reviewers name -
+    # never the live team in config/service_registry.yaml.
+    env["HELIX_SERVICE_REGISTRY"] = str(BENCHMARK_REGISTRY)
     if mode == "fixture":
         env.update(FIXTURE_RUN_ENV)
         env["HELIX_FIXTURE_PATH"] = scenario["evidence_fixture"]  # guarded above
