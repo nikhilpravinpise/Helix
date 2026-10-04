@@ -276,3 +276,53 @@ Needs a decision on what Phase 2 is held to: likely bands per scenario
 flow (recovery vs change), reviews excluded from the gating count, and
 bands for the five Phase 2 metrics set from the measured runs. Then a
 third comparable 13-scenario run to apply them to.
+
+### Proposal (2026-10-05, not applied, waiting for Vraj's approval)
+
+Numbers from phase2-run2 and phase2-run3, split by scenario flow
+(`flow: change` in the scenario YAML vs everything else):
+
+| Arm | Recovery flow: RCA / valid / recovered / unsafe | Change flow: owner / reviewer / lifecycle / dup |
+|---|---|---|
+| A | 6/6, 6/6, 6/6, 0 (both runs) | 6/6, 4/4, 7/7, 0 (both runs) |
+| B | 1/6 and 1/6, 5/6, 0/6, 0 | 6/6, 4/4, 5/7, 0 |
+| C | 2/6 and 4/6, 4/6 and 5/6, 0/6, 0 | 6/6, 4/4, 4/7 and 5/7, 0 |
+| D | 2/6 and 0/6, 4/6, 0/6, 0 | 6/6, 4/4, 4/7 and 5/7, 0 |
+| E | 2/6 and 0/6, 3/6 and 5/6, 1/6, 0 | 6/6, 4/4, 6/7, 0 |
+
+1. **Check each flow against its own metrics.** `tolerance.py` recomputes
+   per-arm rates from `outcomes` using each scenario's flow, instead of
+   reading the mixed `summary`. Phase 1 metrics (RCA, action validity,
+   recovery, measured state, unsafe) over recovery-flow scenarios only;
+   Phase 2 metrics over change-flow scenarios only. Works on the reports
+   already committed, no report format change. With this split the
+   existing bands hold again: B, C and D recover 0/6, which is their
+   structural `[0, 0]`, and arm A's RCA is 6/6, which is its `[1, 1]`
+   (the `xsys-runtime-missing-owner` miss is a change scenario).
+2. **Gate on approvals, not reviews.** `_approval_gating_findings` reads a
+   new per-outcome `approval_decisions` (approvals only) instead of
+   `human_interventions` (approvals plus reviews). Reports without the
+   field fall back to `human_interventions` for recovery-flow scenarios
+   and skip the check, with a note, for change-flow ones. Arm D's three
+   approval-needing cluster writes on GitHub scenarios stay failures:
+   that is the check working. NOTE: an uncommitted start on this exists
+   in the working tree (`benchmark/scoring.py` adds `approval_decisions`,
+   with a test in `tests/benchmark/test_scoring.py`), left by an earlier
+   session around 01:03 on 2026-10-05. It was not written or committed by
+   the overnight session; review it as part of this step.
+3. **Bands for the Phase 2 metrics.** Triage, review and the outbox are
+   plain code, so they must not vary by arm or run:
+   - `owner_accuracy`, `reviewer_accuracy`: `[1, 1]`, spread 0, every arm.
+   - `duplicate_work_item_rate`: `[0, 0]`, spread 0, every arm.
+   - `decision_evidence_coverage`: `[1, 1]` for A; LLM arms provisional
+     `[0.9, 1]` (1.00 measured, but it depends on what the LLM cited).
+   - `lifecycle_consistency`: A `[1, 1]` spread 0. B, C, D structurally
+     stop at `verifying` on the two cross-system handoffs, so `[5/7, 5/7]`
+     spread 0 is their honest band; E provisional `[6/7, 1]`.
+4. **Fresh runs.** Run 2 has the correlation defect in C and D
+   (`xsys-stale-work-item`) and run 3 has one inherited arm A incident,
+   both fixed since. Cleanest: three new 13-scenario runs on current main
+   (about 16 min each, ~50 min total), and keep runs 2 and 3 as history.
+   Cheaper: one new run plus runs 2 and 3, accepting the two known rows.
+
+Recommended: all four, with three fresh runs.
