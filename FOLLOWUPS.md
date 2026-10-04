@@ -85,15 +85,16 @@ first full 19-scenario run, 2026-10-02.
 
 ## 7. Helix does not yet run on its own
 
-**Status 2026-10-03: mostly closed.** Three of the four gaps below are fixed
-and verified live: Jenkins failures drive Helix (`?run=true`, correct
-stage, docker0 bind), `helix consume --follow --run` drives incidents from
-Kafka, and `helix watch` publishes confirmed pod failures. An injected
-crashloop now goes watcher -> Kafka -> incident -> remediation ->
-verification -> Slack/Jira with nobody involved. Still open: the GitHub
-webhook endpoint and the tunnel it (and the Slack buttons) need. Note that
-a cluster fix only verifies with Elasticsearch up - with ELK down the
-elk_errors leg errors and the incident escalates, correctly but noisily.
+**Status 2026-10-04: closed.** All four gaps below are fixed and verified
+live: Jenkins failures drive Helix (`?run=true`, correct stage, docker0
+bind), `helix consume --follow --run` drives incidents from Kafka, `helix
+watch` publishes confirmed pod failures, and `helix watch --source github`
+turns PR activity into the review lifecycle. No tunnel was needed: GitHub
+is polled rather than pushing webhooks, and `helix slack-socket` receives
+button clicks over Slack Socket Mode. A tunnel would only add instant PR
+reactions, outside access to the dashboard, or GitHub App webhooks (#15).
+Note that a cluster fix only verifies with Elasticsearch up - with ELK down
+the elk_errors leg errors and the incident escalates, correctly but noisily.
 
 Original notes:
 
