@@ -46,7 +46,7 @@ from agent.state import WorkflowState
 from helix.logging import get_logger
 from state import models
 from state.approvals import sweep_approval_timeout
-from state.machine import IncidentStatus
+from state.machine import TERMINAL_STATUSES, IncidentStatus
 
 
 class IncidentNotFoundError(LookupError):
@@ -404,3 +404,41 @@ def run_incident(
         errors=list(final_state.get("errors", [])),
         error=error,
     )
+
+
+#: Where an incident waits on something outside Helix: a reviewer, an
+#: approver, the author's next commit, a build or deploy outcome. Running
+#: again cannot move it; the next event or decision will.
+PARKED_STATUSES: frozenset[str] = frozenset(
+    {
+        IncidentStatus.REVIEW_PENDING.value,
+        IncidentStatus.AWAITING_APPROVAL.value,
+        IncidentStatus.FIX_REQUIRED.value,
+        IncidentStatus.DEPLOYING.value,
+        *(s.value for s in TERMINAL_STATUSES),
+    }
+)
+
+
+def run_until_parked(incident_id: str, *, max_hops: int = 10, **kwargs: Any) -> RunResult:
+    """Run `incident_id` repeatedly until it parks, stops advancing, or
+    `max_hops` runs have been made; returns the last result.
+
+    `run_incident` advances a change incident one lifecycle stage per call
+    (received -> triaged -> owner_assigned -> review_pending), which suits
+    an operator stepping through `helix run` and is why the benchmark and
+    the E2E script loop it. Unattended - `helix consume --run` - nothing
+    loops it, and a PR stopped at `triaged`, never reaching a reviewer.
+    This is that loop, with the same stopping points: a parked status
+    (PARKED_STATUSES), or a run that leaves the status unchanged, so it can
+    never spin. `helix run` itself stays single-step.
+    """
+    result = run_incident(incident_id, **kwargs)
+    for _ in range(max_hops - 1):
+        if result.status in PARKED_STATUSES:
+            break
+        previous = result.status
+        result = run_incident(incident_id, **kwargs)
+        if result.status == previous:
+            break
+    return result

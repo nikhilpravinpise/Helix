@@ -754,11 +754,13 @@ class _IncidentDriver:
         self._pool.submit(self._drive, incident_id)
 
     def _drive(self, incident_id: str) -> None:
-        from agent.runner import run_incident
+        from agent.runner import run_until_parked
 
         self._waiting.discard(incident_id)
         try:
-            outcome = run_incident(incident_id)
+            # Until parked, not one run: a change incident advances one
+            # lifecycle stage per run and would otherwise stop at triaged.
+            outcome = run_until_parked(incident_id)
             print(f"{incident_id}: {getattr(outcome, 'status', 'ran')}", flush=True)
         except Exception as exc:  # the outcome lives in workflow_runs
             print(f"{incident_id}: run failed - {exc}", flush=True)
