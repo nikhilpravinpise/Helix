@@ -970,3 +970,28 @@ class TestLiveInjectionStartsFromBaseline:
         detail = harness._inject_live({"fault_script": "faults/missing-secret.sh"})
         assert detail is not None and "reset" in detail
         assert len(calls) == 1
+
+
+def test_benchmark_runs_never_reach_live_work_tracking_or_chat(monkeypatch):
+    """Every scenario shells out to `helix`, which reads the developer's
+    .env - and once that held real Jira and Slack credentials, a full run
+    would have filed a ticket and posted a thread per scenario per arm.
+    The harness pins those integrations to the recording fakes itself."""
+    monkeypatch.setenv("HELIX_WORK_PROVIDER", "jira")
+    monkeypatch.setenv("HELIX_SLACK_BOT_TOKEN", "xoxb-real")
+    env = harness._isolated_env()
+    assert env["HELIX_WORK_PROVIDER"] == "memory"
+    assert env["HELIX_SLACK_BOT_TOKEN"] == ""
+    assert env["HELIX_NOTION_API_KEY"] == ""
+    assert env["HELIX_SERVICE_REGISTRY"].endswith("benchmark/service_registry.yaml")
+
+
+def test_the_harness_process_itself_is_pinned_too(monkeypatch):
+    """_settle_integrations drains the outbox inside the harness process, so
+    pinning only the subprocesses would still let it reach live Jira."""
+    monkeypatch.setenv("HELIX_WORK_PROVIDER", "jira")
+    cfg = HarnessConfig(arms=["A"], scenarios=["no-such-scenario"], database_url=BAD_URL)
+    run_benchmark(cfg)
+    import os
+
+    assert os.environ["HELIX_WORK_PROVIDER"] == "memory"

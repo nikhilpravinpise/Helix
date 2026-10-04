@@ -241,6 +241,30 @@ def _ingest_via_events(
     return result.incident_id, None
 
 
+#: Integrations a benchmark run must never reach for real. Every scenario
+#: shells out to `helix`, which reads the developer's .env; with live Jira
+#: and Slack configured, a full five-arm run would have filed a ticket and
+#: posted a thread per scenario per arm. Blank means "not set" in settings.
+_BENCHMARK_ISOLATION = {
+    "HELIX_WORK_PROVIDER": "memory",
+    "HELIX_SLACK_BOT_TOKEN": "",
+    "HELIX_SLACK_SIGNING_SECRET": "",
+    "HELIX_SLACK_APP_TOKEN": "",
+    "HELIX_NOTION_API_KEY": "",
+}
+
+
+def _isolated_env() -> dict[str, str]:
+    """The environment for a scenario's `helix` subprocesses: the caller's,
+    with work tracking and chat pinned to the recording fakes and the
+    service registry pinned to the fixed cast the scenarios' expected
+    owners and reviewers name - never the live team."""
+    env = dict(os.environ)
+    env.update(_BENCHMARK_ISOLATION)
+    env["HELIX_SERVICE_REGISTRY"] = str(BENCHMARK_REGISTRY)
+    return env
+
+
 def _inject_live(scenario: dict[str, Any]) -> str | None:
     """Reset the sandbox to the committed manifests, then run the declared
     fault script; None on success, else the failure detail the record
@@ -1080,12 +1104,9 @@ def run_scenario(
         record.skipped = f"unmet requirements: {', '.join(unmet)}"
         return record
 
-    env = dict(os.environ)
+    env = _isolated_env()
     env["HELIX_ARM"] = arm
     env["HELIX_DATABASE_URL"] = database_url
-    # The fixed cast the scenarios' expected owners and reviewers name -
-    # never the live team in config/service_registry.yaml.
-    env["HELIX_SERVICE_REGISTRY"] = str(BENCHMARK_REGISTRY)
     if mode == "fixture":
         env.update(FIXTURE_RUN_ENV)
         env["HELIX_FIXTURE_PATH"] = scenario["evidence_fixture"]  # guarded above
@@ -1157,6 +1178,11 @@ def run_scenario(
 
 def run_benchmark(cfg: HarnessConfig) -> dict[str, Any]:
     """All scenarios x all arms -> scored report dict."""
+    # The harness process drains the integration outbox itself between
+    # change-flow hops (_settle_integrations), so it is pinned exactly like
+    # the `helix` subprocesses - otherwise it would deliver to live Jira.
+    os.environ.update(_BENCHMARK_ISOLATION)
+    os.environ["HELIX_SERVICE_REGISTRY"] = str(BENCHMARK_REGISTRY)
     scenarios = catalog.load_scenarios()
     if cfg.scenarios:
         scenarios = {k: v for k, v in scenarios.items() if k in set(cfg.scenarios)}
