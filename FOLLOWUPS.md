@@ -204,3 +204,21 @@ verification for runtime incidents always includes the runtime legs
 re-publishes a condition that persists past a deadline after being
 reported. (b) is closest to plan.md 1.9's intent; (c) alone would just
 open new incidents that close the same way.
+
+## 15. Run Helix's GitHub access as a GitHub App (optional, deferred)
+
+Raised 2026-10-04; Vraj chose to defer it. Helix uses a personal
+fine-grained token, so every PR it opens is authored by that person, and
+Review's self-review exclusion then means they can never be its reviewer.
+A GitHub App gives Helix its own identity (`<app>[bot]` authors the PRs),
+per-repo installation with declared permissions, and short-lived
+installation tokens - and is the kind of integration GitHub's developer
+program is aimed at (check its current terms first).
+
+Setup when picked up: create the app (Contents rw, Pull requests rw,
+Checks r; webhook inactive, since Helix polls), install it on the sandbox
+repo, then set HELIX_GITHUB_APP_ID, HELIX_GITHUB_APP_INSTALLATION_ID and
+HELIX_GITHUB_APP_PRIVATE_KEY_PATH (key kept outside the repo). Code: mint
+a JWT from the private key, exchange it for an installation token, and use
+that in the read and write clients, falling back to HELIX_GITHUB_TOKEN when
+the app settings are absent.
