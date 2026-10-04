@@ -281,6 +281,37 @@ class TestGitHubAdapter:
         assert [e.event_type for e in events] == [EventType.PR_OPENED]
         assert events[0].actor == "dana"
 
+    def test_a_real_pull_request_webhook_is_read_from_its_pull_request_block(self):
+        """GitHub's pull_request webhook nests title, head and base inside
+        `pull_request`; the top level carries only action, number,
+        repository and sender. Fed a real PR object wrapped that way (from
+        VrajVed/helix-sandbox#17), the adapter read branch, sha and title as
+        None - and because the event id keys on the head sha, every push to
+        a PR derived the same id and was dropped as a duplicate."""
+
+        def hook(sha):
+            return {
+                "action": "synchronize",
+                "number": 17,
+                "pull_request": {
+                    "number": 17,
+                    "title": "Helix remediation for INC-aba102e5",
+                    "user": {"login": "VrajVed"},
+                    "head": {"ref": "helix/INC-aba102e5", "sha": sha},
+                    "base": {"ref": "main"},
+                },
+                "repository": {"full_name": "VrajVed/helix-sandbox"},
+                "sender": {"login": "VrajVed"},
+            }
+
+        first = github.pull_request_events(hook("a" * 40))[0]
+        assert first.metadata["branch"] == "helix/INC-aba102e5"
+        assert first.metadata["sha"] == "a" * 40
+        assert first.metadata["base"] == "main"
+        assert first.metadata["title"] == "Helix remediation for INC-aba102e5"
+        second = github.pull_request_events(hook("b" * 40))[0]
+        assert first.event_id != second.event_id
+
     def test_pr_actor_falls_back_to_sender_when_no_pr_block(self):
         """Webhook shapes that flatten `pull_request` (the benchmark's own
         event dicts, some proxy payloads) still carry a real actor via

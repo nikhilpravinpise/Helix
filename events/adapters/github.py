@@ -138,8 +138,16 @@ def pull_request_events(
     if event_type is None:
         return []
     number = payload.get("number")
-    head = payload.get("head") or {}
-    base = payload.get("base") or {}
+    # GitHub's webhook nests title/head/base inside `pull_request`; the
+    # top level holds only action, number, repository and sender. Reading
+    # them from the top level left branch, sha and title None for every
+    # real delivery, and since the id keys on the head sha, each push to a
+    # PR derived the same id and was dropped as a duplicate. Flattened
+    # shapes (the benchmark's own event dicts) keep working as the fallback.
+    pr = payload.get("pull_request") or {}
+    head = pr.get("head") or payload.get("head") or {}
+    base = pr.get("base") or payload.get("base") or {}
+    title = pr.get("title") or payload.get("title")
     # The PR's author: `pull_request.user.login` in GitHub's schema (the
     # human whose change is under review - Review's self-review exclusion
     # keys on it). `sender.login` is who triggered the action, which for
@@ -148,7 +156,7 @@ def pull_request_events(
     # top-level `user` never existed in this webhook - reading it meant
     # every real PR emitted actor="system", and self-review exclusion
     # silently stopped applying.
-    pr_user = (payload.get("pull_request") or {}).get("user") or {}
+    pr_user = pr.get("user") or {}
     sender = payload.get("sender") or {}
     author = pr_user.get("login") or sender.get("login") or payload.get("user") or "system"
     return [
@@ -163,7 +171,7 @@ def pull_request_events(
             actor=str(author),
             metadata={
                 "pr": number,
-                "title": payload.get("title"),
+                "title": title,
                 "branch": head.get("ref"),
                 "sha": head.get("sha"),
                 "base": base.get("ref"),
