@@ -326,3 +326,63 @@ Numbers from phase2-run2 and phase2-run3, split by scenario flow
    Cheaper: one new run plus runs 2 and 3, accepting the two known rows.
 
 Recommended: all four, with three fresh runs.
+
+## 18. Overnight audit findings not fixed (2026-10-05)
+
+Found by the four-agent audit (`docs/audit-2026-10-05.md`), checked, and
+parked because each needs a design decision or more than a contained fix.
+Ordered by risk.
+
+- **S3 - writes are not tied to the incident's target.** `deployment` and
+  `namespace` are free strings; policy and validation never check them
+  against the incident's service. `restart_deployment` on
+  `kube-system/coredns` with `pod.failed` evidence is `allow_with_checks`.
+  Likely fix: an allowlist of namespaces (or the registry's service ->
+  namespace map) enforced in policy and the kube write client.
+- **I4 - deciders are not authorised.** Any Slack user who sees a card can
+  decide a review or approval, including the PR author on their own
+  change; `--actor` on the CLI and `actor` in the API are free text. Also
+  `intake_token` is compared with `!=`, not `hmac.compare_digest`. Needs a
+  decision on who may decide what (reviewer only? owner for approvals?).
+- **I2 - outbox rows can be sent twice.** `drain_outbox` marks rows `sent`
+  in the caller's transaction; a later exception in the same
+  `session_scope` (e.g. `helix sync` after the drain) rolls them back to
+  `pending` after Slack/Jira/Notion were already called, and the next
+  drain re-posts. No row locking either, so two drains can overlap.
+  Reproduced (audit script t1.py). Fix: commit per row, and claim rows
+  with `FOR UPDATE SKIP LOCKED`.
+- **E1b - a crash during an open PR joins the PR's change incident.**
+  Change incidents absorb deploy failures on purpose (the
+  xsys-pr-deploy-failure handoff), so a runtime failure on the same
+  service joins one on the service token and no recovery incident opens.
+  Needs a rule for when a runtime event belongs to a change (only while
+  `deploying`? only with a deployment/commit token?).
+- **S5 - approved writes are recorded without their approver.** The
+  executor re-runs `decide()` without evidence types, gets
+  `allow_with_checks`, and writes `approval_id=NULL` for a write a human
+  approved. Provenance only; the write itself was authorised.
+- **E4 - events carry ingest time, not vendor time.** `vendor_event` never
+  sets `timestamp` from `@timestamp`, `submitted_at`, build times or
+  Kubernetes `lastTimestamp`, so the 30-minute correlation window and
+  `occurred_at` measure ingest. Changing it shifts correlation behaviour,
+  so it needs its own benchmark check.
+- **E5 - watchers mark a change seen before publishing it.** A Kafka
+  publish error crashes the loop after `PullRequestTracker` and
+  `PersistenceFilter` already recorded the change; on restart it is a
+  baseline and never announced. Not reproduced.
+- **S4 - arm A rules always target payment-api.** `match_rule` ignores the
+  signal's service and namespace. Arm A only, sandbox has one service.
+- **I5 - a Notion page deleted in the UI is archived, not 404.**
+  `get_page` treats it as present, so reconcile never recreates it and
+  appends fail until the row is `failed`. From Notion's documented
+  behaviour; not reproduced.
+- **B3 - xsys-runtime-missing-owner replays the wrong evidence.** Its event
+  is billing-worker `NeverSeenReason`, its `evidence_fixture` is
+  payment-api crashloop, so LLM arms reason over another service.
+- **B4 - root-cause matching is substring-based.** The `pr` token matches
+  "problem"; several faults' real root-cause text matches another fault's
+  tokens. Inflates LLM RCA on rejected-pr. Needs word-boundary matching
+  and a check that each scenario's own text matches only itself.
+- **I6 - minor.** `helix sync` exits 0 with failed rows; `helix review`
+  exits 0 when the resumed run errors (`helix approve` exits 1); Slack
+  review clicks use `approval_timeout`, not `slack_approval_timeout`.
