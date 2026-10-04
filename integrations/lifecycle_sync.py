@@ -120,7 +120,13 @@ def enqueue_for_transition(
         incident,
         "slack",
         "notify",
-        {"text": f"{incident.incident_id}: -> {to_status.value} - {cause}"},
+        {
+            "text": f"{incident.incident_id}: -> {to_status.value} - {cause}",
+            # Structured, so the drain can render a readable update rather
+            # than re-parse the plain-text fallback above.
+            "status": to_status.value,
+            "cause": cause,
+        },
     )
 
     # Notion: milestone transitions refresh the incident page (2.4).

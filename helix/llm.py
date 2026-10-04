@@ -63,6 +63,12 @@ class LLMClient(Protocol):
     def complete_structured(self, prompt: str, schema: type[T], *, max_tokens: int = 2048) -> T: ...
 
 
+#: Keys refused recently, by key: monotonic time until which they are
+#: skipped. Process-wide, so a long-running daemon stops trying a spent key.
+_EXHAUSTED: dict[str, float] = {}
+_EXHAUSTION_SECONDS = 3600.0
+
+
 class OpenAICompatibleLLMClient:
     """OpenAI-compatible implementation of LLMClient (Groq by default, D14).
 
@@ -80,11 +86,11 @@ class OpenAICompatibleLLMClient:
     ) -> None:
         settings = get_settings()
         self._model = model or settings.llm_model or DEFAULT_MODEL
-        self._client = openai.OpenAI(
-            api_key=api_key or settings.llm_api_key or "helix-missing-key",
-            base_url=base_url or settings.llm_base_url,
-            max_retries=3,  # SDK-level retry with backoff; free-tier rate limits need it
-        )
+        self._base_url = base_url or settings.llm_base_url
+        self._keys = [api_key] if api_key else settings.llm_api_key_pool()
+        if not self._keys:
+            self._keys = ["helix-missing-key"]
+        self._clients: dict[str, openai.OpenAI] = {}
 
     def complete(self, prompt: str, *, max_tokens: int = 1024) -> LLMResponse:
         try:
@@ -160,8 +166,42 @@ class OpenAICompatibleLLMClient:
         if response_format is not None:
             kwargs["response_format"] = response_format
         try:
-            response = self._client.chat.completions.create(**kwargs)
+            return self._create_with_failover(kwargs)
         finally:
             llm_call_latency.record(time.monotonic() - start)
             llm_call_counter.add(1, {"model": self._model, "kind": kind})
-        return response
+
+    def _client_for(self, key: str) -> openai.OpenAI:
+        if key not in self._clients:
+            self._clients[key] = openai.OpenAI(
+                api_key=key,
+                base_url=self._base_url,
+                max_retries=3,  # SDK-level retry with backoff; free-tier rate limits need it
+            )
+        return self._clients[key]
+
+    def _create_with_failover(self, kwargs: dict):
+        """Try each configured key in order, skipping ones refused recently.
+
+        A key that is still rate-limited after the SDK's own retries (the
+        daily token cap ends a benchmark this way) or is rejected outright
+        is set aside for _EXHAUSTION_SECONDS and the same request goes to
+        the next key. Any other error is the request's fault, not the
+        key's, and is raised at once - trying more keys would only spend
+        their budgets.
+        """
+        now = time.monotonic()
+        last: openai.OpenAIError | None = None
+        for key in self._keys:
+            if _EXHAUSTED.get(key, 0.0) > now:
+                continue
+            try:
+                return self._client_for(key).chat.completions.create(**kwargs)
+            except (openai.RateLimitError, openai.AuthenticationError) as exc:
+                _EXHAUSTED[key] = now + _EXHAUSTION_SECONDS
+                last = exc
+        if len(self._keys) == 1 and last is not None:
+            raise last  # one key: surface the provider's own error, as before
+        raise openai.OpenAIError(
+            f"every configured API key is rate-limited or rejected (last error: {last})"
+        )

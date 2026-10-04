@@ -41,6 +41,7 @@ from datetime import datetime
 from typing import Annotated
 from urllib.parse import parse_qsl
 
+import httpx
 from fastapi import BackgroundTasks, Depends, FastAPI, Header, HTTPException, Request
 from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy import select
@@ -450,9 +451,12 @@ def _slack_action(
     # Holding the HTTP response for it made Slack retry and mark the
     # click failed while the work still happened; the decision is
     # already durable, so scheduling the run is strictly honest.
-    from agent.runner import run_incident
+    # Until parked, not one run: an approved change advances one lifecycle
+    # stage per run, so a single run left it at `approved` instead of
+    # carrying it on to `deploying` - the click looked like it did nothing.
+    from agent.runner import run_until_parked
 
-    background.add_task(_resume_logged, run_incident, incident_id)
+    background.add_task(_resume_logged, run_until_parked, incident_id)
     result["resumed"] = "scheduled"
     return result
 
@@ -505,12 +509,23 @@ async def slack_interactions(
     except ValueError:
         raise HTTPException(status_code=400, detail="malformed slack payload") from None
 
-    ptype = payload.get("type")
-    if ptype == "url_verification":
+    if payload.get("type") == "url_verification":
         return {"challenge": payload.get("challenge")}
+    return handle_slack_interaction(payload, session, background)
+
+
+def handle_slack_interaction(payload: dict, session: Session, background: BackgroundTasks) -> dict:
+    """Decide the button presses in one authenticated Slack interaction.
+
+    Shared by the HTTP route above (authenticated by the request signature)
+    and `helix slack-socket` (authenticated by its Socket Mode connection),
+    so a click is handled identically however it arrived. The decision is
+    committed here; the workflow resume is left on `background` for the
+    caller to run after acknowledging Slack."""
+    ptype = payload.get("type")
     if ptype != "block_actions":
         return {"ok": True, "ignored": ptype}
-
+    settings = get_settings()
     user = payload.get("user") or {}
     actor = user.get("username") or user.get("name") or user.get("id") or "slack"
     timeout = settings.slack_approval_timeout
@@ -519,7 +534,47 @@ async def slack_interactions(
     decisions = [
         _slack_action(actor, a, session, timeout, background) for a in payload.get("actions") or []
     ]
+    verdicts = [
+        _VERDICT[("review" if "review_id" in d else "approval", d["decision"])]
+        for d in decisions
+        if d.get("decision") in ("approved", "rejected")
+    ]
+    if verdicts and payload.get("response_url"):
+        # Show the outcome where the click happened: the decided message
+        # loses its buttons and gains the verdict. Without this a recorded
+        # click looked like nothing happened. Sent after the ack.
+        who = f"<@{user['id']}>" if user.get("id") else actor
+        background.add_task(
+            _replace_with_verdict,
+            str(payload["response_url"]),
+            (payload.get("message") or {}).get("blocks") or [],
+            f"{verdicts[0]} by {who}",
+        )
     return {"ok": True, "decisions": decisions}
+
+
+#: How a recorded decision reads on the message it was made from.
+_VERDICT = {
+    ("review", "approved"): "✅ Approved",
+    ("review", "rejected"): "✋ Changes requested",
+    ("approval", "approved"): "✅ Approved",
+    ("approval", "rejected"): "⛔ Rejected",
+}
+
+
+def _replace_with_verdict(response_url: str, blocks: list, verdict: str) -> None:
+    """Replace the clicked message: same content, buttons gone, verdict
+    added. A failure is logged - the decision is already durable."""
+    kept = [block for block in blocks if block.get("type") != "actions"]
+    kept.append({"type": "context", "elements": [{"type": "mrkdwn", "text": verdict}]})
+    try:
+        httpx.post(
+            response_url,
+            json={"replace_original": True, "text": verdict, "blocks": kept},
+            timeout=10.0,
+        ).raise_for_status()
+    except httpx.HTTPError as exc:
+        get_logger().warning("slack verdict update failed", error=str(exc))
 
 
 class ReviewOut(BaseModel):

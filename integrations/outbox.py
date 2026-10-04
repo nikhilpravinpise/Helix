@@ -36,6 +36,7 @@ from helix.config import get_settings
 from helix.logging import get_logger
 from integrations.work.contract import WorkItemRejected
 from state import models
+from state.machine import IncidentStatus
 from state.models import OutboxStatus
 
 if TYPE_CHECKING:
@@ -172,21 +173,85 @@ def _send_slack(
     incident: models.Incident,
     slack: "SlackClient",
 ) -> None:
-    from integrations.slack.notify import approval_blocks, review_blocks
+    from agent.ops.registry import load_registry
+    from integrations.slack.format import (
+        approval_card,
+        describe_incident,
+        incident_card,
+        mention,
+        review_card,
+        update_text,
+    )
 
     settings = get_settings()
     channel = row.payload.get("channel") or settings.slack_default_channel
     text = str(row.payload.get("text") or f"{incident.incident_id} update")
+    registry = load_registry()
+    people = registry.people
+    view = describe_incident(
+        incident,
+        repo=settings.github_repo,
+        ui_base=f"http://{settings.api_bind}:{settings.api_port}",
+        people=people,
+    )
+    if not view.owner:
+        # A recovery incident has no owner until someone is assigned; the
+        # service's default owner is who an escalation should reach.
+        entry = registry.get(incident.service)
+        view.owner = entry.default_owner if entry else None
+
     if row.op == "request_approval":
-        blocks = approval_blocks(int(row.payload["approval_id"]), text)
-        resp = slack.post_message(channel, text, blocks=blocks)
+        reason = next(
+            (
+                t.cause
+                for t in reversed(incident.transitions)
+                if t.to_status == IncidentStatus.AWAITING_APPROVAL
+            ),
+            "",
+        )
+        action = str(row.payload.get("action") or "an action")
+        blocks = approval_card(
+            view,
+            approval_id=int(row.payload["approval_id"]),
+            action=action,
+            reason=reason,
+            people=people,
+        )
+        fallback = f"{mention(view.owner, people)} approval needed: {action} for {view.incident_id}"
+        resp = slack.post_message(channel, fallback, blocks=blocks)
     elif row.op == "review_request":
         # 2.6: the reviewer's ask is interactive too - the buttons record
         # the decision on the durable review_requests row.
-        blocks = review_blocks(int(row.payload["review_id"]), text)
-        resp = slack.post_message(channel, text, blocks=blocks)
+        review = session.get(models.ReviewRequest, int(row.payload["review_id"]))
+        reviewer = review.reviewer if review else ""
+        blocks = review_card(
+            view,
+            review_id=int(row.payload["review_id"]),
+            reviewer=reviewer,
+            rationale=review.rationale if review else "",
+            people=people,
+        )
+        fallback = f"{mention(reviewer, people)} review requested: {view.summary}"
+        resp = slack.post_message(channel, fallback, blocks=blocks)
     else:
-        resp = slack.post_message(channel, text, thread_ts=_thread_ts_for(session, incident.id))
+        thread = _thread_ts_for(session, incident.id)
+        if thread is None:
+            # The first message is the incident card every update threads
+            # under: what broke, who owns it, where to look.
+            resp = slack.post_message(channel, view.summary, blocks=incident_card(view, people))
+        else:
+            status = row.payload.get("status")
+            line = (
+                update_text(
+                    str(status),
+                    str(row.payload.get("cause") or ""),
+                    owner=view.owner,
+                    people=people,
+                )
+                if status
+                else text
+            )
+            resp = slack.post_message(channel, line, thread_ts=thread)
     if resp.get("ts"):
         row.payload = {**row.payload, "ts": resp["ts"]}
 

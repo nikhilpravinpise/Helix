@@ -313,7 +313,9 @@ class TestArmC:
 
         # Patch the settings the harness reads, not the environment: the
         # key's home is .env, which os.environ never sees.
-        monkeypatch.setattr(harness, "get_settings", lambda: SimpleNamespace(llm_api_key=None))
+        monkeypatch.setattr(
+            harness, "get_settings", lambda: SimpleNamespace(llm_api_key_pool=lambda: [])
+        )
         scenarios = catalog.load_scenarios()
         record = run_scenario(
             "ci-test-regression",

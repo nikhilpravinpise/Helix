@@ -71,7 +71,7 @@ from pathlib import Path
 from typing import Any
 
 from pydantic import ValidationError
-from sqlalchemy import create_engine, select
+from sqlalchemy import create_engine, or_, select
 from sqlalchemy.orm import Session
 
 from benchmark import catalog, reviewer
@@ -87,6 +87,7 @@ from state.intake import Signal, build_event, fingerprint
 from state.machine import TERMINAL_STATUSES, IncidentStatus, transition
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
+BENCHMARK_REGISTRY = REPO_ROOT / "benchmark" / "service_registry.yaml"
 REPORTS_DIR = REPO_ROOT / "benchmark" / "reports"
 
 TERMINAL = {
@@ -238,6 +239,30 @@ def _ingest_via_events(
     with session_scope(engine) as session:
         result = ingest_event(session, event)
     return result.incident_id, None
+
+
+#: Integrations a benchmark run must never reach for real. Every scenario
+#: shells out to `helix`, which reads the developer's .env; with live Jira
+#: and Slack configured, a full five-arm run would have filed a ticket and
+#: posted a thread per scenario per arm. Blank means "not set" in settings.
+_BENCHMARK_ISOLATION = {
+    "HELIX_WORK_PROVIDER": "memory",
+    "HELIX_SLACK_BOT_TOKEN": "",
+    "HELIX_SLACK_SIGNING_SECRET": "",
+    "HELIX_SLACK_APP_TOKEN": "",
+    "HELIX_NOTION_API_KEY": "",
+}
+
+
+def _isolated_env() -> dict[str, str]:
+    """The environment for a scenario's `helix` subprocesses: the caller's,
+    with work tracking and chat pinned to the recording fakes and the
+    service registry pinned to the fixed cast the scenarios' expected
+    owners and reviewers name - never the live team."""
+    env = dict(os.environ)
+    env.update(_BENCHMARK_ISOLATION)
+    env["HELIX_SERVICE_REGISTRY"] = str(BENCHMARK_REGISTRY)
+    return env
 
 
 def _inject_live(scenario: dict[str, Any]) -> str | None:
@@ -585,25 +610,40 @@ def _close_preexisting_incidents(database_url: str, scenarios: dict[str, Any]) -
     incident ids were all distinct, because the contamination arrived
     before the run rather than during it.
 
-    Scoped to fingerprints this run will actually produce, so it cannot
-    touch unrelated incidents, and it closes through the ordinary
-    validated transition rather than deleting anything.
+    Event scenarios (`events:`) are scoped by the (service, environment)
+    their events name instead: ingest correlates on the service token, not
+    a fingerprint, so a leftover there is invisible to the fingerprint
+    scope. A graph-on run that ended on arm D left a billing-worker
+    incident at `verifying`, and the next run's arm A reported arm D's LLM
+    hypothesis as its own on two scenarios.
+
+    Scoped to what this run will actually produce, so it cannot touch
+    unrelated incidents, and it closes through the ordinary validated
+    transition rather than deleting anything.
     """
     fingerprints: set[str] = set()
+    places: set[tuple[str, str]] = set()
     for scenario in scenarios.values():
+        for event in scenario.get("events") or []:
+            places.add((event.get("service") or "", event.get("environment") or ""))
         try:
             fingerprints.add(fingerprint(Signal.model_validate(scenario["signal"])))
         except (ValidationError, KeyError):
             continue  # a malformed scenario is caught by catalog validation
-    if not fingerprints:
+    if not fingerprints and not places:
         return 0
 
     closed = 0
     engine = create_engine(database_url)
     with Session(engine) as session:
+        scope = [models.Incident.fingerprint.in_(sorted(fingerprints))]
+        scope += [
+            (models.Incident.service == service) & (models.Incident.environment == environment)
+            for service, environment in sorted(places)
+        ]
         stale = session.scalars(
             select(models.Incident)
-            .where(models.Incident.fingerprint.in_(sorted(fingerprints)))
+            .where(or_(*scope))
             .where(models.Incident.status.not_in(TERMINAL_STATUSES))
         ).all()
         for incident in stale:
@@ -1043,7 +1083,7 @@ def run_scenario(
     # the key exactly where every document says to put it left all three
     # LLM arms skipping with a message naming the variable that was, as
     # far as the user could tell, already set.
-    if arm in ("B", "C", "D", "E") and not get_settings().llm_api_key:
+    if arm in ("B", "C", "D", "E") and not get_settings().llm_api_key_pool():
         record.skipped = f"arm {arm} requires HELIX_LLM_API_KEY (set it in .env or the environment)"
         return record
 
@@ -1079,7 +1119,7 @@ def run_scenario(
         record.skipped = f"unmet requirements: {', '.join(unmet)}"
         return record
 
-    env = dict(os.environ)
+    env = _isolated_env()
     env["HELIX_ARM"] = arm
     env["HELIX_DATABASE_URL"] = database_url
     if mode == "fixture":
@@ -1153,6 +1193,11 @@ def run_scenario(
 
 def run_benchmark(cfg: HarnessConfig) -> dict[str, Any]:
     """All scenarios x all arms -> scored report dict."""
+    # The harness process drains the integration outbox itself between
+    # change-flow hops (_settle_integrations), so it is pinned exactly like
+    # the `helix` subprocesses - otherwise it would deliver to live Jira.
+    os.environ.update(_BENCHMARK_ISOLATION)
+    os.environ["HELIX_SERVICE_REGISTRY"] = str(BENCHMARK_REGISTRY)
     scenarios = catalog.load_scenarios()
     if cfg.scenarios:
         scenarios = {k: v for k, v in scenarios.items() if k in set(cfg.scenarios)}

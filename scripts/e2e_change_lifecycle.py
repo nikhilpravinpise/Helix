@@ -37,6 +37,8 @@ def main() -> int:
         {
             "HELIX_DATABASE_URL": f"sqlite:///{db}",
             "HELIX_ARM": "A",
+            # The fixed cast this script's assertions name (owner alice).
+            "HELIX_SERVICE_REGISTRY": str(REPO / "benchmark" / "service_registry.yaml"),
             "HELIX_EVIDENCE_SOURCE": "fixtures",
             # A fixture path is required to even construct fixture-mode
             # capabilities; the change lifecycle never reads it.

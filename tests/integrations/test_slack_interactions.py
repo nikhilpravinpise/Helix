@@ -134,7 +134,11 @@ def _get_approval(engine: Engine, approval_id: int) -> models.Approval:
         return session.get(models.Approval, approval_id)
 
 
-def _stub_run(monkeypatch, calls: list[str], status: str = "executing") -> None:
+def _stub_run(monkeypatch, calls: list[str], status: str = "recovered") -> None:
+    """A run that ends where a real one stops. The default was `executing`,
+    which no real run stops at; once a decision resumes with
+    run_until_parked, which keeps going while the incident advances, a
+    stub frozen at a non-stopping status read as one extra run."""
     from agent.runner import RunResult
 
     def fake_run(iid, **kw):
@@ -399,3 +403,91 @@ class TestReviewBlockActions:
         response = _post(client, _review_block_actions(99999))
         assert response.status_code == 200
         assert response.json()["decisions"][0]["note"].startswith("no such review")
+
+
+class TestClickFeedback:
+    """Live, 2026-10-04: an Approve click on a review card was recorded, but
+    the message kept its buttons and the only sign was a line in another
+    thread, so it looked like nothing happened. Slack sends a
+    `response_url` with every click; the decided message is now replaced
+    in place, buttons removed and the verdict shown."""
+
+    def _capture(self, monkeypatch):
+        posts = []
+
+        def fake_post(url, json=None, timeout=None):
+            posts.append((url, json))
+            return httpx.Response(200, request=httpx.Request("POST", url))
+
+        monkeypatch.setattr("helix.api.httpx.post", fake_post)
+        return posts
+
+    def _clicked(self, payload: dict) -> dict:
+        return {
+            **payload,
+            "response_url": "https://hooks.slack.test/actions/1",
+            "message": {
+                "blocks": [
+                    {"type": "section", "text": {"type": "mrkdwn", "text": "please review PR #20"}},
+                    {"type": "actions", "elements": []},
+                ]
+            },
+        }
+
+    def test_an_approved_review_replaces_its_buttons_with_the_verdict(
+        self, client, sqlite_engine, monkeypatch
+    ):
+        posts = self._capture(monkeypatch)
+        incident_id = _seed_incident(client)
+        review_id = _seed_review(sqlite_engine, incident_id)
+        _stub_run(monkeypatch, [])
+
+        _post(client, self._clicked(_review_block_actions(review_id)))
+
+        [(url, body)] = posts
+        assert url == "https://hooks.slack.test/actions/1"
+        assert body["replace_original"] is True
+        assert all(block["type"] != "actions" for block in body["blocks"])
+        assert "please review PR #20" in str(body["blocks"])
+        assert "Approved by <@U456>" in str(body["blocks"])
+
+    def test_requested_changes_and_rejections_read_as_such(
+        self, client, sqlite_engine, monkeypatch
+    ):
+        posts = self._capture(monkeypatch)
+        incident_id = _seed_incident(client)
+        review_id = _seed_review(sqlite_engine, incident_id)
+        _stub_run(monkeypatch, [])
+        _post(client, self._clicked(_review_block_actions(review_id, kind="reject")))
+        assert "Changes requested by <@U456>" in str(posts[-1][1]["blocks"])
+
+    def test_a_click_without_a_response_url_still_decides(self, client, sqlite_engine, monkeypatch):
+        posts = self._capture(monkeypatch)
+        incident_id = _seed_incident(client)
+        review_id = _seed_review(sqlite_engine, incident_id)
+        _stub_run(monkeypatch, [])
+        response = _post(client, _review_block_actions(review_id))
+        assert response.json()["decisions"][0]["decision"] == "approved"
+        assert posts == []
+
+
+def test_a_rejected_approval_reads_as_rejected(client, sqlite_engine, monkeypatch):
+    """ "Changes requested" is a code-review word; an approval gate says no."""
+    posts = []
+    monkeypatch.setattr(
+        "helix.api.httpx.post",
+        lambda url, json=None, timeout=None: (
+            posts.append(json) or httpx.Response(200, request=httpx.Request("POST", url))
+        ),
+    )
+    incident_id = _seed_incident(client)
+    approval_id = _seed_pending(sqlite_engine, incident_id)
+    _stub_run(monkeypatch, [])
+    _post(
+        client,
+        {
+            **_block_actions(approval_id, kind="reject"),
+            "response_url": "https://hooks.slack.test/2",
+        },
+    )
+    assert "Rejected by <@U123>" in str(posts[-1]["blocks"])

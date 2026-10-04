@@ -41,12 +41,25 @@ def ingest_registry(store: GraphStore, registry) -> None:
         store.upsert_node(Node(type=NodeType.SERVICE, id=service, properties={"team": entry.team}))
         if entry.repo:
             store.upsert_node(Node(type=NodeType.REPOSITORY, id=entry.repo))
-        for owner in entry.owners:
+        # `rank` keeps the registry's order (default owner first, reviewers
+        # as listed): neighbors() returns edges by rank, and Neo4j promises
+        # no order of its own.
+        owners = list(dict.fromkeys([*filter(None, [entry.default_owner]), *entry.owners]))
+        for rank, owner in enumerate(owners):
             store.upsert_node(Node(type=NodeType.DEVELOPER, id=owner))
-            store.upsert_edge(Edge(type=EdgeType.OWNS, source=owner, target=service))
-        for reviewer in entry.default_reviewers:
+            store.upsert_edge(
+                Edge(type=EdgeType.OWNS, source=owner, target=service, properties={"rank": rank})
+            )
+        for rank, reviewer in enumerate(entry.default_reviewers):
             store.upsert_node(Node(type=NodeType.DEVELOPER, id=reviewer))
-            store.upsert_edge(Edge(type=EdgeType.REVIEWS, source=reviewer, target=service))
+            store.upsert_edge(
+                Edge(
+                    type=EdgeType.REVIEWS,
+                    source=reviewer,
+                    target=service,
+                    properties={"rank": rank},
+                )
+            )
         for dep in entry.depends_on:
             # The dependency may be a database or queue rather than a
             # registered service - a bare node keyed by name keeps the

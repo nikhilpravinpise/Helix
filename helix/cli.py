@@ -163,6 +163,17 @@ def build_parser() -> argparse.ArgumentParser:
         "where `helix consume --run` acts on them; decides and executes nothing",
     )
     watch.add_argument(
+        "--source",
+        choices=["kubernetes", "github"],
+        default="kubernetes",
+        help="what to watch: the cluster's pods (default) or the repository's pull requests",
+    )
+    watch.add_argument(
+        "--include-existing",
+        action="store_true",
+        help="with --source github, also announce PRs already open when the watch starts",
+    )
+    watch.add_argument(
         "--namespace", default="payment-api", help="namespace to watch (default: payment-api)"
     )
     watch.add_argument(
@@ -174,6 +185,12 @@ def build_parser() -> argparse.ArgumentParser:
         default=3,
         help="consecutive polls a problem must persist before it is published "
         "(default: 3) - filters the not-Ready window every healthy rollout has",
+    )
+
+    subparsers.add_parser(
+        "slack-socket",
+        help="receive Slack button clicks over Socket Mode (needs HELIX_SLACK_APP_TOKEN), "
+        "so Approve/Reject work with no public URL into this machine",
     )
 
     emit = subparsers.add_parser(
@@ -611,38 +628,145 @@ def _stop_cleanly_on_signals() -> "Callable[[], None]":
 
 
 def _cmd_watch(args: argparse.Namespace) -> int:
-    """Poll the cluster and publish confirmed pod failures (see events.watch).
+    """Poll a source and publish what it reports to Kafka (see events.watch).
 
-    Runs until interrupted. The read goes through the same Kubernetes client
-    and HELIX_KUBE_CONTEXT as every other cluster read.
+    `--source kubernetes` (default): the namespace's pods through the same
+    Kubernetes client and HELIX_KUBE_CONTEXT as every other cluster read; a
+    problem must persist `--polls` polls before it is published.
+    `--source github`: the repository's open pull requests through the
+    GitHub read client; new PRs and new commits are published at once (a PR
+    event is a fact, not a condition to confirm), and PRs already open at
+    start are not announced unless `--include-existing`. Polling needs no
+    public URL into this machine, which a GitHub webhook would. Runs until
+    interrupted.
     """
-    from events.adapters.kubernetes import pod_events
     from events.broker import EventProducer
     from events.watch import run_watch
-    from integrations.kubernetes.client import KubernetesEvidenceClient
 
-    cluster = KubernetesEvidenceClient()
     producer = EventProducer()
+    if args.source == "github":
+        from events.adapters.github import pull_request_events
+        from events.github_watch import PullRequestTracker
+        from helix.config import get_settings
+        from integrations.github.client import GitHubEvidenceClient
 
-    def fetch() -> list:
-        return pod_events(cluster.list_pods_raw(args.namespace))
+        github = GitHubEvidenceClient()
+        tracker = PullRequestTracker(include_existing=args.include_existing)
+
+        def fetch() -> list:
+            hooks = tracker.observe(github.list_open_pull_requests_raw())
+            return [event for hook in hooks for event in pull_request_events(hook)]
+
+        polls = 1
+        what = f"open pull requests on {get_settings().github_repo}"
+    else:
+        from events.adapters.kubernetes import pod_events
+        from integrations.kubernetes.client import KubernetesEvidenceClient
+
+        cluster = KubernetesEvidenceClient()
+
+        def fetch() -> list:
+            return pod_events(cluster.list_pods_raw(args.namespace))
+
+        polls = args.polls
+        what = f"namespace {args.namespace}"
 
     def publish(event) -> None:
         producer.publish(event)
         producer.flush()
-        pod = event.metadata.get("pod")
-        print(f"published {event.event_type} for {pod} ({event.event_id})", flush=True)
+        subject = event.metadata.get("pod") or f"PR #{event.metadata.get('pr')}"
+        print(f"published {event.event_type} for {subject} ({event.event_id})", flush=True)
 
-    print(
-        f"watching namespace {args.namespace} every {args.interval:g}s; a problem must "
-        f"persist {args.polls} polls before it is published",
-        flush=True,
-    )
+    note = f"; a problem must persist {polls} polls before it is published" if polls > 1 else ""
+    print(f"watching {what} every {args.interval:g}s{note}", flush=True)
     restore_signals = _stop_cleanly_on_signals()
     try:
-        run_watch(fetch, publish, interval=args.interval, polls=args.polls)
+        run_watch(fetch, publish, interval=args.interval, polls=polls)
     except KeyboardInterrupt:
         print("watch stopped", flush=True)
+    finally:
+        restore_signals()
+    return 0
+
+
+#: apps.connections.open errors that mean the token itself is wrong.
+_SLACK_TOKEN_ERRORS = ("invalid_auth", "not_allowed_token_type", "token_revoked", "not_authed")
+
+
+def _cmd_slack_socket(args: argparse.Namespace) -> int:
+    """Receive Slack button clicks over Socket Mode until interrupted.
+
+    Each click goes to `helix.api.handle_slack_interaction`, the handler the
+    HTTP route uses, so a decision lands identically however it arrived.
+    The workflow resume it queues runs on its own thread after the ack. A
+    dropped or recycled connection is reopened after a short pause.
+    """
+    import json
+    import threading
+    import time
+
+    import websocket
+    from fastapi import BackgroundTasks
+    from sqlalchemy import create_engine
+
+    from helix import api
+    from helix.config import get_settings
+    from integrations.slack import socket as slack_socket
+    from state.db import session_scope
+
+    token = get_settings().slack_app_token
+    if not token:
+        print(
+            "helix slack-socket: HELIX_SLACK_APP_TOKEN is not set (Slack app settings -> "
+            "Socket Mode -> app-level token with connections:write)",
+            file=sys.stderr,
+        )
+        return 2
+    engine = create_engine(get_settings().database_url)
+
+    def on_interactive(payload: dict) -> None:
+        background = BackgroundTasks()
+        with session_scope(engine) as session:
+            result = api.handle_slack_interaction(payload, session, background)
+        print(f"slack click: {result}", flush=True)
+        for task in background.tasks:
+            threading.Thread(target=task.func, args=task.args, kwargs=task.kwargs).start()
+
+    restore_signals = _stop_cleanly_on_signals()
+    try:
+        while True:
+            try:
+                ws = websocket.create_connection(slack_socket.open_connection_url(token))
+            except KeyboardInterrupt:
+                raise
+            except slack_socket.SlackError as exc:
+                if any(code in str(exc) for code in _SLACK_TOKEN_ERRORS):
+                    # A wrong token never starts working; retrying is noise.
+                    print(f"helix slack-socket: {exc}", file=sys.stderr)
+                    return 2
+                print(f"slack-socket: connect failed ({exc}); retrying in 5s", flush=True)
+                time.sleep(5)
+                continue
+            except Exception as exc:  # Slack or the network briefly away
+                print(f"slack-socket: connect failed ({exc}); retrying in 5s", flush=True)
+                time.sleep(5)
+                continue
+            print("slack-socket: connected", flush=True)
+            try:
+                while slack_socket.process_envelope(
+                    json.loads(ws.recv()),
+                    send_ack=lambda ack: ws.send(json.dumps(ack)),
+                    on_interactive=on_interactive,
+                ):
+                    pass
+            except KeyboardInterrupt:
+                raise
+            except Exception as exc:
+                print(f"slack-socket: connection dropped ({exc}); reconnecting", flush=True)
+            finally:
+                ws.close()
+    except KeyboardInterrupt:
+        print("slack-socket stopped", flush=True)
     finally:
         restore_signals()
     return 0
@@ -719,11 +843,13 @@ class _IncidentDriver:
         self._pool.submit(self._drive, incident_id)
 
     def _drive(self, incident_id: str) -> None:
-        from agent.runner import run_incident
+        from agent.runner import run_until_parked
 
         self._waiting.discard(incident_id)
         try:
-            outcome = run_incident(incident_id)
+            # Until parked, not one run: a change incident advances one
+            # lifecycle stage per run and would otherwise stop at triaged.
+            outcome = run_until_parked(incident_id)
             print(f"{incident_id}: {getattr(outcome, 'status', 'ran')}", flush=True)
         except Exception as exc:  # the outcome lives in workflow_runs
             print(f"{incident_id}: run failed - {exc}", flush=True)
@@ -1065,6 +1191,8 @@ def main(argv: list[str] | None = None) -> int:
         return _cmd_consume(args)
     if args.command == "watch":
         return _cmd_watch(args)
+    if args.command == "slack-socket":
+        return _cmd_slack_socket(args)
     if args.command == "emit":
         return _cmd_emit(args)
     if args.command == "provenance":

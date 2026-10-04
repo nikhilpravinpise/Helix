@@ -135,3 +135,83 @@ def test_list_pods_raw_returns_the_kubectl_shape_the_adapter_reads():
     raw = KubernetesEvidenceClient(core_v1=FakeCore()).list_pods_raw("payment-api")
     events = pod_events(raw)
     assert [e.metadata["waiting_reason"] for e in events] == ["CrashLoopBackOff"]
+
+
+# --- GitHub pull requests (`helix watch --source github`) -------------------
+
+
+def _open_pr(number: int, sha: str, author: str = "dana") -> dict:
+    """One entry of GET /repos/{repo}/pulls, trimmed to what is read."""
+    return {
+        "number": number,
+        "title": f"change {number}",
+        "user": {"login": author},
+        "head": {"ref": f"feature/{number}", "sha": sha},
+        "base": {"ref": "main"},
+    }
+
+
+class TestPullRequestTracker:
+    def test_prs_already_open_at_start_are_not_announced(self):
+        """Starting the watcher must not turn every open PR - 17 Helix fix
+        PRs on the sandbox at the time - into a review incident at once."""
+        from events.github_watch import PullRequestTracker
+
+        tracker = PullRequestTracker()
+        assert tracker.observe([_open_pr(1, "a" * 40)]) == []
+
+    def test_existing_prs_can_be_announced_on_request(self):
+        from events.github_watch import PullRequestTracker
+
+        tracker = PullRequestTracker(include_existing=True)
+        [hook] = tracker.observe([_open_pr(1, "a" * 40)])
+        assert hook["action"] == "opened"
+
+    def test_a_new_pr_is_opened_and_a_new_commit_is_synchronize(self):
+        from events.github_watch import PullRequestTracker
+
+        tracker = PullRequestTracker()
+        tracker.observe([])
+        [opened] = tracker.observe([_open_pr(7, "a" * 40)])
+        assert opened["action"] == "opened" and opened["number"] == 7
+        assert tracker.observe([_open_pr(7, "a" * 40)]) == []
+        [pushed] = tracker.observe([_open_pr(7, "b" * 40)])
+        assert pushed["action"] == "synchronize"
+
+    def test_payloads_are_real_webhook_shape_for_the_adapter(self):
+        """The tracker speaks GitHub's webhook shape, so polled and pushed
+        PRs go through the same adapter path."""
+        from events.adapters.github import pull_request_events
+        from events.github_watch import PullRequestTracker
+
+        tracker = PullRequestTracker()
+        tracker.observe([])
+        [hook] = tracker.observe([_open_pr(7, "c" * 40, author="dana")])
+        assert "head" not in hook  # nested under pull_request, as GitHub sends it
+        [event] = pull_request_events(hook)
+        assert event.metadata["branch"] == "feature/7"
+        assert event.metadata["sha"] == "c" * 40
+        assert event.actor == "dana"
+
+
+def test_list_open_pull_requests_raw_asks_for_open_prs():
+    import httpx
+
+    from integrations.github.client import GitHubEvidenceClient
+
+    seen = []
+
+    def handler(request):
+        seen.append(request)
+        return httpx.Response(200, json=[_open_pr(3, "d" * 40)])
+
+    client = GitHubEvidenceClient(
+        "VrajVed/helix-sandbox",
+        "t",
+        client=httpx.Client(
+            base_url="https://api.github.com", transport=httpx.MockTransport(handler)
+        ),
+    )
+    assert client.list_open_pull_requests_raw()[0]["number"] == 3
+    assert seen[0].url.path == "/repos/VrajVed/helix-sandbox/pulls"
+    assert seen[0].url.params["state"] == "open"

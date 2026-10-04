@@ -85,15 +85,16 @@ first full 19-scenario run, 2026-10-02.
 
 ## 7. Helix does not yet run on its own
 
-**Status 2026-10-03: mostly closed.** Three of the four gaps below are fixed
-and verified live: Jenkins failures drive Helix (`?run=true`, correct
-stage, docker0 bind), `helix consume --follow --run` drives incidents from
-Kafka, and `helix watch` publishes confirmed pod failures. An injected
-crashloop now goes watcher -> Kafka -> incident -> remediation ->
-verification -> Slack/Jira with nobody involved. Still open: the GitHub
-webhook endpoint and the tunnel it (and the Slack buttons) need. Note that
-a cluster fix only verifies with Elasticsearch up - with ELK down the
-elk_errors leg errors and the incident escalates, correctly but noisily.
+**Status 2026-10-04: closed.** All four gaps below are fixed and verified
+live: Jenkins failures drive Helix (`?run=true`, correct stage, docker0
+bind), `helix consume --follow --run` drives incidents from Kafka, `helix
+watch` publishes confirmed pod failures, and `helix watch --source github`
+turns PR activity into the review lifecycle. No tunnel was needed: GitHub
+is polled rather than pushing webhooks, and `helix slack-socket` receives
+button clicks over Slack Socket Mode. A tunnel would only add instant PR
+reactions, outside access to the dashboard, or GitHub App webhooks (#15).
+Note that a cluster fix only verifies with Elasticsearch up - with ELK down
+the elk_errors leg errors and the incident escalates, correctly but noisily.
 
 Original notes:
 
@@ -131,6 +132,9 @@ five rows (done by hand in the run's analysis).
 
 ## 9. Owner and reviewer accuracy differ by arm
 
+**Status 2026-10-05: closed.** In phase2-run2 and phase2-run3 every arm
+scored owner 6/6 and reviewer 4/4 (docs/benchmark/phase-2-evaluation.md).
+
 In the same run, arms A and E scored owner 1.00 / reviewer 1.00 while B,
 C and D all scored 0.83 / 0.75. Triage and review are deterministic and
 should not depend on the arm, so either a change scenario takes a
@@ -139,6 +143,11 @@ end before review), or something arm-specific leaks into triage.
 Unexplained; check before trusting the Phase 2 lifecycle columns.
 
 ## 10. Arm D ran without its graph
+
+**Status 2026-10-05: closed.** Measured with the graph on
+(phase2-graph-on.json). The graph made owner and reviewer answers worse;
+fixed in d19ecd1 and measured again (phase2-graph-on-fixed.json). D's
+diagnosis was no better with the graph than without.
 
 `HELIX_GRAPH_ENABLED` defaults to false and Neo4j is not set up, so in
 phase2-run1 arm D received retrieval plus the event timeline but an
@@ -170,6 +179,13 @@ buttons after a decision - store the `channel` id from the post response
 alongside `ts` and pass that.
 
 ## 13. rollback_deployment can roll back onto a broken revision
+
+**Status 2026-10-04: fixed.** Rollback now targets the newest older revision
+whose ReplicaSet still has ready pods, falling back to plain undo (and
+saying so in the result's `basis`) only when none is serving. Verified live
+on a history with a broken N-1: Helix chose the serving revision, not N-1.
+
+Original notes:
 
 Live 2026-10-03 (INC-6b5c0922): arm E's rollback ran `rollout undo`, which
 goes to the previous ReplicaSet revision, and on the sandbox that was an
@@ -204,3 +220,59 @@ verification for runtime incidents always includes the runtime legs
 re-publishes a condition that persists past a deadline after being
 reported. (b) is closest to plan.md 1.9's intent; (c) alone would just
 open new incidents that close the same way.
+
+## 15. Run Helix's GitHub access as a GitHub App (optional, deferred)
+
+Raised 2026-10-04; Vraj chose to defer it. Helix uses a personal
+fine-grained token, so every PR it opens is authored by that person, and
+Review's self-review exclusion then means they can never be its reviewer.
+A GitHub App gives Helix its own identity (`<app>[bot]` authors the PRs),
+per-repo installation with declared permissions, and short-lived
+installation tokens - and is the kind of integration GitHub's developer
+program is aimed at (check its current terms first).
+
+Setup when picked up: create the app (Contents rw, Pull requests rw,
+Checks r; webhook inactive, since Helix polls), install it on the sandbox
+repo, then set HELIX_GITHUB_APP_ID, HELIX_GITHUB_APP_INSTALLATION_ID and
+HELIX_GITHUB_APP_PRIVATE_KEY_PATH (key kept outside the repo). Code: mint
+a JWT from the private key, exchange it for an installation token, and use
+that in the read and write clients, falling back to HELIX_GITHUB_TOKEN when
+the app settings are absent.
+
+## 16. Instant GitHub webhooks through an ngrok tunnel (deferred)
+
+Decided 2026-10-04: Vraj wants a tunnel, using ngrok, picked up later.
+Helix works without one today - `helix watch --source github` polls every
+~10s and `helix slack-socket` receives Slack clicks over Socket Mode - so
+this adds speed and reach, not function.
+
+Plan when picked up:
+- A `/webhooks/github` endpoint that verifies `X-Hub-Signature-256` against
+  a new HELIX_GITHUB_WEBHOOK_SECRET (an unset secret closes the surface,
+  like Slack's), routes `pull_request` deliveries through the same
+  `pull_request_events` adapter polling uses, and ingests them. Ingest's
+  event-id dedup makes polling and webhooks safe to run together.
+- Serve ONLY the webhook routes on a separate small public app and port,
+  and point the tunnel at that, never at `helix serve`: the dashboard and
+  the approval/review API must not be reachable through a public URL.
+- ngrok: free account, authtoken, one static domain; binary installable to
+  ~/.local/bin without sudo. Set the repo webhook (pull_request events,
+  JSON, the secret) to https://<static-domain>/webhooks/github once.
+
+## 17. The tolerance check still describes Phase 1
+
+`python -m benchmark.tolerance` fails Phase 2 runs for reasons that are
+about the checker, not Helix (phase-2-evaluation.md section 6):
+
+- B, C and D's `recovery_success` band is `[0, 0]`. Change scenarios
+  recover on every arm, so those arms now score 0.31 to 0.38.
+- `_approval_gating_findings` counts PR review decisions as approval-gate
+  interventions, so every reviewed change scenario fails.
+- Arm A's `rca_accuracy` band is `[1, 1]`; `xsys-runtime-missing-owner` is
+  scored for root cause although A correctly escalates it.
+- No Phase 2 metric has a band (`docs/benchmark/tolerance.md`).
+
+Needs a decision on what Phase 2 is held to: likely bands per scenario
+flow (recovery vs change), reviews excluded from the gating count, and
+bands for the five Phase 2 metrics set from the measured runs. Then a
+third comparable 13-scenario run to apply them to.

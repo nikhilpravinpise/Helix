@@ -102,6 +102,8 @@ def _correlated_incident(
         incident = row.incident
         if incident is None or incident.status in machine.TERMINAL_STATUSES:
             continue
+        if _conflicting_identity(session, tokens, incident):
+            continue
         # The window is measured against the incident's most recent event,
         # not its creation: a long chain of related events legitimately
         # keeps an incident correlatable, while a forgotten one ages out.
@@ -132,6 +134,55 @@ def _correlated_incident(
         if abs(_aware(occurred_at) - _aware(latest)) <= CORRELATION_WINDOW:
             return incident
     return None
+
+
+def _addressed_incident(session: Session, event: EngineeringEvent) -> models.Incident | None:
+    """The open incident an event names by `correlation_id`, if any.
+
+    A name is stronger than any shared token. Without this, a deploy
+    verdict sent to one change incident joined an older open incident on
+    the same service token instead, and the one it named never left
+    `deploying`. A closed or unknown name falls back to token correlation,
+    the same rule that keeps terminal incidents from absorbing events.
+    """
+    if not event.correlation_id:
+        return None
+    incident = session.scalar(
+        select(models.Incident).where(models.Incident.incident_id == event.correlation_id)
+    )
+    if incident is None or incident.status in machine.TERMINAL_STATUSES:
+        return None
+    return incident
+
+
+#: Token kinds that name exactly one subject per incident. An event that
+#: carries one never joins an incident holding a DIFFERENT value of it, even
+#: on a shared service token: live, PR #21's pr.opened joined PR #20's open
+#: change incident on service:payment-api alone, and was never reviewed.
+#: Pod, build and commit are deliberately absent - a crash loop replaces its
+#: pods, a rerun gets a new build number and a PR gains commits, all within
+#: one incident.
+_EXCLUSIVE_TOKEN_KINDS = ("pr",)
+
+
+def _conflicting_identity(session: Session, tokens: set[str], incident: models.Incident) -> bool:
+    # Queried, not read through incident.correlation_tokens: loading that
+    # relationship here caches it, and _record_tokens then compares against
+    # a stale list and re-inserts tokens it already holds.
+    known = set(
+        session.scalars(
+            select(models.CorrelationToken.token).where(
+                models.CorrelationToken.incident_id == incident.id
+            )
+        )
+    )
+    for kind in _EXCLUSIVE_TOKEN_KINDS:
+        prefix = f"{kind}:"
+        mine = {t for t in tokens if t.startswith(prefix)}
+        theirs = {t for t in known if t.startswith(prefix)}
+        if mine and theirs and not (mine & theirs):
+            return True
+    return False
 
 
 def _aware(value: datetime) -> datetime:
@@ -167,7 +218,9 @@ def ingest_event(session: Session, event: EngineeringEvent) -> IngestResult:
 
     tokens = tokens_for(event)
     occurred_at = _aware(event.timestamp)
-    incident = _correlated_incident(session, tokens, occurred_at)
+    incident = _addressed_incident(session, event) or _correlated_incident(
+        session, tokens, occurred_at
+    )
     created = incident is None
     correlated = not created
 

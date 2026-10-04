@@ -381,3 +381,62 @@ def test_intake_run_is_scheduled_after_the_response_not_inside_it(sqlite_engine,
     assert len(background.tasks) == 1
     background.tasks[0].func(*background.tasks[0].args, **background.tasks[0].kwargs)
     assert called == [result.incident_id]
+
+
+class TestRunUntilParked:
+    """Unattended driving of the change lifecycle. `helix run` advances a
+    change incident one stage per call - the benchmark's _drive_change and
+    scripts/e2e_change_lifecycle.py both loop it - so a PR picked up by
+    `helix consume --run` stopped at `triaged` and never reached a reviewer.
+    run_until_parked keeps running while the incident advances on its own,
+    and stops where it waits on something outside Helix."""
+
+    def _scripted(self, monkeypatch, statuses):
+        from agent import runner
+
+        calls = []
+        sequence = list(statuses)
+
+        def fake(incident_id, **kwargs):
+            calls.append(incident_id)
+            return RunResult(
+                incident_id=incident_id,
+                status=sequence.pop(0),
+                run_status=models.RunStatus.TERMINAL,
+            )
+
+        monkeypatch.setattr(runner, "run_incident", fake)
+        return calls
+
+    def test_it_runs_through_to_the_reviewer(self, monkeypatch):
+        from agent.runner import run_until_parked
+
+        calls = self._scripted(monkeypatch, ["triaged", "owner_assigned", "review_pending"])
+        result = run_until_parked("INC-1")
+        assert result.status == "review_pending"
+        assert len(calls) == 3
+
+    @pytest.mark.parametrize(
+        "parked", ["review_pending", "awaiting_approval", "fix_required", "deploying", "recovered"]
+    )
+    def test_it_stops_where_helix_waits_on_the_outside(self, monkeypatch, parked):
+        from agent.runner import run_until_parked
+
+        calls = self._scripted(monkeypatch, [parked, "never-reached"])
+        assert run_until_parked("INC-1").status == parked
+        assert len(calls) == 1
+
+    def test_it_stops_when_a_run_makes_no_progress(self, monkeypatch):
+        """Never spin: a run that leaves the status where it was is a stop."""
+        from agent.runner import run_until_parked
+
+        calls = self._scripted(monkeypatch, ["triaged", "triaged", "never-reached"])
+        assert run_until_parked("INC-1").status == "triaged"
+        assert len(calls) == 2
+
+    def test_it_is_bounded(self, monkeypatch):
+        from agent.runner import run_until_parked
+
+        calls = self._scripted(monkeypatch, ["triaged", "owner_assigned"] * 20)
+        run_until_parked("INC-1", max_hops=4)
+        assert len(calls) == 4

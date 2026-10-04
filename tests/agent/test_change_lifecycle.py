@@ -17,7 +17,13 @@ from state.machine import IncidentStatus
 from state.reviews import pending_for_incident, record_decision
 
 
-def _open_pr(sessions, *, pr: int = 42, branch: str = "feature/fix-config") -> str:
+def _open_pr(
+    sessions,
+    *,
+    pr: int = 42,
+    branch: str = "feature/fix-config",
+    files: tuple[str, ...] = ("sandbox/payment-api/k8s/02-configmap.yaml",),
+) -> str:
     with sessions() as session:
         event = EngineeringEvent(
             event_type=EventType.PR_OPENED,
@@ -31,7 +37,7 @@ def _open_pr(sessions, *, pr: int = 42, branch: str = "feature/fix-config") -> s
                 "branch": branch,
                 "sha": "a" * 40,
                 "base": "main",
-                "files": ["sandbox/payment-api/k8s/02-configmap.yaml"],
+                "files": list(files),
                 "action": "opened",
             },
         )
@@ -451,3 +457,64 @@ class TestChangeLifecycleUnknownService:
 
         result = run_incident(incident_id, deps=deps, arm="A")
         assert result.status == IncidentStatus.ESCALATED
+
+
+class TestGraphBackedOwnership:
+    """Phase 2 graph test, 2026-10-04: with HELIX_GRAPH_ENABLED the benchmark
+    scored owner 5/6 and reviewer 0/4, against 6/6 and 4/4 with it off. The
+    graph answered "who owns the service" over the registry's more specific
+    "who owns these files" (a Dockerfile change went to alice, not its path
+    owner bob), and asked the service's owner to review instead of its
+    reviewers. Turning the graph on must not make either answer worse."""
+
+    def _graph_on(self, monkeypatch, store=None):
+        from agent.ops.registry import load_registry
+        from graph.ingest import ingest_registry
+        from graph.memory_store import MemoryGraphStore
+
+        if store is None:
+            store = MemoryGraphStore()
+            ingest_registry(store, load_registry())
+        monkeypatch.setenv("HELIX_GRAPH_ENABLED", "true")
+        monkeypatch.setattr("graph.get_graph_store", lambda: store)
+
+    def _owner_and_reviewer(self, sqlite_sessions, store, incident_id):
+        deps, _ = make_deps(sqlite_sessions, FakeLLM(), "cluster/crashloop", store)
+        _drive(deps, incident_id)
+        with sqlite_sessions() as session:
+            incident = session.scalar(
+                select(models.Incident).where(models.Incident.incident_id == incident_id)
+            )
+            pending = pending_for_incident(session, incident.id)
+            return incident.owner, pending.reviewer if pending else None
+
+    def test_a_path_owner_beats_the_graphs_service_owner(
+        self, sqlite_sessions, store, monkeypatch
+    ) -> None:
+        self._graph_on(monkeypatch)
+        incident_id = _open_pr(sqlite_sessions, files=("sandbox/payment-api/Dockerfile",))
+        owner, _ = self._owner_and_reviewer(sqlite_sessions, store, incident_id)
+        assert owner == "bob"
+
+    def test_the_graph_asks_a_reviewer_not_the_owner(
+        self, sqlite_sessions, store, monkeypatch
+    ) -> None:
+        self._graph_on(monkeypatch)
+        incident_id = _open_pr(sqlite_sessions)
+        owner, reviewer = self._owner_and_reviewer(sqlite_sessions, store, incident_id)
+        assert (owner, reviewer) == ("alice", "bob")
+
+    def test_an_unreachable_graph_falls_back_to_the_registry(
+        self, sqlite_sessions, store, monkeypatch
+    ) -> None:
+        """The graph is advisory: a store that fails mid-query must not
+        fail triage or review."""
+
+        class _Broken:
+            def neighbors(self, *a, **k):
+                raise RuntimeError("neo4j connection lost")
+
+        self._graph_on(monkeypatch, store=_Broken())
+        incident_id = _open_pr(sqlite_sessions)
+        owner, reviewer = self._owner_and_reviewer(sqlite_sessions, store, incident_id)
+        assert (owner, reviewer) == ("alice", "bob")

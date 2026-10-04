@@ -279,3 +279,132 @@ def test_daemons_turn_sigterm_into_a_clean_stop():
     finally:
         for sig, handler in saved.items():
             signal.signal(sig, handler)
+
+
+def test_watch_github_publishes_pr_activity_not_existing_prs(monkeypatch, capsys):
+    """`helix watch --source github` polls open PRs: those open at start
+    are the baseline, a new one is published as pr.opened."""
+    from helix import cli
+
+    listings = [
+        [{"number": 1, "user": {"login": "a"}, "head": {"ref": "x", "sha": "1" * 40}}],
+        [
+            {"number": 1, "user": {"login": "a"}, "head": {"ref": "x", "sha": "1" * 40}},
+            {"number": 2, "user": {"login": "dana"}, "head": {"ref": "feature/y", "sha": "2" * 40}},
+        ],
+    ]
+
+    class FakeGitHub:
+        def list_open_pull_requests_raw(self):
+            return listings.pop(0)
+
+    sent = []
+
+    class FakeProducer:
+        def publish(self, event):
+            sent.append(event)
+
+        def flush(self, timeout=10.0):
+            return 0
+
+    monkeypatch.setattr("integrations.github.client.GitHubEvidenceClient", FakeGitHub)
+    monkeypatch.setattr("events.broker.EventProducer", FakeProducer)
+    seen = {}
+
+    def fake_run_watch(fetch, publish, **kwargs):
+        seen.update(kwargs)
+        for _ in range(2):
+            for event in fetch():
+                publish(event)
+        return 2
+
+    monkeypatch.setattr("events.watch.run_watch", fake_run_watch)
+    assert cli.main(["watch", "--source", "github"]) == 0
+    assert seen["polls"] == 1  # a PR event is a fact, not a condition to confirm
+    assert [(str(e.event_type), e.metadata["pr"], e.actor) for e in sent] == [
+        ("pr.opened", 2, "dana")
+    ]
+    assert "pr.opened" in capsys.readouterr().out
+
+
+def test_slack_socket_acks_clicks_and_hands_them_to_the_shared_handler(monkeypatch):
+    """`helix slack-socket` opens Slack's Socket Mode connection, acks each
+    envelope, passes button clicks to the same handler the HTTP route uses,
+    runs the queued resume, and reconnects when Slack recycles the socket."""
+    import json
+
+    from helix import cli
+
+    monkeypatch.setenv("HELIX_SLACK_APP_TOKEN", "xapp-test")
+    monkeypatch.setattr("integrations.slack.socket.open_connection_url", lambda token: "wss://x")
+    click = {
+        "type": "interactive",
+        "envelope_id": "env-9",
+        "payload": {"type": "block_actions", "actions": [{"action_id": "helix_review_approve:37"}]},
+    }
+    sent, handled, resumed = [], [], []
+
+    class FakeSocket:
+        def __init__(self, messages):
+            self._messages = [json.dumps(m) for m in messages]
+
+        def recv(self):
+            return self._messages.pop(0)
+
+        def send(self, data):
+            sent.append(json.loads(data))
+
+        def close(self):
+            pass
+
+    connections = [
+        FakeSocket(
+            [{"type": "hello"}, click, {"type": "disconnect", "reason": "refresh_requested"}]
+        )
+    ]
+
+    def connect(url, **kwargs):
+        if not connections:
+            raise KeyboardInterrupt  # end the test after one reconnect attempt
+        return connections.pop(0)
+
+    monkeypatch.setattr("websocket.create_connection", connect)
+
+    def fake_handle(payload, session, background):
+        handled.append(payload["actions"][0]["action_id"])
+        background.add_task(resumed.append, "INC-x")
+        return {"ok": True}
+
+    monkeypatch.setattr("helix.api.handle_slack_interaction", fake_handle)
+    assert cli.main(["slack-socket"]) == 0
+    assert sent == [{"envelope_id": "env-9"}]
+    assert handled == ["helix_review_approve:37"]
+    import time
+
+    for _ in range(50):
+        if resumed:
+            break
+        time.sleep(0.01)
+    assert resumed == ["INC-x"]
+
+
+def test_slack_socket_refuses_without_an_app_token(monkeypatch, capsys):
+    from helix import cli
+
+    monkeypatch.setenv("HELIX_SLACK_APP_TOKEN", "")
+    assert cli.main(["slack-socket"]) == 2
+    assert "HELIX_SLACK_APP_TOKEN" in capsys.readouterr().err
+
+
+def test_slack_socket_stops_on_a_wrong_token_instead_of_retrying(monkeypatch, capsys):
+    from helix import cli
+    from integrations.slack.client import SlackError
+
+    monkeypatch.setenv("HELIX_SLACK_APP_TOKEN", "xoxb-wrong-kind")
+
+    def refuse(token):
+        raise SlackError("slack apps.connections.open failed: not_allowed_token_type")
+
+    monkeypatch.setattr("integrations.slack.socket.open_connection_url", refuse)
+    assert cli.main(["slack-socket"]) == 2
+    assert "not_allowed_token_type" in capsys.readouterr().err

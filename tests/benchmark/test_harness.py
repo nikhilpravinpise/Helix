@@ -48,7 +48,9 @@ def test_run_scenario_skips_on_unmet_requirements():
 
 
 def test_arm_b_and_e_skip_without_llm_key(monkeypatch):
-    monkeypatch.setattr(harness, "get_settings", lambda: SimpleNamespace(llm_api_key=None))
+    monkeypatch.setattr(
+        harness, "get_settings", lambda: SimpleNamespace(llm_api_key_pool=lambda: [])
+    )
     cfg = HarnessConfig(arms=["B"], database_url=BAD_URL)
     record = run_scenario("ci-test-regression", SCENARIOS["ci-test-regression"], "B", cfg)
     assert record.skipped.startswith("arm B requires HELIX_LLM_API_KEY")
@@ -63,7 +65,9 @@ def test_a_key_in_dot_env_is_enough_to_run_an_llm_arm(monkeypatch, arm):
     already set. Reaching the requirements check at all is the assertion:
     it proves the arm was not refused for a missing key."""
     monkeypatch.delenv("HELIX_LLM_API_KEY", raising=False)  # .env only, not the environment
-    monkeypatch.setattr(harness, "get_settings", lambda: SimpleNamespace(llm_api_key="gsk_x"))
+    monkeypatch.setattr(
+        harness, "get_settings", lambda: SimpleNamespace(llm_api_key_pool=lambda: ["gsk_x"])
+    )
     cfg = HarnessConfig(arms=[arm], database_url=BAD_URL)
     record = run_scenario("ci-test-regression", SCENARIOS["ci-test-regression"], arm, cfg)
     assert "requires HELIX_LLM_API_KEY" not in (record.skipped or "")
@@ -256,7 +260,9 @@ def test_change_flow_skips_on_unmet_requirements_before_ingesting():
 def test_change_flow_arm_d_needs_the_llm_key(monkeypatch):
     """Arm D reasons through the LLM like B/C/E - no key is an honest
     skip, not a failed run."""
-    monkeypatch.setattr(harness, "get_settings", lambda: SimpleNamespace(llm_api_key=None))
+    monkeypatch.setattr(
+        harness, "get_settings", lambda: SimpleNamespace(llm_api_key_pool=lambda: [])
+    )
     cfg = HarnessConfig(arms=["D"], database_url=BAD_URL)
     record = run_scenario("org-known-owner-change", SCENARIOS["org-known-owner-change"], "D", cfg)
     assert record.skipped.startswith("arm D requires HELIX_LLM_API_KEY")
@@ -937,6 +943,46 @@ class TestClosePreexistingIncidents:
         models.Base.metadata.create_all(create_engine(url))
         assert harness._close_preexisting_incidents(url, SCENARIOS) == 0
 
+    def _seed_event_leftover(self, url, service, environment="sandbox"):
+        engine = create_engine(url)
+        models.Base.metadata.create_all(engine)
+        with Session(engine) as session:
+            session.add(
+                models.Incident(
+                    incident_id="INC-leftover",
+                    fingerprint="evt-an-event-id",
+                    service=service,
+                    environment=environment,
+                    severity="medium",
+                    status=IncidentStatus.VERIFYING,
+                )
+            )
+            session.commit()
+        return engine
+
+    def test_an_event_scenario_leftover_is_closed(self, tmp_path):
+        """2026-10-04: a graph-on run ended on arm D, leaving
+        xsys-runtime-missing-owner's billing-worker incident at `verifying`.
+        The next run's arm A org-missing-owner and xsys-runtime-missing-owner
+        both joined it on the service token and reported arm D's LLM
+        hypothesis as arm A's. Event scenarios open incidents keyed by
+        event id, not a signal fingerprint, so the fingerprint scope never
+        saw it."""
+        url = _sqlite_url(tmp_path)
+        engine = self._seed_event_leftover(url, "billing-worker")
+        run = {"org-missing-owner": SCENARIOS["org-missing-owner"]}
+        assert harness._close_preexisting_incidents(url, run) == 1
+        with Session(engine) as session:
+            assert session.scalar(select(models.Incident)).status in TERMINAL_STATUSES
+
+    def test_an_event_leftover_on_a_service_this_run_skips_is_kept(self, tmp_path):
+        url = _sqlite_url(tmp_path)
+        engine = self._seed_event_leftover(url, "billing-worker")
+        run = {"xsys-stale-work-item": SCENARIOS["xsys-stale-work-item"]}
+        assert harness._close_preexisting_incidents(url, run) == 0
+        with Session(engine) as session:
+            assert session.scalar(select(models.Incident)).status is IncidentStatus.VERIFYING
+
 
 class TestLiveInjectionStartsFromBaseline:
     """Each live scenario must start from the committed manifests, not from
@@ -970,3 +1016,41 @@ class TestLiveInjectionStartsFromBaseline:
         detail = harness._inject_live({"fault_script": "faults/missing-secret.sh"})
         assert detail is not None and "reset" in detail
         assert len(calls) == 1
+
+
+def test_benchmark_runs_never_reach_live_work_tracking_or_chat(monkeypatch):
+    """Every scenario shells out to `helix`, which reads the developer's
+    .env - and once that held real Jira and Slack credentials, a full run
+    would have filed a ticket and posted a thread per scenario per arm.
+    The harness pins those integrations to the recording fakes itself."""
+    monkeypatch.setenv("HELIX_WORK_PROVIDER", "jira")
+    monkeypatch.setenv("HELIX_SLACK_BOT_TOKEN", "xoxb-real")
+    env = harness._isolated_env()
+    assert env["HELIX_WORK_PROVIDER"] == "memory"
+    assert env["HELIX_SLACK_BOT_TOKEN"] == ""
+    assert env["HELIX_NOTION_API_KEY"] == ""
+    assert env["HELIX_SERVICE_REGISTRY"].endswith("benchmark/service_registry.yaml")
+
+
+def test_the_harness_process_itself_is_pinned_too(monkeypatch):
+    """_settle_integrations drains the outbox inside the harness process, so
+    pinning only the subprocesses would still let it reach live Jira."""
+    monkeypatch.setenv("HELIX_WORK_PROVIDER", "jira")
+    cfg = HarnessConfig(arms=["A"], scenarios=["no-such-scenario"], database_url=BAD_URL)
+    run_benchmark(cfg)
+    import os
+
+    assert os.environ["HELIX_WORK_PROVIDER"] == "memory"
+
+
+def test_keys_only_in_the_extra_keys_setting_still_run_the_llm_arms(monkeypatch):
+    """Live, 2026-10-04: with both Groq keys in HELIX_LLM_API_KEYS and
+    HELIX_LLM_API_KEY left blank - a natural way to configure two keys -
+    the LLM client had keys but this check read only the first setting, so
+    every arm B to E scenario of a three-hour run skipped. The check reads
+    the whole key pool."""
+    monkeypatch.setenv("HELIX_LLM_API_KEY", "")
+    monkeypatch.setenv("HELIX_LLM_API_KEYS", "gsk_one,gsk_two")
+    cfg = HarnessConfig(arms=["B"], database_url=BAD_URL)
+    record = run_scenario("ci-test-regression", SCENARIOS["ci-test-regression"], "B", cfg)
+    assert "requires HELIX_LLM_API_KEY" not in (record.skipped or "")

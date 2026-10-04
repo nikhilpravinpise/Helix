@@ -462,3 +462,43 @@ def test_a_provider_refusal_fails_at_once_instead_of_retrying(sessions):
         ).all()[-1]
         assert refused.status == OutboxStatus.FAILED
         assert "no transition" in refused.last_error
+
+
+def test_approval_card_says_why_helix_had_to_ask(sessions):
+    """The approval card quotes the policy reason from the transition that
+    paused the incident. An earlier version referenced IncidentStatus
+    without importing it, and only an incident WITH transitions reaches
+    that line - the test above has none, so it passed while every real
+    approval request would have raised and retried."""
+    from integrations.lifecycle_sync import enqueue_approval_request
+    from state.machine import transition
+
+    slack = _RecordingSlack()
+    with sessions() as session:
+        incident = _incident(session, kind="recovery")
+        for status, cause in [
+            (IncidentStatus.DIAGNOSING, "begin"),
+            (IncidentStatus.REMEDIATION_PENDING, "hypothesis"),
+            (IncidentStatus.VALIDATING, "planned"),
+            (
+                IncidentStatus.AWAITING_APPROVAL,
+                "policy requires approval: kubernetes write on evidence of only [build.failed]",
+            ),
+        ]:
+            transition(incident, status, cause=cause, session=session)
+        approval = models.Approval(
+            incident_id=incident.id,
+            action="restart_deployment",
+            params={},
+            fingerprint="fp1",
+            status=models.ApprovalStatus.PENDING,
+        )
+        session.add(approval)
+        session.flush()
+        enqueue_approval_request(session, incident, approval)
+        drain_outbox(session, slack=slack, work=_RecordingWork(), notion=_RecordingNotion())
+        card = next(
+            c for c in slack.calls if c.get("blocks") and "helix_approve" in str(c["blocks"])
+        )
+        assert "build.failed" in str(card["blocks"])
+        assert "`restart_deployment`" in str(card["blocks"])

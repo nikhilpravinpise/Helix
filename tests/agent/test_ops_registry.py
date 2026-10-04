@@ -122,3 +122,33 @@ def test_resolve_owner_handles_no_changed_paths(changed_paths) -> None:
     registry = ServiceRegistry(services={"payment-api": _entry(default_owner="alice")})
     owner, source = resolve_owner(registry, "payment-api", changed_paths=changed_paths)
     assert (owner, source) == ("alice", "registry")
+
+
+def test_the_registry_file_is_chosen_by_setting(tmp_path: Path, monkeypatch) -> None:
+    """HELIX_SERVICE_REGISTRY picks the file, so the live team
+    (config/service_registry.yaml) and the benchmark's fixed cast
+    (benchmark/service_registry.yaml) can differ without one moving the
+    other's expectations."""
+    other = tmp_path / "registry.yaml"
+    other.write_text("services:\n  billing:\n    default_owner: dana\n")
+    monkeypatch.setenv("HELIX_SERVICE_REGISTRY", str(other))
+    registry = load_registry()
+    assert set(registry.services) == {"billing"}
+
+
+def test_people_carry_a_display_name_and_slack_id(tmp_path: Path) -> None:
+    """Owners and reviewers are GitHub logins, which is what self-review
+    exclusion compares against a PR's author. `people` adds how to show
+    and ping each of them; someone without a Slack id is shown by name."""
+    path = tmp_path / "registry.yaml"
+    path.write_text(
+        "services: {}\n"
+        "people:\n"
+        "  VrajVed: {name: Vraj, slack: U01ABC}\n"
+        "  nikhilpravinpise: {name: Nikhil}\n"
+    )
+    registry = load_registry(path)
+    assert registry.person("VrajVed").slack == "U01ABC"
+    assert registry.person("nikhilpravinpise").name == "Nikhil"
+    assert registry.person("nikhilpravinpise").slack is None
+    assert registry.person("someone-else") is None

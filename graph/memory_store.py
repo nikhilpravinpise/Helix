@@ -72,7 +72,7 @@ class MemoryGraphStore:
             raise ValueError(f"direction must be 'out' or 'in', got {direction!r}")
         edges = self._out.get(node_id, []) if direction == "out" else self._in.get(node_id, [])
         out: list[Node] = []
-        for edge in edges:
+        for edge in sorted(edges, key=lambda e: e.properties.get("rank", 0)):
             if edge_type is not None and edge.type != edge_type:
                 continue
             other_id = edge.target if direction == "out" else edge.source
