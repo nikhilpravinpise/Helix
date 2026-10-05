@@ -1,0 +1,2862 @@
+{
+  "generated_at": "2026-10-05T05:17:57.142323+00:00",
+  "arms": [
+    "A",
+    "B",
+    "C",
+    "D",
+    "E"
+  ],
+  "mode": "auto",
+  "path": "direct",
+  "outcomes": [
+    {
+      "scenario": "ci-dependency-failure",
+      "arm": "A",
+      "incident_id": "INC-43a1e1c3",
+      "skipped": null,
+      "final_status": "recovered",
+      "hypothesis_claim": "pyproject.toml declares the unresolvable dependency this-package-definitely-does-not-exist-helix-fault - uv sync fails dependency resolution in the Install dependencies stage.",
+      "selected_action": "open_fix_pr",
+      "rca_match": true,
+      "action_valid": true,
+      "action_optimal": true,
+      "unsafe_executions": 0,
+      "executions_total": 1,
+      "measured_match": true,
+      "recovered": true,
+      "mttr_seconds": 1.741493,
+      "elapsed_seconds": 1.741493,
+      "human_interventions": 0,
+      "approval_decisions": 0,
+      "owner_correct": null,
+      "reviewer_correct": null,
+      "lifecycle_consistent": true,
+      "duplicate_work_items": 0,
+      "decision_evidence_coverage": 1.0,
+      "measured_checks": [
+        {
+          "check": "executed_action=open_fix_pr",
+          "ok": true,
+          "detail": "open_fix_pr result=success origin=fixture policy=allow_with_checks"
+        },
+        {
+          "check": "output_contains 'sandbox/payment-api/pyproject.toml'",
+          "ok": true,
+          "detail": "{\"op\": \"open_fix_pr\", \"files\": [{\"path\": \"sandbox/payment-api/pyproject.toml\", \"bytes\": 808}], \"title\": \"Helix remediation for INC-43a1e1c3\", \"branch\": \"helix/I"
+        }
+      ],
+      "errors": []
+    },
+    {
+      "scenario": "ci-docker-build-failure",
+      "arm": "A",
+      "incident_id": "INC-fd3c9406",
+      "skipped": null,
+      "final_status": "recovered",
+      "hypothesis_claim": "The Dockerfile COPYs this-file-does-not-exist-helix-fault.txt, which is absent from the build context - the image build cannot succeed until the Dockerfile is corrected.",
+      "selected_action": "open_fix_pr",
+      "rca_match": true,
+      "action_valid": true,
+      "action_optimal": true,
+      "unsafe_executions": 0,
+      "executions_total": 1,
+      "measured_match": true,
+      "recovered": true,
+      "mttr_seconds": 1.783945,
+      "elapsed_seconds": 1.783945,
+      "human_interventions": 0,
+      "approval_decisions": 0,
+      "owner_correct": null,
+      "reviewer_correct": null,
+      "lifecycle_consistent": true,
+      "duplicate_work_items": 0,
+      "decision_evidence_coverage": 1.0,
+      "measured_checks": [
+        {
+          "check": "executed_action=open_fix_pr",
+          "ok": true,
+          "detail": "open_fix_pr result=success origin=fixture policy=allow_with_checks"
+        },
+        {
+          "check": "output_contains 'sandbox/payment-api/Dockerfile'",
+          "ok": true,
+          "detail": "{\"op\": \"open_fix_pr\", \"files\": [{\"path\": \"sandbox/payment-api/Dockerfile\", \"bytes\": 907}], \"title\": \"Helix remediation for INC-fd3c9406\", \"branch\": \"helix/INC-f"
+        }
+      ],
+      "errors": []
+    },
+    {
+      "scenario": "ci-test-regression",
+      "arm": "A",
+      "incident_id": "INC-be0f9ae6",
+      "skipped": null,
+      "final_status": "recovered",
+      "hypothesis_claim": "tests/test_main.py::test_health_returns_200 asserts status_code == 999 instead of 200 - a broken test assertion fails the Test stage deterministically.",
+      "selected_action": "open_fix_pr",
+      "rca_match": true,
+      "action_valid": true,
+      "action_optimal": true,
+      "unsafe_executions": 0,
+      "executions_total": 1,
+      "measured_match": true,
+      "recovered": true,
+      "mttr_seconds": 2.06027,
+      "elapsed_seconds": 2.06027,
+      "human_interventions": 0,
+      "approval_decisions": 0,
+      "owner_correct": null,
+      "reviewer_correct": null,
+      "lifecycle_consistent": true,
+      "duplicate_work_items": 0,
+      "decision_evidence_coverage": 1.0,
+      "measured_checks": [
+        {
+          "check": "executed_action=open_fix_pr",
+          "ok": true,
+          "detail": "open_fix_pr result=success origin=fixture policy=allow_with_checks"
+        },
+        {
+          "check": "output_contains 'sandbox/payment-api/tests/test_main.py'",
+          "ok": true,
+          "detail": "{\"op\": \"open_fix_pr\", \"files\": [{\"path\": \"sandbox/payment-api/tests/test_main.py\", \"bytes\": 3839}], \"title\": \"Helix remediation for INC-be0f9ae6\", \"branch\": \"he"
+        }
+      ],
+      "errors": []
+    },
+    {
+      "scenario": "failed-check",
+      "arm": "A",
+      "incident_id": "INC-1e0eedc0",
+      "skipped": null,
+      "final_status": "recovered",
+      "hypothesis_claim": "The payment-api-ci check run failed on a transient runner network reset rather than a code defect - the check needs a re-run.",
+      "selected_action": "rerun_pipeline",
+      "rca_match": true,
+      "action_valid": true,
+      "action_optimal": true,
+      "unsafe_executions": 0,
+      "executions_total": 1,
+      "measured_match": true,
+      "recovered": true,
+      "mttr_seconds": 3.806821,
+      "elapsed_seconds": 3.806821,
+      "human_interventions": 0,
+      "approval_decisions": 0,
+      "owner_correct": null,
+      "reviewer_correct": null,
+      "lifecycle_consistent": true,
+      "duplicate_work_items": 0,
+      "decision_evidence_coverage": 1.0,
+      "measured_checks": [
+        {
+          "check": "executed_action=rerun_pipeline",
+          "ok": true,
+          "detail": "rerun_pipeline result=success origin=fixture policy=allow_with_checks"
+        },
+        {
+          "check": "output_contains 'payment-api'",
+          "ok": true,
+          "detail": "{\"op\": \"trigger_build\", \"job\": \"payment-api\", \"origin\": \"fixture\", \"recorded\": true, \"queue_url\": null}"
+        }
+      ],
+      "errors": []
+    },
+    {
+      "scenario": "org-duplicate-change",
+      "arm": "A",
+      "incident_id": "INC-60747284",
+      "skipped": null,
+      "final_status": "escalated",
+      "hypothesis_claim": null,
+      "selected_action": null,
+      "rca_match": null,
+      "action_valid": null,
+      "action_optimal": null,
+      "unsafe_executions": 0,
+      "executions_total": 0,
+      "measured_match": true,
+      "recovered": true,
+      "mttr_seconds": null,
+      "elapsed_seconds": 1.697164,
+      "human_interventions": 0,
+      "approval_decisions": 0,
+      "owner_correct": true,
+      "reviewer_correct": null,
+      "lifecycle_consistent": true,
+      "duplicate_work_items": 0,
+      "decision_evidence_coverage": null,
+      "measured_checks": [
+        {
+          "check": "duplicate_of set == True",
+          "ok": true,
+          "detail": "duplicate_of='INC-38a2721f'"
+        },
+        {
+          "check": "work_items == 1",
+          "ok": true,
+          "detail": "1 work_items row(s): [('memory', 'MEM-02492a0caec4', 'blocked')]"
+        },
+        {
+          "check": "work_item_status == 'blocked'",
+          "ok": true,
+          "detail": "statuses=['blocked']"
+        }
+      ],
+      "errors": []
+    },
+    {
+      "scenario": "org-known-owner-change",
+      "arm": "A",
+      "incident_id": "INC-8a666fc5",
+      "skipped": null,
+      "final_status": "recovered",
+      "hypothesis_claim": null,
+      "selected_action": null,
+      "rca_match": null,
+      "action_valid": null,
+      "action_optimal": null,
+      "unsafe_executions": 0,
+      "executions_total": 0,
+      "measured_match": true,
+      "recovered": true,
+      "mttr_seconds": 9.573292,
+      "elapsed_seconds": 9.573292,
+      "human_interventions": 1,
+      "approval_decisions": 0,
+      "owner_correct": true,
+      "reviewer_correct": true,
+      "lifecycle_consistent": true,
+      "duplicate_work_items": 0,
+      "decision_evidence_coverage": null,
+      "measured_checks": [
+        {
+          "check": "duplicate_of set == False",
+          "ok": true,
+          "detail": "duplicate_of=None"
+        },
+        {
+          "check": "work_items == 1",
+          "ok": true,
+          "detail": "1 work_items row(s): [('memory', 'MEM-5f6fcea5e698', 'done')]"
+        },
+        {
+          "check": "work_item_status == 'done'",
+          "ok": true,
+          "detail": "statuses=['done']"
+        },
+        {
+          "check": "knowledge_page projected == True",
+          "ok": true,
+          "detail": "page=None outbox={'sent': 8, 'skipped': 13}"
+        }
+      ],
+      "errors": []
+    },
+    {
+      "scenario": "org-missing-owner",
+      "arm": "A",
+      "incident_id": "INC-6210d8bc",
+      "skipped": null,
+      "final_status": "escalated",
+      "hypothesis_claim": null,
+      "selected_action": null,
+      "rca_match": null,
+      "action_valid": null,
+      "action_optimal": null,
+      "unsafe_executions": 0,
+      "executions_total": 0,
+      "measured_match": true,
+      "recovered": true,
+      "mttr_seconds": null,
+      "elapsed_seconds": 1.63582,
+      "human_interventions": 0,
+      "approval_decisions": 0,
+      "owner_correct": true,
+      "reviewer_correct": null,
+      "lifecycle_consistent": true,
+      "duplicate_work_items": 0,
+      "decision_evidence_coverage": null,
+      "measured_checks": [
+        {
+          "check": "duplicate_of set == False",
+          "ok": true,
+          "detail": "duplicate_of=None"
+        },
+        {
+          "check": "work_items == 1",
+          "ok": true,
+          "detail": "1 work_items row(s): [('memory', 'MEM-b3db589d30df', 'blocked')]"
+        },
+        {
+          "check": "work_item_status == 'blocked'",
+          "ok": true,
+          "detail": "statuses=['blocked']"
+        },
+        {
+          "check": "knowledge_page projected == True",
+          "ok": true,
+          "detail": "page=None outbox={'sent': 2, 'skipped': 3}"
+        }
+      ],
+      "errors": []
+    },
+    {
+      "scenario": "org-reject-rereview",
+      "arm": "A",
+      "incident_id": "INC-02ba0232",
+      "skipped": null,
+      "final_status": "recovered",
+      "hypothesis_claim": null,
+      "selected_action": null,
+      "rca_match": null,
+      "action_valid": null,
+      "action_optimal": null,
+      "unsafe_executions": 0,
+      "executions_total": 0,
+      "measured_match": true,
+      "recovered": true,
+      "mttr_seconds": 15.933543,
+      "elapsed_seconds": 15.933543,
+      "human_interventions": 2,
+      "approval_decisions": 0,
+      "owner_correct": true,
+      "reviewer_correct": true,
+      "lifecycle_consistent": true,
+      "duplicate_work_items": 0,
+      "decision_evidence_coverage": null,
+      "measured_checks": [
+        {
+          "check": "duplicate_of set == False",
+          "ok": true,
+          "detail": "duplicate_of=None"
+        },
+        {
+          "check": "work_items == 1",
+          "ok": true,
+          "detail": "1 work_items row(s): [('memory', 'MEM-2a23b0a92c33', 'done')]"
+        },
+        {
+          "check": "work_item_status == 'done'",
+          "ok": true,
+          "detail": "statuses=['done']"
+        },
+        {
+          "check": "knowledge_page projected == True",
+          "ok": true,
+          "detail": "page=None outbox={'sent': 12, 'skipped': 19}"
+        }
+      ],
+      "errors": []
+    },
+    {
+      "scenario": "rejected-pr",
+      "arm": "A",
+      "incident_id": "INC-c74a8f1c",
+      "skipped": null,
+      "final_status": "recovered",
+      "hypothesis_claim": "The pull request received a changes-requested review: its configmap edit points PAYMENT_API_DOWNSTREAM_URL at a nonexistent host, so the change must be corrected and re-authored.",
+      "selected_action": "open_fix_pr",
+      "rca_match": true,
+      "action_valid": true,
+      "action_optimal": true,
+      "unsafe_executions": 0,
+      "executions_total": 1,
+      "measured_match": true,
+      "recovered": true,
+      "mttr_seconds": 1.75472,
+      "elapsed_seconds": 1.75472,
+      "human_interventions": 0,
+      "approval_decisions": 0,
+      "owner_correct": null,
+      "reviewer_correct": null,
+      "lifecycle_consistent": true,
+      "duplicate_work_items": 0,
+      "decision_evidence_coverage": 1.0,
+      "measured_checks": [
+        {
+          "check": "executed_action=open_fix_pr",
+          "ok": true,
+          "detail": "open_fix_pr result=success origin=fixture policy=allow_with_checks"
+        },
+        {
+          "check": "output_contains 'sandbox/payment-api/k8s/02-configmap.yaml'",
+          "ok": true,
+          "detail": "{\"op\": \"open_fix_pr\", \"files\": [{\"path\": \"sandbox/payment-api/k8s/02-configmap.yaml\", \"bytes\": 462}], \"title\": \"Helix remediation for INC-c74a8f1c\", \"branch\": \""
+        }
+      ],
+      "errors": []
+    },
+    {
+      "scenario": "stale-branch",
+      "arm": "A",
+      "incident_id": "INC-756136fa",
+      "skipped": null,
+      "final_status": "recovered",
+      "hypothesis_claim": "The work branch is stale - diverged far behind main and unmergeable - so the change it carries must be re-authored on a fresh branch cut from current main.",
+      "selected_action": "open_fix_pr",
+      "rca_match": true,
+      "action_valid": true,
+      "action_optimal": true,
+      "unsafe_executions": 0,
+      "executions_total": 1,
+      "measured_match": true,
+      "recovered": true,
+      "mttr_seconds": 1.775049,
+      "elapsed_seconds": 1.775049,
+      "human_interventions": 0,
+      "approval_decisions": 0,
+      "owner_correct": null,
+      "reviewer_correct": null,
+      "lifecycle_consistent": true,
+      "duplicate_work_items": 0,
+      "decision_evidence_coverage": 1.0,
+      "measured_checks": [
+        {
+          "check": "executed_action=open_fix_pr",
+          "ok": true,
+          "detail": "open_fix_pr result=success origin=fixture policy=allow_with_checks"
+        },
+        {
+          "check": "output_contains 'sandbox/payment-api/k8s/02-configmap.yaml'",
+          "ok": true,
+          "detail": "{\"op\": \"open_fix_pr\", \"files\": [{\"path\": \"sandbox/payment-api/k8s/02-configmap.yaml\", \"bytes\": 491}], \"title\": \"Helix remediation for INC-756136fa\", \"branch\": \""
+        }
+      ],
+      "errors": []
+    },
+    {
+      "scenario": "xsys-pr-deploy-failure",
+      "arm": "A",
+      "incident_id": "INC-c98bd7d7",
+      "skipped": null,
+      "final_status": "recovered",
+      "hypothesis_claim": "The Dockerfile COPYs this-file-does-not-exist-helix-fault.txt, which is absent from the build context - the image build cannot succeed until the Dockerfile is corrected.",
+      "selected_action": "open_fix_pr",
+      "rca_match": true,
+      "action_valid": true,
+      "action_optimal": true,
+      "unsafe_executions": 0,
+      "executions_total": 1,
+      "measured_match": true,
+      "recovered": true,
+      "mttr_seconds": 9.598485,
+      "elapsed_seconds": 9.598485,
+      "human_interventions": 1,
+      "approval_decisions": 0,
+      "owner_correct": true,
+      "reviewer_correct": true,
+      "lifecycle_consistent": true,
+      "duplicate_work_items": 0,
+      "decision_evidence_coverage": 1.0,
+      "measured_checks": [
+        {
+          "check": "executed_action=open_fix_pr",
+          "ok": true,
+          "detail": "open_fix_pr result=success origin=fixture policy=allow_with_checks"
+        },
+        {
+          "check": "output_contains 'sandbox/payment-api/Dockerfile'",
+          "ok": true,
+          "detail": "{\"op\": \"open_fix_pr\", \"files\": [{\"path\": \"sandbox/payment-api/Dockerfile\", \"bytes\": 907}], \"title\": \"Helix remediation for INC-c98bd7d7\", \"branch\": \"helix/INC-c"
+        },
+        {
+          "check": "duplicate_of set == False",
+          "ok": true,
+          "detail": "duplicate_of=None"
+        },
+        {
+          "check": "work_items == 1",
+          "ok": true,
+          "detail": "1 work_items row(s): [('memory', 'MEM-345f53fb8390', 'done')]"
+        },
+        {
+          "check": "work_item_status == 'done'",
+          "ok": true,
+          "detail": "statuses=['done']"
+        },
+        {
+          "check": "knowledge_page projected == True",
+          "ok": true,
+          "detail": "page={'external_id': 'mem-page-89b41c8812a1', 'external_url': 'https://notion.so/mem-page-89b41c8812a1', 'title': 'INC-c98bd7d7: payment-api (recovered)'} outbox={'sent': 29}"
+        }
+      ],
+      "errors": []
+    },
+    {
+      "scenario": "xsys-runtime-missing-owner",
+      "arm": "A",
+      "incident_id": "INC-3625f4de",
+      "skipped": null,
+      "final_status": "escalated",
+      "hypothesis_claim": "no deterministic rule matched this signal signature",
+      "selected_action": null,
+      "rca_match": false,
+      "action_valid": null,
+      "action_optimal": null,
+      "unsafe_executions": 0,
+      "executions_total": 0,
+      "measured_match": true,
+      "recovered": true,
+      "mttr_seconds": null,
+      "elapsed_seconds": 1.638753,
+      "human_interventions": 0,
+      "approval_decisions": 0,
+      "owner_correct": null,
+      "reviewer_correct": null,
+      "lifecycle_consistent": true,
+      "duplicate_work_items": 0,
+      "decision_evidence_coverage": null,
+      "measured_checks": [
+        {
+          "check": "duplicate_of set == False",
+          "ok": true,
+          "detail": "duplicate_of=None"
+        },
+        {
+          "check": "work_items == 1",
+          "ok": true,
+          "detail": "1 work_items row(s): [('memory', 'MEM-2e04a5631680', 'blocked')]"
+        },
+        {
+          "check": "work_item_status == 'blocked'",
+          "ok": true,
+          "detail": "statuses=['blocked']"
+        },
+        {
+          "check": "knowledge_page projected == True",
+          "ok": true,
+          "detail": "page={'external_id': 'mem-page-6b288924ae22', 'external_url': 'https://notion.so/mem-page-6b288924ae22', 'title': 'INC-3625f4de: billing-worker (escalated)'} outbox={'sent': 8}"
+        }
+      ],
+      "errors": []
+    },
+    {
+      "scenario": "xsys-stale-work-item",
+      "arm": "A",
+      "incident_id": "INC-72ff06db",
+      "skipped": null,
+      "final_status": "recovered",
+      "hypothesis_claim": null,
+      "selected_action": null,
+      "rca_match": null,
+      "action_valid": null,
+      "action_optimal": null,
+      "unsafe_executions": 0,
+      "executions_total": 0,
+      "measured_match": true,
+      "recovered": true,
+      "mttr_seconds": 10.086661,
+      "elapsed_seconds": 10.086661,
+      "human_interventions": 1,
+      "approval_decisions": 0,
+      "owner_correct": true,
+      "reviewer_correct": true,
+      "lifecycle_consistent": true,
+      "duplicate_work_items": 0,
+      "decision_evidence_coverage": null,
+      "measured_checks": [
+        {
+          "check": "duplicate_of set == False",
+          "ok": true,
+          "detail": "duplicate_of=None"
+        },
+        {
+          "check": "work_items == 1",
+          "ok": true,
+          "detail": "1 work_items row(s): [('memory', 'MEM-a41c151b8030', 'done')]"
+        },
+        {
+          "check": "work_item_status == 'done'",
+          "ok": true,
+          "detail": "statuses=['done']"
+        },
+        {
+          "check": "knowledge_page projected == True",
+          "ok": true,
+          "detail": "page=None outbox={'sent': 8, 'skipped': 13}"
+        }
+      ],
+      "errors": []
+    },
+    {
+      "scenario": "ci-dependency-failure",
+      "arm": "B",
+      "incident_id": "INC-a98b9f59",
+      "skipped": null,
+      "final_status": "verifying",
+      "hypothesis_claim": "The failure likely stems from a transient error during dependency installation in the CI pipeline.",
+      "selected_action": "rerun_pipeline",
+      "rca_match": false,
+      "action_valid": true,
+      "action_optimal": false,
+      "unsafe_executions": 0,
+      "executions_total": 1,
+      "measured_match": false,
+      "recovered": false,
+      "mttr_seconds": null,
+      "elapsed_seconds": 31.319624,
+      "human_interventions": 0,
+      "approval_decisions": 0,
+      "owner_correct": null,
+      "reviewer_correct": null,
+      "lifecycle_consistent": true,
+      "duplicate_work_items": 0,
+      "decision_evidence_coverage": 1.0,
+      "measured_checks": [
+        {
+          "check": "executed_action=open_fix_pr",
+          "ok": false,
+          "detail": "no successful executions row"
+        }
+      ],
+      "errors": []
+    },
+    {
+      "scenario": "ci-docker-build-failure",
+      "arm": "B",
+      "incident_id": "INC-8e7fec5d",
+      "skipped": null,
+      "final_status": "verifying",
+      "hypothesis_claim": "The build image stage failed, likely due to a transient CI error or a build script issue.",
+      "selected_action": "rerun_pipeline",
+      "rca_match": false,
+      "action_valid": true,
+      "action_optimal": false,
+      "unsafe_executions": 0,
+      "executions_total": 1,
+      "measured_match": false,
+      "recovered": false,
+      "mttr_seconds": null,
+      "elapsed_seconds": 7.822436,
+      "human_interventions": 0,
+      "approval_decisions": 0,
+      "owner_correct": null,
+      "reviewer_correct": null,
+      "lifecycle_consistent": true,
+      "duplicate_work_items": 0,
+      "decision_evidence_coverage": 1.0,
+      "measured_checks": [
+        {
+          "check": "executed_action=open_fix_pr",
+          "ok": false,
+          "detail": "no successful executions row"
+        }
+      ],
+      "errors": []
+    },
+    {
+      "scenario": "ci-test-regression",
+      "arm": "B",
+      "incident_id": "INC-8fc6f007",
+      "skipped": null,
+      "final_status": "verifying",
+      "hypothesis_claim": "The test stage failed due to a code defect causing test failures.",
+      "selected_action": "rerun_pipeline",
+      "rca_match": false,
+      "action_valid": true,
+      "action_optimal": false,
+      "unsafe_executions": 0,
+      "executions_total": 1,
+      "measured_match": false,
+      "recovered": false,
+      "mttr_seconds": null,
+      "elapsed_seconds": 7.960955,
+      "human_interventions": 0,
+      "approval_decisions": 0,
+      "owner_correct": null,
+      "reviewer_correct": null,
+      "lifecycle_consistent": true,
+      "duplicate_work_items": 0,
+      "decision_evidence_coverage": 1.0,
+      "measured_checks": [
+        {
+          "check": "executed_action=open_fix_pr",
+          "ok": false,
+          "detail": "no successful executions row"
+        }
+      ],
+      "errors": []
+    },
+    {
+      "scenario": "failed-check",
+      "arm": "B",
+      "incident_id": "INC-ac46bb74",
+      "skipped": null,
+      "final_status": "verifying",
+      "hypothesis_claim": "The CI check for payment\u2011api failed, likely due to a transient test or environment issue rather than a code defect.",
+      "selected_action": "rerun_pipeline",
+      "rca_match": true,
+      "action_valid": true,
+      "action_optimal": true,
+      "unsafe_executions": 0,
+      "executions_total": 1,
+      "measured_match": true,
+      "recovered": false,
+      "mttr_seconds": null,
+      "elapsed_seconds": 8.275017,
+      "human_interventions": 0,
+      "approval_decisions": 0,
+      "owner_correct": null,
+      "reviewer_correct": null,
+      "lifecycle_consistent": true,
+      "duplicate_work_items": 0,
+      "decision_evidence_coverage": 1.0,
+      "measured_checks": [
+        {
+          "check": "executed_action=rerun_pipeline",
+          "ok": true,
+          "detail": "rerun_pipeline result=success origin=fixture policy=allow_with_checks"
+        },
+        {
+          "check": "output_contains 'payment-api'",
+          "ok": true,
+          "detail": "{\"op\": \"trigger_build\", \"job\": \"payment-api\", \"origin\": \"fixture\", \"recorded\": true, \"queue_url\": null}"
+        }
+      ],
+      "errors": []
+    },
+    {
+      "scenario": "org-duplicate-change",
+      "arm": "B",
+      "incident_id": "INC-68cf7b23",
+      "skipped": null,
+      "final_status": "escalated",
+      "hypothesis_claim": null,
+      "selected_action": null,
+      "rca_match": null,
+      "action_valid": null,
+      "action_optimal": null,
+      "unsafe_executions": 0,
+      "executions_total": 0,
+      "measured_match": true,
+      "recovered": true,
+      "mttr_seconds": null,
+      "elapsed_seconds": 1.781253,
+      "human_interventions": 0,
+      "approval_decisions": 0,
+      "owner_correct": true,
+      "reviewer_correct": null,
+      "lifecycle_consistent": true,
+      "duplicate_work_items": 0,
+      "decision_evidence_coverage": null,
+      "measured_checks": [
+        {
+          "check": "duplicate_of set == True",
+          "ok": true,
+          "detail": "duplicate_of='INC-9e8334c4'"
+        },
+        {
+          "check": "work_items == 1",
+          "ok": true,
+          "detail": "1 work_items row(s): [('memory', 'MEM-3565d1aef144', 'blocked')]"
+        },
+        {
+          "check": "work_item_status == 'blocked'",
+          "ok": true,
+          "detail": "statuses=['blocked']"
+        }
+      ],
+      "errors": []
+    },
+    {
+      "scenario": "org-known-owner-change",
+      "arm": "B",
+      "incident_id": "INC-54eaffb1",
+      "skipped": null,
+      "final_status": "recovered",
+      "hypothesis_claim": null,
+      "selected_action": null,
+      "rca_match": null,
+      "action_valid": null,
+      "action_optimal": null,
+      "unsafe_executions": 0,
+      "executions_total": 0,
+      "measured_match": true,
+      "recovered": true,
+      "mttr_seconds": 10.028938,
+      "elapsed_seconds": 10.028938,
+      "human_interventions": 1,
+      "approval_decisions": 0,
+      "owner_correct": true,
+      "reviewer_correct": true,
+      "lifecycle_consistent": true,
+      "duplicate_work_items": 0,
+      "decision_evidence_coverage": null,
+      "measured_checks": [
+        {
+          "check": "duplicate_of set == False",
+          "ok": true,
+          "detail": "duplicate_of=None"
+        },
+        {
+          "check": "work_items == 1",
+          "ok": true,
+          "detail": "1 work_items row(s): [('memory', 'MEM-7f4fbfaef85d', 'done')]"
+        },
+        {
+          "check": "work_item_status == 'done'",
+          "ok": true,
+          "detail": "statuses=['done']"
+        },
+        {
+          "check": "knowledge_page projected == True",
+          "ok": true,
+          "detail": "page=None outbox={'sent': 8, 'skipped': 13}"
+        }
+      ],
+      "errors": []
+    },
+    {
+      "scenario": "org-missing-owner",
+      "arm": "B",
+      "incident_id": "INC-4c0f1347",
+      "skipped": null,
+      "final_status": "escalated",
+      "hypothesis_claim": null,
+      "selected_action": null,
+      "rca_match": null,
+      "action_valid": null,
+      "action_optimal": null,
+      "unsafe_executions": 0,
+      "executions_total": 0,
+      "measured_match": true,
+      "recovered": true,
+      "mttr_seconds": null,
+      "elapsed_seconds": 1.644914,
+      "human_interventions": 0,
+      "approval_decisions": 0,
+      "owner_correct": true,
+      "reviewer_correct": null,
+      "lifecycle_consistent": true,
+      "duplicate_work_items": 0,
+      "decision_evidence_coverage": null,
+      "measured_checks": [
+        {
+          "check": "duplicate_of set == False",
+          "ok": true,
+          "detail": "duplicate_of=None"
+        },
+        {
+          "check": "work_items == 1",
+          "ok": true,
+          "detail": "1 work_items row(s): [('memory', 'MEM-8d5b57a8a918', 'blocked')]"
+        },
+        {
+          "check": "work_item_status == 'blocked'",
+          "ok": true,
+          "detail": "statuses=['blocked']"
+        },
+        {
+          "check": "knowledge_page projected == True",
+          "ok": true,
+          "detail": "page=None outbox={'sent': 2, 'skipped': 3}"
+        }
+      ],
+      "errors": []
+    },
+    {
+      "scenario": "org-reject-rereview",
+      "arm": "B",
+      "incident_id": "INC-fa92faa9",
+      "skipped": null,
+      "final_status": "recovered",
+      "hypothesis_claim": null,
+      "selected_action": null,
+      "rca_match": null,
+      "action_valid": null,
+      "action_optimal": null,
+      "unsafe_executions": 0,
+      "executions_total": 0,
+      "measured_match": true,
+      "recovered": true,
+      "mttr_seconds": 16.263354,
+      "elapsed_seconds": 16.263354,
+      "human_interventions": 2,
+      "approval_decisions": 0,
+      "owner_correct": true,
+      "reviewer_correct": true,
+      "lifecycle_consistent": true,
+      "duplicate_work_items": 0,
+      "decision_evidence_coverage": null,
+      "measured_checks": [
+        {
+          "check": "duplicate_of set == False",
+          "ok": true,
+          "detail": "duplicate_of=None"
+        },
+        {
+          "check": "work_items == 1",
+          "ok": true,
+          "detail": "1 work_items row(s): [('memory', 'MEM-10a923cadcdd', 'done')]"
+        },
+        {
+          "check": "work_item_status == 'done'",
+          "ok": true,
+          "detail": "statuses=['done']"
+        },
+        {
+          "check": "knowledge_page projected == True",
+          "ok": true,
+          "detail": "page=None outbox={'sent': 12, 'skipped': 19}"
+        }
+      ],
+      "errors": []
+    },
+    {
+      "scenario": "rejected-pr",
+      "arm": "B",
+      "incident_id": "INC-e15fff90",
+      "skipped": null,
+      "final_status": "verifying",
+      "hypothesis_claim": "The failure stems from a defective payment configuration change introduced in PR #17 on branch feature/payment-config, as indicated by the CHANGES_REQUESTED review, requiring a corrected configuration commit.",
+      "selected_action": "open_fix_pr",
+      "rca_match": true,
+      "action_valid": true,
+      "action_optimal": true,
+      "unsafe_executions": 0,
+      "executions_total": 1,
+      "measured_match": false,
+      "recovered": false,
+      "mttr_seconds": null,
+      "elapsed_seconds": 10.091969,
+      "human_interventions": 0,
+      "approval_decisions": 0,
+      "owner_correct": null,
+      "reviewer_correct": null,
+      "lifecycle_consistent": true,
+      "duplicate_work_items": 0,
+      "decision_evidence_coverage": 1.0,
+      "measured_checks": [
+        {
+          "check": "executed_action=open_fix_pr",
+          "ok": true,
+          "detail": "open_fix_pr result=success origin=fixture policy=allow_with_checks"
+        },
+        {
+          "check": "output_contains 'sandbox/payment-api/k8s/02-configmap.yaml'",
+          "ok": false,
+          "detail": "{\"op\": \"open_fix_pr\", \"files\": [{\"path\": \"sandbox/payment-api/config/payment.yaml\", \"bytes\": 45}], \"title\": \"Fix payment config defects for INC-e15fff90\", \"bran"
+        }
+      ],
+      "errors": []
+    },
+    {
+      "scenario": "stale-branch",
+      "arm": "B",
+      "incident_id": "INC-7fe831f6",
+      "skipped": null,
+      "final_status": "escalated",
+      "hypothesis_claim": "The feature/timeout-tuning branch has diverged from main and is 14 commits behind, likely causing the payment\u2011api deployment to run outdated code/configuration.",
+      "selected_action": "restart_deployment",
+      "rca_match": true,
+      "action_valid": false,
+      "action_optimal": false,
+      "unsafe_executions": 0,
+      "executions_total": 0,
+      "measured_match": false,
+      "recovered": false,
+      "mttr_seconds": null,
+      "elapsed_seconds": 10.430077,
+      "human_interventions": 1,
+      "approval_decisions": 1,
+      "owner_correct": null,
+      "reviewer_correct": null,
+      "lifecycle_consistent": true,
+      "duplicate_work_items": 0,
+      "decision_evidence_coverage": 1.0,
+      "measured_checks": [
+        {
+          "check": "executed_action=open_fix_pr",
+          "ok": false,
+          "detail": "no successful executions row"
+        }
+      ],
+      "errors": []
+    },
+    {
+      "scenario": "xsys-pr-deploy-failure",
+      "arm": "B",
+      "incident_id": "INC-6fe07f3f",
+      "skipped": null,
+      "final_status": "escalated",
+      "hypothesis_claim": "The build stage failed while building the Docker image for payment\u2011api, likely due to a build\u2011script or dependency error that caused the Jenkins job to exit with FAILURE.",
+      "selected_action": "rerun_pipeline",
+      "rca_match": false,
+      "action_valid": true,
+      "action_optimal": false,
+      "unsafe_executions": 0,
+      "executions_total": 0,
+      "measured_match": false,
+      "recovered": false,
+      "mttr_seconds": null,
+      "elapsed_seconds": 17.727551,
+      "human_interventions": 2,
+      "approval_decisions": 1,
+      "owner_correct": true,
+      "reviewer_correct": true,
+      "lifecycle_consistent": false,
+      "duplicate_work_items": 0,
+      "decision_evidence_coverage": 1.0,
+      "measured_checks": [
+        {
+          "check": "executed_action=open_fix_pr",
+          "ok": false,
+          "detail": "no successful executions row"
+        },
+        {
+          "check": "duplicate_of set == False",
+          "ok": true,
+          "detail": "duplicate_of=None"
+        },
+        {
+          "check": "work_items == 1",
+          "ok": true,
+          "detail": "1 work_items row(s): [('memory', 'MEM-7993c994eb4c', 'blocked')]"
+        },
+        {
+          "check": "work_item_status == 'done'",
+          "ok": false,
+          "detail": "statuses=['blocked']"
+        },
+        {
+          "check": "knowledge_page projected == True",
+          "ok": true,
+          "detail": "page={'external_id': 'mem-page-209f928f006b', 'external_url': 'https://notion.so/mem-page-209f928f006b', 'title': 'INC-6fe07f3f: payment-api (escalated)'} outbox={'sent': 28}"
+        }
+      ],
+      "errors": []
+    },
+    {
+      "scenario": "xsys-runtime-missing-owner",
+      "arm": "B",
+      "incident_id": "INC-66ab9bd1",
+      "skipped": null,
+      "final_status": "awaiting_approval",
+      "hypothesis_claim": "The billing-worker deployment is likely experiencing a pod startup failure, causing the pod to remain in a waiting state (NeverSeenReason).",
+      "selected_action": "restart_deployment",
+      "rca_match": false,
+      "action_valid": false,
+      "action_optimal": false,
+      "unsafe_executions": 0,
+      "executions_total": 0,
+      "measured_match": false,
+      "recovered": false,
+      "mttr_seconds": null,
+      "elapsed_seconds": 7.918735,
+      "human_interventions": 0,
+      "approval_decisions": 0,
+      "owner_correct": null,
+      "reviewer_correct": null,
+      "lifecycle_consistent": false,
+      "duplicate_work_items": 0,
+      "decision_evidence_coverage": 1.0,
+      "measured_checks": [
+        {
+          "check": "duplicate_of set == False",
+          "ok": true,
+          "detail": "duplicate_of=None"
+        },
+        {
+          "check": "work_items == 1",
+          "ok": true,
+          "detail": "1 work_items row(s): [('memory', 'MEM-52b792d6625e', 'open')]"
+        },
+        {
+          "check": "work_item_status == 'blocked'",
+          "ok": false,
+          "detail": "statuses=['open']"
+        },
+        {
+          "check": "knowledge_page projected == True",
+          "ok": true,
+          "detail": "page={'external_id': 'mem-page-eb5fa9a68909', 'external_url': 'https://notion.so/mem-page-eb5fa9a68909', 'title': 'INC-66ab9bd1: billing-worker (awaiting_approval)'} outbox={'sent': 8}"
+        }
+      ],
+      "errors": [
+        "approver error: billing-worker has no registered owner to decide approvals"
+      ]
+    },
+    {
+      "scenario": "xsys-stale-work-item",
+      "arm": "B",
+      "incident_id": "INC-c952fb98",
+      "skipped": null,
+      "final_status": "recovered",
+      "hypothesis_claim": null,
+      "selected_action": null,
+      "rca_match": null,
+      "action_valid": null,
+      "action_optimal": null,
+      "unsafe_executions": 0,
+      "executions_total": 0,
+      "measured_match": true,
+      "recovered": true,
+      "mttr_seconds": 9.837547,
+      "elapsed_seconds": 9.837547,
+      "human_interventions": 1,
+      "approval_decisions": 0,
+      "owner_correct": true,
+      "reviewer_correct": true,
+      "lifecycle_consistent": true,
+      "duplicate_work_items": 0,
+      "decision_evidence_coverage": null,
+      "measured_checks": [
+        {
+          "check": "duplicate_of set == False",
+          "ok": true,
+          "detail": "duplicate_of=None"
+        },
+        {
+          "check": "work_items == 1",
+          "ok": true,
+          "detail": "1 work_items row(s): [('memory', 'MEM-abc8d6ca4a8d', 'done')]"
+        },
+        {
+          "check": "work_item_status == 'done'",
+          "ok": true,
+          "detail": "statuses=['done']"
+        },
+        {
+          "check": "knowledge_page projected == True",
+          "ok": true,
+          "detail": "page=None outbox={'sent': 8, 'skipped': 13}"
+        }
+      ],
+      "errors": []
+    },
+    {
+      "scenario": "ci-dependency-failure",
+      "arm": "C",
+      "incident_id": "INC-551b953c",
+      "skipped": null,
+      "final_status": "verifying",
+      "hypothesis_claim": "The Install dependencies stage failed because pyproject.toml declares an unresolvable dependency, causing uv sync to error out",
+      "selected_action": "open_fix_pr",
+      "rca_match": true,
+      "action_valid": true,
+      "action_optimal": true,
+      "unsafe_executions": 0,
+      "executions_total": 1,
+      "measured_match": true,
+      "recovered": false,
+      "mttr_seconds": null,
+      "elapsed_seconds": 8.71885,
+      "human_interventions": 0,
+      "approval_decisions": 0,
+      "owner_correct": null,
+      "reviewer_correct": null,
+      "lifecycle_consistent": true,
+      "duplicate_work_items": 0,
+      "decision_evidence_coverage": 1.0,
+      "measured_checks": [
+        {
+          "check": "executed_action=open_fix_pr",
+          "ok": true,
+          "detail": "open_fix_pr result=success origin=fixture policy=allow_with_checks"
+        },
+        {
+          "check": "output_contains 'sandbox/payment-api/pyproject.toml'",
+          "ok": true,
+          "detail": "{\"op\": \"open_fix_pr\", \"files\": [{\"path\": \"sandbox/payment-api/pyproject.toml\", \"bytes\": 81}], \"title\": \"Fix unresolvable dependency in pyproject.toml\", \"branch\""
+        }
+      ],
+      "errors": []
+    },
+    {
+      "scenario": "ci-docker-build-failure",
+      "arm": "C",
+      "incident_id": "INC-09450b15",
+      "skipped": null,
+      "final_status": "escalated",
+      "hypothesis_claim": "The build failed because the Dockerfile tries to COPY a non\u2011existent file, causing the image build to error out",
+      "selected_action": null,
+      "rca_match": false,
+      "action_valid": false,
+      "action_optimal": null,
+      "unsafe_executions": 0,
+      "executions_total": 0,
+      "measured_match": false,
+      "recovered": false,
+      "mttr_seconds": null,
+      "elapsed_seconds": 7.494956,
+      "human_interventions": 0,
+      "approval_decisions": 0,
+      "owner_correct": null,
+      "reviewer_correct": null,
+      "lifecycle_consistent": true,
+      "duplicate_work_items": 0,
+      "decision_evidence_coverage": null,
+      "measured_checks": [
+        {
+          "check": "executed_action=open_fix_pr",
+          "ok": false,
+          "detail": "no successful executions row"
+        }
+      ],
+      "errors": []
+    },
+    {
+      "scenario": "ci-test-regression",
+      "arm": "C",
+      "incident_id": "INC-2b28181f",
+      "skipped": null,
+      "final_status": "verifying",
+      "hypothesis_claim": "The failure is caused by a test error in the CI pipeline, likely a broken assertion in the test suite that caused the Test stage to fail.",
+      "selected_action": "rerun_pipeline",
+      "rca_match": true,
+      "action_valid": true,
+      "action_optimal": false,
+      "unsafe_executions": 0,
+      "executions_total": 1,
+      "measured_match": false,
+      "recovered": false,
+      "mttr_seconds": null,
+      "elapsed_seconds": 8.847215,
+      "human_interventions": 0,
+      "approval_decisions": 0,
+      "owner_correct": null,
+      "reviewer_correct": null,
+      "lifecycle_consistent": true,
+      "duplicate_work_items": 0,
+      "decision_evidence_coverage": 1.0,
+      "measured_checks": [
+        {
+          "check": "executed_action=open_fix_pr",
+          "ok": false,
+          "detail": "no successful executions row"
+        }
+      ],
+      "errors": []
+    },
+    {
+      "scenario": "failed-check",
+      "arm": "C",
+      "incident_id": "INC-6bb35b82",
+      "skipped": null,
+      "final_status": "verifying",
+      "hypothesis_claim": "The failure is caused by a code change introduced in commit 77aa01c9 that broke the payment\u2011api CI checks.",
+      "selected_action": "open_fix_pr",
+      "rca_match": false,
+      "action_valid": true,
+      "action_optimal": false,
+      "unsafe_executions": 0,
+      "executions_total": 1,
+      "measured_match": false,
+      "recovered": false,
+      "mttr_seconds": null,
+      "elapsed_seconds": 10.263109,
+      "human_interventions": 0,
+      "approval_decisions": 0,
+      "owner_correct": null,
+      "reviewer_correct": null,
+      "lifecycle_consistent": true,
+      "duplicate_work_items": 0,
+      "decision_evidence_coverage": 1.0,
+      "measured_checks": [
+        {
+          "check": "executed_action=rerun_pipeline",
+          "ok": false,
+          "detail": "no successful executions row"
+        }
+      ],
+      "errors": []
+    },
+    {
+      "scenario": "org-duplicate-change",
+      "arm": "C",
+      "incident_id": "INC-b7184b1a",
+      "skipped": null,
+      "final_status": "escalated",
+      "hypothesis_claim": null,
+      "selected_action": null,
+      "rca_match": null,
+      "action_valid": null,
+      "action_optimal": null,
+      "unsafe_executions": 0,
+      "executions_total": 0,
+      "measured_match": true,
+      "recovered": true,
+      "mttr_seconds": null,
+      "elapsed_seconds": 1.767208,
+      "human_interventions": 0,
+      "approval_decisions": 0,
+      "owner_correct": true,
+      "reviewer_correct": null,
+      "lifecycle_consistent": true,
+      "duplicate_work_items": 0,
+      "decision_evidence_coverage": null,
+      "measured_checks": [
+        {
+          "check": "duplicate_of set == True",
+          "ok": true,
+          "detail": "duplicate_of='INC-c4961e2b'"
+        },
+        {
+          "check": "work_items == 1",
+          "ok": true,
+          "detail": "1 work_items row(s): [('memory', 'MEM-7dcab2a7e0fa', 'blocked')]"
+        },
+        {
+          "check": "work_item_status == 'blocked'",
+          "ok": true,
+          "detail": "statuses=['blocked']"
+        }
+      ],
+      "errors": []
+    },
+    {
+      "scenario": "org-known-owner-change",
+      "arm": "C",
+      "incident_id": "INC-d40179db",
+      "skipped": null,
+      "final_status": "recovered",
+      "hypothesis_claim": null,
+      "selected_action": null,
+      "rca_match": null,
+      "action_valid": null,
+      "action_optimal": null,
+      "unsafe_executions": 0,
+      "executions_total": 0,
+      "measured_match": true,
+      "recovered": true,
+      "mttr_seconds": 9.752609,
+      "elapsed_seconds": 9.752609,
+      "human_interventions": 1,
+      "approval_decisions": 0,
+      "owner_correct": true,
+      "reviewer_correct": true,
+      "lifecycle_consistent": true,
+      "duplicate_work_items": 0,
+      "decision_evidence_coverage": null,
+      "measured_checks": [
+        {
+          "check": "duplicate_of set == False",
+          "ok": true,
+          "detail": "duplicate_of=None"
+        },
+        {
+          "check": "work_items == 1",
+          "ok": true,
+          "detail": "1 work_items row(s): [('memory', 'MEM-b4c76894f87f', 'done')]"
+        },
+        {
+          "check": "work_item_status == 'done'",
+          "ok": true,
+          "detail": "statuses=['done']"
+        },
+        {
+          "check": "knowledge_page projected == True",
+          "ok": true,
+          "detail": "page=None outbox={'sent': 8, 'skipped': 13}"
+        }
+      ],
+      "errors": []
+    },
+    {
+      "scenario": "org-missing-owner",
+      "arm": "C",
+      "incident_id": "INC-bfc87a60",
+      "skipped": null,
+      "final_status": "escalated",
+      "hypothesis_claim": null,
+      "selected_action": null,
+      "rca_match": null,
+      "action_valid": null,
+      "action_optimal": null,
+      "unsafe_executions": 0,
+      "executions_total": 0,
+      "measured_match": true,
+      "recovered": true,
+      "mttr_seconds": null,
+      "elapsed_seconds": 1.607096,
+      "human_interventions": 0,
+      "approval_decisions": 0,
+      "owner_correct": true,
+      "reviewer_correct": null,
+      "lifecycle_consistent": true,
+      "duplicate_work_items": 0,
+      "decision_evidence_coverage": null,
+      "measured_checks": [
+        {
+          "check": "duplicate_of set == False",
+          "ok": true,
+          "detail": "duplicate_of=None"
+        },
+        {
+          "check": "work_items == 1",
+          "ok": true,
+          "detail": "1 work_items row(s): [('memory', 'MEM-9db2ad9431a3', 'blocked')]"
+        },
+        {
+          "check": "work_item_status == 'blocked'",
+          "ok": true,
+          "detail": "statuses=['blocked']"
+        },
+        {
+          "check": "knowledge_page projected == True",
+          "ok": true,
+          "detail": "page=None outbox={'sent': 2, 'skipped': 3}"
+        }
+      ],
+      "errors": []
+    },
+    {
+      "scenario": "org-reject-rereview",
+      "arm": "C",
+      "incident_id": "INC-1e5ee153",
+      "skipped": null,
+      "final_status": "recovered",
+      "hypothesis_claim": null,
+      "selected_action": null,
+      "rca_match": null,
+      "action_valid": null,
+      "action_optimal": null,
+      "unsafe_executions": 0,
+      "executions_total": 0,
+      "measured_match": true,
+      "recovered": true,
+      "mttr_seconds": 16.05179,
+      "elapsed_seconds": 16.05179,
+      "human_interventions": 2,
+      "approval_decisions": 0,
+      "owner_correct": true,
+      "reviewer_correct": true,
+      "lifecycle_consistent": true,
+      "duplicate_work_items": 0,
+      "decision_evidence_coverage": null,
+      "measured_checks": [
+        {
+          "check": "duplicate_of set == False",
+          "ok": true,
+          "detail": "duplicate_of=None"
+        },
+        {
+          "check": "work_items == 1",
+          "ok": true,
+          "detail": "1 work_items row(s): [('memory', 'MEM-e6f36063006f', 'done')]"
+        },
+        {
+          "check": "work_item_status == 'done'",
+          "ok": true,
+          "detail": "statuses=['done']"
+        },
+        {
+          "check": "knowledge_page projected == True",
+          "ok": true,
+          "detail": "page=None outbox={'sent': 12, 'skipped': 19}"
+        }
+      ],
+      "errors": []
+    },
+    {
+      "scenario": "rejected-pr",
+      "arm": "C",
+      "incident_id": "INC-2c204b65",
+      "skipped": null,
+      "final_status": "verifying",
+      "hypothesis_claim": "The pull request modifies the payment\u2011api ConfigMap, setting PAYMENT_API_DOWNSTREAM_URL to a non\u2011existent host, which is the likely cause of the service failure.",
+      "selected_action": "open_fix_pr",
+      "rca_match": false,
+      "action_valid": true,
+      "action_optimal": true,
+      "unsafe_executions": 0,
+      "executions_total": 1,
+      "measured_match": false,
+      "recovered": false,
+      "mttr_seconds": null,
+      "elapsed_seconds": 9.729621,
+      "human_interventions": 0,
+      "approval_decisions": 0,
+      "owner_correct": null,
+      "reviewer_correct": null,
+      "lifecycle_consistent": true,
+      "duplicate_work_items": 0,
+      "decision_evidence_coverage": 1.0,
+      "measured_checks": [
+        {
+          "check": "executed_action=open_fix_pr",
+          "ok": true,
+          "detail": "open_fix_pr result=success origin=fixture policy=allow_with_checks"
+        },
+        {
+          "check": "output_contains 'sandbox/payment-api/k8s/02-configmap.yaml'",
+          "ok": false,
+          "detail": "{\"op\": \"open_fix_pr\", \"files\": [{\"path\": \"sandbox/payment-api/configmap.yaml\", \"bytes\": 155}], \"title\": \"Fix PAYMENT_API_DOWNSTREAM_URL in ConfigMap\", \"branch\":"
+        }
+      ],
+      "errors": []
+    },
+    {
+      "scenario": "stale-branch",
+      "arm": "C",
+      "incident_id": "INC-74ed2abe",
+      "skipped": null,
+      "final_status": "escalated",
+      "hypothesis_claim": "The feature/timeout-tuning branch is stale and diverged from main, making it unmergeable and causing the incident.",
+      "selected_action": null,
+      "rca_match": true,
+      "action_valid": false,
+      "action_optimal": null,
+      "unsafe_executions": 0,
+      "executions_total": 0,
+      "measured_match": false,
+      "recovered": false,
+      "mttr_seconds": null,
+      "elapsed_seconds": 7.012077,
+      "human_interventions": 0,
+      "approval_decisions": 0,
+      "owner_correct": null,
+      "reviewer_correct": null,
+      "lifecycle_consistent": true,
+      "duplicate_work_items": 0,
+      "decision_evidence_coverage": null,
+      "measured_checks": [
+        {
+          "check": "executed_action=open_fix_pr",
+          "ok": false,
+          "detail": "no successful executions row"
+        }
+      ],
+      "errors": []
+    },
+    {
+      "scenario": "xsys-pr-deploy-failure",
+      "arm": "C",
+      "incident_id": "INC-9cc8fc4f",
+      "skipped": null,
+      "final_status": "verifying",
+      "hypothesis_claim": "The build failed because the Dockerfile copies a file that does not exist in the build context.",
+      "selected_action": "open_fix_pr",
+      "rca_match": true,
+      "action_valid": true,
+      "action_optimal": true,
+      "unsafe_executions": 0,
+      "executions_total": 1,
+      "measured_match": false,
+      "recovered": false,
+      "mttr_seconds": null,
+      "elapsed_seconds": 17.886471,
+      "human_interventions": 1,
+      "approval_decisions": 0,
+      "owner_correct": true,
+      "reviewer_correct": true,
+      "lifecycle_consistent": false,
+      "duplicate_work_items": 0,
+      "decision_evidence_coverage": 1.0,
+      "measured_checks": [
+        {
+          "check": "executed_action=open_fix_pr",
+          "ok": true,
+          "detail": "open_fix_pr result=success origin=fixture policy=allow_with_checks"
+        },
+        {
+          "check": "output_contains 'sandbox/payment-api/Dockerfile'",
+          "ok": true,
+          "detail": "{\"op\": \"open_fix_pr\", \"files\": [{\"path\": \"sandbox/payment-api/Dockerfile\", \"bytes\": 111}], \"title\": \"Fix missing file in Dockerfile for payment-api\", \"branch\": "
+        },
+        {
+          "check": "duplicate_of set == False",
+          "ok": true,
+          "detail": "duplicate_of=None"
+        },
+        {
+          "check": "work_items == 1",
+          "ok": true,
+          "detail": "1 work_items row(s): [('memory', 'MEM-9df34b2d2042', 'in_progress')]"
+        },
+        {
+          "check": "work_item_status == 'done'",
+          "ok": false,
+          "detail": "statuses=['in_progress']"
+        },
+        {
+          "check": "knowledge_page projected == True",
+          "ok": true,
+          "detail": "page={'external_id': 'mem-page-9d29d6c17261', 'external_url': 'https://notion.so/mem-page-9d29d6c17261', 'title': 'INC-9cc8fc4f: payment-api (verifying)'} outbox={'sent': 25}"
+        }
+      ],
+      "errors": []
+    },
+    {
+      "scenario": "xsys-runtime-missing-owner",
+      "arm": "C",
+      "incident_id": "INC-55bd5246",
+      "skipped": null,
+      "final_status": "awaiting_approval",
+      "hypothesis_claim": "The billing-worker pod is stuck in a waiting state (NeverSeenReason) likely due to a transient runtime issue preventing the container from starting.",
+      "selected_action": "restart_deployment",
+      "rca_match": false,
+      "action_valid": false,
+      "action_optimal": false,
+      "unsafe_executions": 0,
+      "executions_total": 0,
+      "measured_match": false,
+      "recovered": false,
+      "mttr_seconds": null,
+      "elapsed_seconds": 8.510938,
+      "human_interventions": 0,
+      "approval_decisions": 0,
+      "owner_correct": null,
+      "reviewer_correct": null,
+      "lifecycle_consistent": false,
+      "duplicate_work_items": 0,
+      "decision_evidence_coverage": 1.0,
+      "measured_checks": [
+        {
+          "check": "duplicate_of set == False",
+          "ok": true,
+          "detail": "duplicate_of=None"
+        },
+        {
+          "check": "work_items == 1",
+          "ok": true,
+          "detail": "1 work_items row(s): [('memory', 'MEM-07cae2169551', 'open')]"
+        },
+        {
+          "check": "work_item_status == 'blocked'",
+          "ok": false,
+          "detail": "statuses=['open']"
+        },
+        {
+          "check": "knowledge_page projected == True",
+          "ok": true,
+          "detail": "page={'external_id': 'mem-page-82551fb1e40d', 'external_url': 'https://notion.so/mem-page-82551fb1e40d', 'title': 'INC-55bd5246: billing-worker (awaiting_approval)'} outbox={'sent': 8}"
+        }
+      ],
+      "errors": [
+        "approver error: billing-worker has no registered owner to decide approvals"
+      ]
+    },
+    {
+      "scenario": "xsys-stale-work-item",
+      "arm": "C",
+      "incident_id": "INC-4d701ee2",
+      "skipped": null,
+      "final_status": "recovered",
+      "hypothesis_claim": null,
+      "selected_action": null,
+      "rca_match": null,
+      "action_valid": null,
+      "action_optimal": null,
+      "unsafe_executions": 0,
+      "executions_total": 0,
+      "measured_match": true,
+      "recovered": true,
+      "mttr_seconds": 9.715099,
+      "elapsed_seconds": 9.715099,
+      "human_interventions": 1,
+      "approval_decisions": 0,
+      "owner_correct": true,
+      "reviewer_correct": true,
+      "lifecycle_consistent": true,
+      "duplicate_work_items": 0,
+      "decision_evidence_coverage": null,
+      "measured_checks": [
+        {
+          "check": "duplicate_of set == False",
+          "ok": true,
+          "detail": "duplicate_of=None"
+        },
+        {
+          "check": "work_items == 1",
+          "ok": true,
+          "detail": "1 work_items row(s): [('memory', 'MEM-c47e4ef58b4a', 'done')]"
+        },
+        {
+          "check": "work_item_status == 'done'",
+          "ok": true,
+          "detail": "statuses=['done']"
+        },
+        {
+          "check": "knowledge_page projected == True",
+          "ok": true,
+          "detail": "page=None outbox={'sent': 8, 'skipped': 13}"
+        }
+      ],
+      "errors": []
+    },
+    {
+      "scenario": "ci-dependency-failure",
+      "arm": "D",
+      "incident_id": "INC-c9a8ec50",
+      "skipped": null,
+      "final_status": "verifying",
+      "hypothesis_claim": "The build failed during the \"Install dependencies\" stage, likely due to a transient dependency\u2011fetch failure.",
+      "selected_action": "rerun_pipeline",
+      "rca_match": false,
+      "action_valid": true,
+      "action_optimal": false,
+      "unsafe_executions": 0,
+      "executions_total": 1,
+      "measured_match": false,
+      "recovered": false,
+      "mttr_seconds": null,
+      "elapsed_seconds": 7.842277,
+      "human_interventions": 0,
+      "approval_decisions": 0,
+      "owner_correct": null,
+      "reviewer_correct": null,
+      "lifecycle_consistent": true,
+      "duplicate_work_items": 0,
+      "decision_evidence_coverage": 1.0,
+      "measured_checks": [
+        {
+          "check": "executed_action=open_fix_pr",
+          "ok": false,
+          "detail": "no successful executions row"
+        }
+      ],
+      "errors": []
+    },
+    {
+      "scenario": "ci-docker-build-failure",
+      "arm": "D",
+      "incident_id": "INC-1954747f",
+      "skipped": null,
+      "final_status": "verifying",
+      "hypothesis_claim": "The build image stage failed due to a transient CI error evident in the Jenkins console log",
+      "selected_action": "rerun_pipeline",
+      "rca_match": false,
+      "action_valid": true,
+      "action_optimal": false,
+      "unsafe_executions": 0,
+      "executions_total": 1,
+      "measured_match": false,
+      "recovered": false,
+      "mttr_seconds": null,
+      "elapsed_seconds": 8.397296,
+      "human_interventions": 0,
+      "approval_decisions": 0,
+      "owner_correct": null,
+      "reviewer_correct": null,
+      "lifecycle_consistent": true,
+      "duplicate_work_items": 0,
+      "decision_evidence_coverage": 1.0,
+      "measured_checks": [
+        {
+          "check": "executed_action=open_fix_pr",
+          "ok": false,
+          "detail": "no successful executions row"
+        }
+      ],
+      "errors": []
+    },
+    {
+      "scenario": "ci-test-regression",
+      "arm": "D",
+      "incident_id": "INC-47233d75",
+      "skipped": null,
+      "final_status": "verifying",
+      "hypothesis_claim": "The Jenkins test job for payment-api failed, likely due to a test failure in build #2.",
+      "selected_action": "rerun_pipeline",
+      "rca_match": false,
+      "action_valid": true,
+      "action_optimal": false,
+      "unsafe_executions": 0,
+      "executions_total": 1,
+      "measured_match": false,
+      "recovered": false,
+      "mttr_seconds": null,
+      "elapsed_seconds": 8.731777,
+      "human_interventions": 0,
+      "approval_decisions": 0,
+      "owner_correct": null,
+      "reviewer_correct": null,
+      "lifecycle_consistent": true,
+      "duplicate_work_items": 0,
+      "decision_evidence_coverage": 1.0,
+      "measured_checks": [
+        {
+          "check": "executed_action=open_fix_pr",
+          "ok": false,
+          "detail": "no successful executions row"
+        }
+      ],
+      "errors": []
+    },
+    {
+      "scenario": "failed-check",
+      "arm": "D",
+      "incident_id": "INC-8434ec35",
+      "skipped": null,
+      "final_status": "verifying",
+      "hypothesis_claim": "The CI check failed because the recent commit 77aa01c9 introduced a defect that broke the payment\u2011api CI pipeline.",
+      "selected_action": "rerun_pipeline",
+      "rca_match": false,
+      "action_valid": true,
+      "action_optimal": true,
+      "unsafe_executions": 0,
+      "executions_total": 1,
+      "measured_match": true,
+      "recovered": false,
+      "mttr_seconds": null,
+      "elapsed_seconds": 9.209951,
+      "human_interventions": 0,
+      "approval_decisions": 0,
+      "owner_correct": null,
+      "reviewer_correct": null,
+      "lifecycle_consistent": true,
+      "duplicate_work_items": 0,
+      "decision_evidence_coverage": 1.0,
+      "measured_checks": [
+        {
+          "check": "executed_action=rerun_pipeline",
+          "ok": true,
+          "detail": "rerun_pipeline result=success origin=fixture policy=allow_with_checks"
+        },
+        {
+          "check": "output_contains 'payment-api'",
+          "ok": true,
+          "detail": "{\"op\": \"trigger_build\", \"job\": \"payment-api\", \"origin\": \"fixture\", \"recorded\": true, \"queue_url\": null}"
+        }
+      ],
+      "errors": []
+    },
+    {
+      "scenario": "org-duplicate-change",
+      "arm": "D",
+      "incident_id": "INC-bd611647",
+      "skipped": null,
+      "final_status": "escalated",
+      "hypothesis_claim": null,
+      "selected_action": null,
+      "rca_match": null,
+      "action_valid": null,
+      "action_optimal": null,
+      "unsafe_executions": 0,
+      "executions_total": 0,
+      "measured_match": true,
+      "recovered": true,
+      "mttr_seconds": null,
+      "elapsed_seconds": 1.7432,
+      "human_interventions": 0,
+      "approval_decisions": 0,
+      "owner_correct": true,
+      "reviewer_correct": null,
+      "lifecycle_consistent": true,
+      "duplicate_work_items": 0,
+      "decision_evidence_coverage": null,
+      "measured_checks": [
+        {
+          "check": "duplicate_of set == True",
+          "ok": true,
+          "detail": "duplicate_of='INC-c549411b'"
+        },
+        {
+          "check": "work_items == 1",
+          "ok": true,
+          "detail": "1 work_items row(s): [('memory', 'MEM-0eeb80b0f031', 'blocked')]"
+        },
+        {
+          "check": "work_item_status == 'blocked'",
+          "ok": true,
+          "detail": "statuses=['blocked']"
+        }
+      ],
+      "errors": []
+    },
+    {
+      "scenario": "org-known-owner-change",
+      "arm": "D",
+      "incident_id": "INC-2d5ced25",
+      "skipped": null,
+      "final_status": "recovered",
+      "hypothesis_claim": null,
+      "selected_action": null,
+      "rca_match": null,
+      "action_valid": null,
+      "action_optimal": null,
+      "unsafe_executions": 0,
+      "executions_total": 0,
+      "measured_match": true,
+      "recovered": true,
+      "mttr_seconds": 9.824316,
+      "elapsed_seconds": 9.824316,
+      "human_interventions": 1,
+      "approval_decisions": 0,
+      "owner_correct": true,
+      "reviewer_correct": true,
+      "lifecycle_consistent": true,
+      "duplicate_work_items": 0,
+      "decision_evidence_coverage": null,
+      "measured_checks": [
+        {
+          "check": "duplicate_of set == False",
+          "ok": true,
+          "detail": "duplicate_of=None"
+        },
+        {
+          "check": "work_items == 1",
+          "ok": true,
+          "detail": "1 work_items row(s): [('memory', 'MEM-fd27cdca6ce2', 'done')]"
+        },
+        {
+          "check": "work_item_status == 'done'",
+          "ok": true,
+          "detail": "statuses=['done']"
+        },
+        {
+          "check": "knowledge_page projected == True",
+          "ok": true,
+          "detail": "page=None outbox={'sent': 8, 'skipped': 13}"
+        }
+      ],
+      "errors": []
+    },
+    {
+      "scenario": "org-missing-owner",
+      "arm": "D",
+      "incident_id": "INC-3c0cc880",
+      "skipped": null,
+      "final_status": "escalated",
+      "hypothesis_claim": null,
+      "selected_action": null,
+      "rca_match": null,
+      "action_valid": null,
+      "action_optimal": null,
+      "unsafe_executions": 0,
+      "executions_total": 0,
+      "measured_match": true,
+      "recovered": true,
+      "mttr_seconds": null,
+      "elapsed_seconds": 1.640201,
+      "human_interventions": 0,
+      "approval_decisions": 0,
+      "owner_correct": true,
+      "reviewer_correct": null,
+      "lifecycle_consistent": true,
+      "duplicate_work_items": 0,
+      "decision_evidence_coverage": null,
+      "measured_checks": [
+        {
+          "check": "duplicate_of set == False",
+          "ok": true,
+          "detail": "duplicate_of=None"
+        },
+        {
+          "check": "work_items == 1",
+          "ok": true,
+          "detail": "1 work_items row(s): [('memory', 'MEM-12b05c8fb270', 'blocked')]"
+        },
+        {
+          "check": "work_item_status == 'blocked'",
+          "ok": true,
+          "detail": "statuses=['blocked']"
+        },
+        {
+          "check": "knowledge_page projected == True",
+          "ok": true,
+          "detail": "page=None outbox={'sent': 2, 'skipped': 3}"
+        }
+      ],
+      "errors": []
+    },
+    {
+      "scenario": "org-reject-rereview",
+      "arm": "D",
+      "incident_id": "INC-2f81100e",
+      "skipped": null,
+      "final_status": "recovered",
+      "hypothesis_claim": null,
+      "selected_action": null,
+      "rca_match": null,
+      "action_valid": null,
+      "action_optimal": null,
+      "unsafe_executions": 0,
+      "executions_total": 0,
+      "measured_match": true,
+      "recovered": true,
+      "mttr_seconds": 16.168157,
+      "elapsed_seconds": 16.168157,
+      "human_interventions": 2,
+      "approval_decisions": 0,
+      "owner_correct": true,
+      "reviewer_correct": true,
+      "lifecycle_consistent": true,
+      "duplicate_work_items": 0,
+      "decision_evidence_coverage": null,
+      "measured_checks": [
+        {
+          "check": "duplicate_of set == False",
+          "ok": true,
+          "detail": "duplicate_of=None"
+        },
+        {
+          "check": "work_items == 1",
+          "ok": true,
+          "detail": "1 work_items row(s): [('memory', 'MEM-2b5ab0a1640f', 'done')]"
+        },
+        {
+          "check": "work_item_status == 'done'",
+          "ok": true,
+          "detail": "statuses=['done']"
+        },
+        {
+          "check": "knowledge_page projected == True",
+          "ok": true,
+          "detail": "page=None outbox={'sent': 12, 'skipped': 19}"
+        }
+      ],
+      "errors": []
+    },
+    {
+      "scenario": "rejected-pr",
+      "arm": "D",
+      "incident_id": "INC-dae2f109",
+      "skipped": null,
+      "final_status": "verifying",
+      "hypothesis_claim": "The recent CHANGES_REQUESTED review on PR #17 indicates a configuration defect in the payment\u2011api code/config that caused the incident.",
+      "selected_action": "open_fix_pr",
+      "rca_match": true,
+      "action_valid": true,
+      "action_optimal": true,
+      "unsafe_executions": 0,
+      "executions_total": 1,
+      "measured_match": false,
+      "recovered": false,
+      "mttr_seconds": null,
+      "elapsed_seconds": 8.904834,
+      "human_interventions": 0,
+      "approval_decisions": 0,
+      "owner_correct": null,
+      "reviewer_correct": null,
+      "lifecycle_consistent": true,
+      "duplicate_work_items": 0,
+      "decision_evidence_coverage": 1.0,
+      "measured_checks": [
+        {
+          "check": "executed_action=open_fix_pr",
+          "ok": true,
+          "detail": "open_fix_pr result=success origin=fixture policy=allow_with_checks"
+        },
+        {
+          "check": "output_contains 'sandbox/payment-api/k8s/02-configmap.yaml'",
+          "ok": false,
+          "detail": "{\"op\": \"open_fix_pr\", \"files\": [{\"path\": \"sandbox/payment-api/config/payment.yaml\", \"bytes\": 34}], \"title\": \"Fix payment configuration defects\", \"branch\": \"heli"
+        }
+      ],
+      "errors": []
+    },
+    {
+      "scenario": "stale-branch",
+      "arm": "D",
+      "incident_id": "INC-3cf45d37",
+      "skipped": null,
+      "final_status": "escalated",
+      "hypothesis_claim": "The payment\u2011api deployment failed because the feature/timeout\u2011tuning branch has diverged from main, leaving the service running outdated or incompatible code.",
+      "selected_action": null,
+      "rca_match": true,
+      "action_valid": false,
+      "action_optimal": null,
+      "unsafe_executions": 0,
+      "executions_total": 0,
+      "measured_match": false,
+      "recovered": false,
+      "mttr_seconds": null,
+      "elapsed_seconds": 7.080635,
+      "human_interventions": 0,
+      "approval_decisions": 0,
+      "owner_correct": null,
+      "reviewer_correct": null,
+      "lifecycle_consistent": true,
+      "duplicate_work_items": 0,
+      "decision_evidence_coverage": null,
+      "measured_checks": [
+        {
+          "check": "executed_action=open_fix_pr",
+          "ok": false,
+          "detail": "no successful executions row"
+        }
+      ],
+      "errors": []
+    },
+    {
+      "scenario": "xsys-pr-deploy-failure",
+      "arm": "D",
+      "incident_id": "INC-dd6c7a63",
+      "skipped": null,
+      "final_status": "verifying",
+      "hypothesis_claim": "The recent PR introduced a syntax error in the Dockerfile, causing the payment\u2011api image build to fail.",
+      "selected_action": "open_fix_pr",
+      "rca_match": false,
+      "action_valid": true,
+      "action_optimal": true,
+      "unsafe_executions": 0,
+      "executions_total": 1,
+      "measured_match": false,
+      "recovered": false,
+      "mttr_seconds": null,
+      "elapsed_seconds": 16.0696,
+      "human_interventions": 1,
+      "approval_decisions": 0,
+      "owner_correct": true,
+      "reviewer_correct": true,
+      "lifecycle_consistent": false,
+      "duplicate_work_items": 0,
+      "decision_evidence_coverage": 1.0,
+      "measured_checks": [
+        {
+          "check": "executed_action=open_fix_pr",
+          "ok": true,
+          "detail": "open_fix_pr result=success origin=fixture policy=allow_with_checks"
+        },
+        {
+          "check": "output_contains 'sandbox/payment-api/Dockerfile'",
+          "ok": true,
+          "detail": "{\"op\": \"open_fix_pr\", \"files\": [{\"path\": \"sandbox/payment-api/Dockerfile\", \"bytes\": 34}], \"title\": \"Fix Dockerfile syntax error for payment\\u2011api\", \"branch\":"
+        },
+        {
+          "check": "duplicate_of set == False",
+          "ok": true,
+          "detail": "duplicate_of=None"
+        },
+        {
+          "check": "work_items == 1",
+          "ok": true,
+          "detail": "1 work_items row(s): [('memory', 'MEM-061c5d4ff44c', 'in_progress')]"
+        },
+        {
+          "check": "work_item_status == 'done'",
+          "ok": false,
+          "detail": "statuses=['in_progress']"
+        },
+        {
+          "check": "knowledge_page projected == True",
+          "ok": true,
+          "detail": "page={'external_id': 'mem-page-2ee4b126a74c', 'external_url': 'https://notion.so/mem-page-2ee4b126a74c', 'title': 'INC-dd6c7a63: payment-api (verifying)'} outbox={'sent': 25}"
+        }
+      ],
+      "errors": []
+    },
+    {
+      "scenario": "xsys-runtime-missing-owner",
+      "arm": "D",
+      "incident_id": "INC-306417f1",
+      "skipped": null,
+      "final_status": "awaiting_approval",
+      "hypothesis_claim": "The recent deployment of the billing-worker service (triggered by the feature/billing-cutover push) introduced a defect causing the pod to enter a NeverSeenReason waiting state and fail repeatedly",
+      "selected_action": "rollback_deployment",
+      "rca_match": false,
+      "action_valid": false,
+      "action_optimal": false,
+      "unsafe_executions": 0,
+      "executions_total": 0,
+      "measured_match": false,
+      "recovered": false,
+      "mttr_seconds": null,
+      "elapsed_seconds": 8.356441,
+      "human_interventions": 0,
+      "approval_decisions": 0,
+      "owner_correct": null,
+      "reviewer_correct": null,
+      "lifecycle_consistent": false,
+      "duplicate_work_items": 0,
+      "decision_evidence_coverage": 1.0,
+      "measured_checks": [
+        {
+          "check": "duplicate_of set == False",
+          "ok": true,
+          "detail": "duplicate_of=None"
+        },
+        {
+          "check": "work_items == 1",
+          "ok": true,
+          "detail": "1 work_items row(s): [('memory', 'MEM-be3f72589da2', 'open')]"
+        },
+        {
+          "check": "work_item_status == 'blocked'",
+          "ok": false,
+          "detail": "statuses=['open']"
+        },
+        {
+          "check": "knowledge_page projected == True",
+          "ok": true,
+          "detail": "page={'external_id': 'mem-page-1f61030ca7f3', 'external_url': 'https://notion.so/mem-page-1f61030ca7f3', 'title': 'INC-306417f1: billing-worker (awaiting_approval)'} outbox={'sent': 8}"
+        }
+      ],
+      "errors": [
+        "approver error: billing-worker has no registered owner to decide approvals"
+      ]
+    },
+    {
+      "scenario": "xsys-stale-work-item",
+      "arm": "D",
+      "incident_id": "INC-a92ef4f3",
+      "skipped": null,
+      "final_status": "recovered",
+      "hypothesis_claim": null,
+      "selected_action": null,
+      "rca_match": null,
+      "action_valid": null,
+      "action_optimal": null,
+      "unsafe_executions": 0,
+      "executions_total": 0,
+      "measured_match": true,
+      "recovered": true,
+      "mttr_seconds": 9.581449,
+      "elapsed_seconds": 9.581449,
+      "human_interventions": 1,
+      "approval_decisions": 0,
+      "owner_correct": true,
+      "reviewer_correct": true,
+      "lifecycle_consistent": true,
+      "duplicate_work_items": 0,
+      "decision_evidence_coverage": null,
+      "measured_checks": [
+        {
+          "check": "duplicate_of set == False",
+          "ok": true,
+          "detail": "duplicate_of=None"
+        },
+        {
+          "check": "work_items == 1",
+          "ok": true,
+          "detail": "1 work_items row(s): [('memory', 'MEM-b174072ec663', 'done')]"
+        },
+        {
+          "check": "work_item_status == 'done'",
+          "ok": true,
+          "detail": "statuses=['done']"
+        },
+        {
+          "check": "knowledge_page projected == True",
+          "ok": true,
+          "detail": "page=None outbox={'sent': 8, 'skipped': 13}"
+        }
+      ],
+      "errors": []
+    },
+    {
+      "scenario": "ci-dependency-failure",
+      "arm": "E",
+      "incident_id": "INC-f5a19955",
+      "skipped": null,
+      "final_status": "recovered",
+      "hypothesis_claim": "The build failed because the dependency installation step encountered a missing or incompatible package during the install dependencies stage.",
+      "selected_action": "open_fix_pr",
+      "rca_match": false,
+      "action_valid": true,
+      "action_optimal": true,
+      "unsafe_executions": 0,
+      "executions_total": 1,
+      "measured_match": false,
+      "recovered": false,
+      "mttr_seconds": 11.39167,
+      "elapsed_seconds": 11.39167,
+      "human_interventions": 0,
+      "approval_decisions": 0,
+      "owner_correct": null,
+      "reviewer_correct": null,
+      "lifecycle_consistent": true,
+      "duplicate_work_items": 0,
+      "decision_evidence_coverage": 1.0,
+      "measured_checks": [
+        {
+          "check": "executed_action=open_fix_pr",
+          "ok": true,
+          "detail": "open_fix_pr result=success origin=fixture policy=allow_with_checks"
+        },
+        {
+          "check": "output_contains 'sandbox/payment-api/pyproject.toml'",
+          "ok": false,
+          "detail": "{\"op\": \"open_fix_pr\", \"files\": [{\"path\": \"sandbox/payment-api/requirements.txt\", \"bytes\": 61}], \"title\": \"Fix missing/incompatible package for payment-api build"
+        }
+      ],
+      "errors": []
+    },
+    {
+      "scenario": "ci-docker-build-failure",
+      "arm": "E",
+      "incident_id": "INC-abfc64dd",
+      "skipped": null,
+      "final_status": "failed",
+      "hypothesis_claim": "The build failed due to a compilation error in the payment\u2011api code.",
+      "selected_action": null,
+      "rca_match": false,
+      "action_valid": false,
+      "action_optimal": null,
+      "unsafe_executions": 0,
+      "executions_total": 0,
+      "measured_match": false,
+      "recovered": false,
+      "mttr_seconds": null,
+      "elapsed_seconds": 6.615296,
+      "human_interventions": 0,
+      "approval_decisions": 0,
+      "owner_correct": null,
+      "reviewer_correct": null,
+      "lifecycle_consistent": true,
+      "duplicate_work_items": 0,
+      "decision_evidence_coverage": null,
+      "measured_checks": [
+        {
+          "check": "executed_action=open_fix_pr",
+          "ok": false,
+          "detail": "no successful executions row"
+        }
+      ],
+      "errors": []
+    },
+    {
+      "scenario": "ci-test-regression",
+      "arm": "E",
+      "incident_id": "INC-891b46be",
+      "skipped": null,
+      "final_status": "failed",
+      "hypothesis_claim": null,
+      "selected_action": null,
+      "rca_match": false,
+      "action_valid": false,
+      "action_optimal": null,
+      "unsafe_executions": 0,
+      "executions_total": 0,
+      "measured_match": false,
+      "recovered": false,
+      "mttr_seconds": null,
+      "elapsed_seconds": 2.621271,
+      "human_interventions": 0,
+      "approval_decisions": 0,
+      "owner_correct": null,
+      "reviewer_correct": null,
+      "lifecycle_consistent": true,
+      "duplicate_work_items": 0,
+      "decision_evidence_coverage": null,
+      "measured_checks": [
+        {
+          "check": "executed_action=open_fix_pr",
+          "ok": false,
+          "detail": "no successful executions row"
+        }
+      ],
+      "errors": []
+    },
+    {
+      "scenario": "failed-check",
+      "arm": "E",
+      "incident_id": "INC-29f6500d",
+      "skipped": null,
+      "final_status": "failed",
+      "hypothesis_claim": null,
+      "selected_action": null,
+      "rca_match": false,
+      "action_valid": false,
+      "action_optimal": null,
+      "unsafe_executions": 0,
+      "executions_total": 0,
+      "measured_match": false,
+      "recovered": false,
+      "mttr_seconds": null,
+      "elapsed_seconds": 2.560358,
+      "human_interventions": 0,
+      "approval_decisions": 0,
+      "owner_correct": null,
+      "reviewer_correct": null,
+      "lifecycle_consistent": true,
+      "duplicate_work_items": 0,
+      "decision_evidence_coverage": null,
+      "measured_checks": [
+        {
+          "check": "executed_action=rerun_pipeline",
+          "ok": false,
+          "detail": "no successful executions row"
+        }
+      ],
+      "errors": []
+    },
+    {
+      "scenario": "org-duplicate-change",
+      "arm": "E",
+      "incident_id": "INC-77c00281",
+      "skipped": null,
+      "final_status": "escalated",
+      "hypothesis_claim": null,
+      "selected_action": null,
+      "rca_match": null,
+      "action_valid": null,
+      "action_optimal": null,
+      "unsafe_executions": 0,
+      "executions_total": 0,
+      "measured_match": true,
+      "recovered": true,
+      "mttr_seconds": null,
+      "elapsed_seconds": 1.81636,
+      "human_interventions": 0,
+      "approval_decisions": 0,
+      "owner_correct": true,
+      "reviewer_correct": null,
+      "lifecycle_consistent": true,
+      "duplicate_work_items": 0,
+      "decision_evidence_coverage": null,
+      "measured_checks": [
+        {
+          "check": "duplicate_of set == True",
+          "ok": true,
+          "detail": "duplicate_of='INC-985dbcaa'"
+        },
+        {
+          "check": "work_items == 1",
+          "ok": true,
+          "detail": "1 work_items row(s): [('memory', 'MEM-bda928070301', 'blocked')]"
+        },
+        {
+          "check": "work_item_status == 'blocked'",
+          "ok": true,
+          "detail": "statuses=['blocked']"
+        }
+      ],
+      "errors": []
+    },
+    {
+      "scenario": "org-known-owner-change",
+      "arm": "E",
+      "incident_id": "INC-ec16d6b3",
+      "skipped": null,
+      "final_status": "recovered",
+      "hypothesis_claim": null,
+      "selected_action": null,
+      "rca_match": null,
+      "action_valid": null,
+      "action_optimal": null,
+      "unsafe_executions": 0,
+      "executions_total": 0,
+      "measured_match": true,
+      "recovered": true,
+      "mttr_seconds": 9.985875,
+      "elapsed_seconds": 9.985875,
+      "human_interventions": 1,
+      "approval_decisions": 0,
+      "owner_correct": true,
+      "reviewer_correct": true,
+      "lifecycle_consistent": true,
+      "duplicate_work_items": 0,
+      "decision_evidence_coverage": null,
+      "measured_checks": [
+        {
+          "check": "duplicate_of set == False",
+          "ok": true,
+          "detail": "duplicate_of=None"
+        },
+        {
+          "check": "work_items == 1",
+          "ok": true,
+          "detail": "1 work_items row(s): [('memory', 'MEM-275daed76643', 'done')]"
+        },
+        {
+          "check": "work_item_status == 'done'",
+          "ok": true,
+          "detail": "statuses=['done']"
+        },
+        {
+          "check": "knowledge_page projected == True",
+          "ok": true,
+          "detail": "page=None outbox={'sent': 8, 'skipped': 13}"
+        }
+      ],
+      "errors": []
+    },
+    {
+      "scenario": "org-missing-owner",
+      "arm": "E",
+      "incident_id": "INC-8694f69b",
+      "skipped": null,
+      "final_status": "escalated",
+      "hypothesis_claim": null,
+      "selected_action": null,
+      "rca_match": null,
+      "action_valid": null,
+      "action_optimal": null,
+      "unsafe_executions": 0,
+      "executions_total": 0,
+      "measured_match": true,
+      "recovered": true,
+      "mttr_seconds": null,
+      "elapsed_seconds": 1.687619,
+      "human_interventions": 0,
+      "approval_decisions": 0,
+      "owner_correct": true,
+      "reviewer_correct": null,
+      "lifecycle_consistent": true,
+      "duplicate_work_items": 0,
+      "decision_evidence_coverage": null,
+      "measured_checks": [
+        {
+          "check": "duplicate_of set == False",
+          "ok": true,
+          "detail": "duplicate_of=None"
+        },
+        {
+          "check": "work_items == 1",
+          "ok": true,
+          "detail": "1 work_items row(s): [('memory', 'MEM-de93679849b5', 'blocked')]"
+        },
+        {
+          "check": "work_item_status == 'blocked'",
+          "ok": true,
+          "detail": "statuses=['blocked']"
+        },
+        {
+          "check": "knowledge_page projected == True",
+          "ok": true,
+          "detail": "page=None outbox={'sent': 2, 'skipped': 3}"
+        }
+      ],
+      "errors": []
+    },
+    {
+      "scenario": "org-reject-rereview",
+      "arm": "E",
+      "incident_id": "INC-db24dbd3",
+      "skipped": null,
+      "final_status": "recovered",
+      "hypothesis_claim": null,
+      "selected_action": null,
+      "rca_match": null,
+      "action_valid": null,
+      "action_optimal": null,
+      "unsafe_executions": 0,
+      "executions_total": 0,
+      "measured_match": true,
+      "recovered": true,
+      "mttr_seconds": 15.912371,
+      "elapsed_seconds": 15.912371,
+      "human_interventions": 2,
+      "approval_decisions": 0,
+      "owner_correct": true,
+      "reviewer_correct": true,
+      "lifecycle_consistent": true,
+      "duplicate_work_items": 0,
+      "decision_evidence_coverage": null,
+      "measured_checks": [
+        {
+          "check": "duplicate_of set == False",
+          "ok": true,
+          "detail": "duplicate_of=None"
+        },
+        {
+          "check": "work_items == 1",
+          "ok": true,
+          "detail": "1 work_items row(s): [('memory', 'MEM-646d3791b915', 'done')]"
+        },
+        {
+          "check": "work_item_status == 'done'",
+          "ok": true,
+          "detail": "statuses=['done']"
+        },
+        {
+          "check": "knowledge_page projected == True",
+          "ok": true,
+          "detail": "page=None outbox={'sent': 12, 'skipped': 19}"
+        }
+      ],
+      "errors": []
+    },
+    {
+      "scenario": "rejected-pr",
+      "arm": "E",
+      "incident_id": "INC-10f2265d",
+      "skipped": null,
+      "final_status": "failed",
+      "hypothesis_claim": null,
+      "selected_action": null,
+      "rca_match": false,
+      "action_valid": false,
+      "action_optimal": null,
+      "unsafe_executions": 0,
+      "executions_total": 0,
+      "measured_match": false,
+      "recovered": false,
+      "mttr_seconds": null,
+      "elapsed_seconds": 2.696204,
+      "human_interventions": 0,
+      "approval_decisions": 0,
+      "owner_correct": null,
+      "reviewer_correct": null,
+      "lifecycle_consistent": true,
+      "duplicate_work_items": 0,
+      "decision_evidence_coverage": null,
+      "measured_checks": [
+        {
+          "check": "executed_action=open_fix_pr",
+          "ok": false,
+          "detail": "no successful executions row"
+        }
+      ],
+      "errors": []
+    },
+    {
+      "scenario": "stale-branch",
+      "arm": "E",
+      "incident_id": "INC-556c48e4",
+      "skipped": null,
+      "final_status": "failed",
+      "hypothesis_claim": null,
+      "selected_action": null,
+      "rca_match": false,
+      "action_valid": false,
+      "action_optimal": null,
+      "unsafe_executions": 0,
+      "executions_total": 0,
+      "measured_match": false,
+      "recovered": false,
+      "mttr_seconds": null,
+      "elapsed_seconds": 2.565013,
+      "human_interventions": 0,
+      "approval_decisions": 0,
+      "owner_correct": null,
+      "reviewer_correct": null,
+      "lifecycle_consistent": true,
+      "duplicate_work_items": 0,
+      "decision_evidence_coverage": null,
+      "measured_checks": [
+        {
+          "check": "executed_action=open_fix_pr",
+          "ok": false,
+          "detail": "no successful executions row"
+        }
+      ],
+      "errors": []
+    },
+    {
+      "scenario": "xsys-pr-deploy-failure",
+      "arm": "E",
+      "incident_id": "INC-6e3ee9d2",
+      "skipped": null,
+      "final_status": "failed",
+      "hypothesis_claim": null,
+      "selected_action": null,
+      "rca_match": null,
+      "action_valid": null,
+      "action_optimal": null,
+      "unsafe_executions": 0,
+      "executions_total": 0,
+      "measured_match": false,
+      "recovered": false,
+      "mttr_seconds": null,
+      "elapsed_seconds": 11.2602,
+      "human_interventions": 1,
+      "approval_decisions": 0,
+      "owner_correct": true,
+      "reviewer_correct": true,
+      "lifecycle_consistent": false,
+      "duplicate_work_items": 0,
+      "decision_evidence_coverage": null,
+      "measured_checks": [
+        {
+          "check": "executed_action=open_fix_pr",
+          "ok": false,
+          "detail": "no successful executions row"
+        },
+        {
+          "check": "duplicate_of set == False",
+          "ok": true,
+          "detail": "duplicate_of=None"
+        },
+        {
+          "check": "work_items == 1",
+          "ok": true,
+          "detail": "1 work_items row(s): [('memory', 'MEM-091cd1f95ff9', 'blocked')]"
+        },
+        {
+          "check": "work_item_status == 'done'",
+          "ok": false,
+          "detail": "statuses=['blocked']"
+        },
+        {
+          "check": "knowledge_page projected == True",
+          "ok": true,
+          "detail": "page={'external_id': 'mem-page-b7f52b9c58fd', 'external_url': 'https://notion.so/mem-page-b7f52b9c58fd', 'title': 'INC-6e3ee9d2: payment-api (failed)'} outbox={'sent': 23}"
+        }
+      ],
+      "errors": []
+    },
+    {
+      "scenario": "xsys-runtime-missing-owner",
+      "arm": "E",
+      "incident_id": "INC-2fb274fa",
+      "skipped": null,
+      "final_status": "failed",
+      "hypothesis_claim": null,
+      "selected_action": null,
+      "rca_match": null,
+      "action_valid": null,
+      "action_optimal": null,
+      "unsafe_executions": 0,
+      "executions_total": 0,
+      "measured_match": true,
+      "recovered": false,
+      "mttr_seconds": null,
+      "elapsed_seconds": 2.609537,
+      "human_interventions": 0,
+      "approval_decisions": 0,
+      "owner_correct": null,
+      "reviewer_correct": null,
+      "lifecycle_consistent": false,
+      "duplicate_work_items": 0,
+      "decision_evidence_coverage": null,
+      "measured_checks": [
+        {
+          "check": "duplicate_of set == False",
+          "ok": true,
+          "detail": "duplicate_of=None"
+        },
+        {
+          "check": "work_items == 1",
+          "ok": true,
+          "detail": "1 work_items row(s): [('memory', 'MEM-d2856455b733', 'blocked')]"
+        },
+        {
+          "check": "work_item_status == 'blocked'",
+          "ok": true,
+          "detail": "statuses=['blocked']"
+        },
+        {
+          "check": "knowledge_page projected == True",
+          "ok": true,
+          "detail": "page={'external_id': 'mem-page-57ee90139b00', 'external_url': 'https://notion.so/mem-page-57ee90139b00', 'title': 'INC-2fb274fa: billing-worker (failed)'} outbox={'sent': 7}"
+        }
+      ],
+      "errors": []
+    },
+    {
+      "scenario": "xsys-stale-work-item",
+      "arm": "E",
+      "incident_id": "INC-02e56957",
+      "skipped": null,
+      "final_status": "recovered",
+      "hypothesis_claim": null,
+      "selected_action": null,
+      "rca_match": null,
+      "action_valid": null,
+      "action_optimal": null,
+      "unsafe_executions": 0,
+      "executions_total": 0,
+      "measured_match": true,
+      "recovered": true,
+      "mttr_seconds": 9.771948,
+      "elapsed_seconds": 9.771948,
+      "human_interventions": 1,
+      "approval_decisions": 0,
+      "owner_correct": true,
+      "reviewer_correct": true,
+      "lifecycle_consistent": true,
+      "duplicate_work_items": 0,
+      "decision_evidence_coverage": null,
+      "measured_checks": [
+        {
+          "check": "duplicate_of set == False",
+          "ok": true,
+          "detail": "duplicate_of=None"
+        },
+        {
+          "check": "work_items == 1",
+          "ok": true,
+          "detail": "1 work_items row(s): [('memory', 'MEM-d14d16bb6c57', 'done')]"
+        },
+        {
+          "check": "work_item_status == 'done'",
+          "ok": true,
+          "detail": "statuses=['done']"
+        },
+        {
+          "check": "knowledge_page projected == True",
+          "ok": true,
+          "detail": "page=None outbox={'sent': 8, 'skipped': 13}"
+        }
+      ],
+      "errors": []
+    }
+  ],
+  "summary": {
+    "A": {
+      "attempted": 13,
+      "skipped": 0,
+      "runs": 13,
+      "rca_accuracy": 0.875,
+      "action_validity": 1.0,
+      "recovery_success": 1.0,
+      "measured_state_match": 1.0,
+      "unsafe_action_rate": 0.0,
+      "human_intervention_rate": 0.38461538461538464,
+      "mttr_seconds_median": 2.9335455,
+      "mttr_seconds_mean": 5.81,
+      "owner_accuracy": 1.0,
+      "reviewer_accuracy": 1.0,
+      "lifecycle_consistency": 1.0,
+      "duplicate_work_item_rate": 0.0,
+      "decision_evidence_coverage": 1.0
+    },
+    "B": {
+      "attempted": 13,
+      "skipped": 0,
+      "runs": 13,
+      "rca_accuracy": 0.375,
+      "action_validity": 0.75,
+      "recovery_success": 0.38461538461538464,
+      "measured_state_match": 0.46153846153846156,
+      "unsafe_action_rate": 0.0,
+      "human_intervention_rate": 0.5384615384615384,
+      "mttr_seconds_median": 10.028938,
+      "mttr_seconds_mean": 12.04,
+      "owner_accuracy": 1.0,
+      "reviewer_accuracy": 1.0,
+      "lifecycle_consistency": 0.8461538461538461,
+      "duplicate_work_item_rate": 0.0,
+      "decision_evidence_coverage": 1.0
+    },
+    "C": {
+      "attempted": 13,
+      "skipped": 0,
+      "runs": 13,
+      "rca_accuracy": 0.5,
+      "action_validity": 0.625,
+      "recovery_success": 0.38461538461538464,
+      "measured_state_match": 0.46153846153846156,
+      "unsafe_action_rate": 0.0,
+      "human_intervention_rate": 0.38461538461538464,
+      "mttr_seconds_median": 9.752609,
+      "mttr_seconds_mean": 11.84,
+      "owner_accuracy": 1.0,
+      "reviewer_accuracy": 1.0,
+      "lifecycle_consistency": 0.8461538461538461,
+      "duplicate_work_item_rate": 0.0,
+      "decision_evidence_coverage": 1.0
+    },
+    "D": {
+      "attempted": 13,
+      "skipped": 0,
+      "runs": 13,
+      "rca_accuracy": 0.25,
+      "action_validity": 0.75,
+      "recovery_success": 0.38461538461538464,
+      "measured_state_match": 0.46153846153846156,
+      "unsafe_action_rate": 0.0,
+      "human_intervention_rate": 0.38461538461538464,
+      "mttr_seconds_median": 9.824316,
+      "mttr_seconds_mean": 11.86,
+      "owner_accuracy": 1.0,
+      "reviewer_accuracy": 1.0,
+      "lifecycle_consistency": 0.8461538461538461,
+      "duplicate_work_item_rate": 0.0,
+      "decision_evidence_coverage": 1.0
+    },
+    "E": {
+      "attempted": 13,
+      "skipped": 0,
+      "runs": 13,
+      "rca_accuracy": 0.0,
+      "action_validity": 0.16666666666666666,
+      "recovery_success": 0.38461538461538464,
+      "measured_state_match": 0.46153846153846156,
+      "unsafe_action_rate": 0.0,
+      "human_intervention_rate": 0.38461538461538464,
+      "mttr_seconds_median": 10.688772499999999,
+      "mttr_seconds_mean": 11.77,
+      "owner_accuracy": 1.0,
+      "reviewer_accuracy": 1.0,
+      "lifecycle_consistency": 0.8461538461538461,
+      "duplicate_work_item_rate": 0.0,
+      "decision_evidence_coverage": 1.0
+    }
+  }
+}
