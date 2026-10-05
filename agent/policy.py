@@ -183,6 +183,28 @@ def decide(
             fingerprint=fingerprint,
         )
 
+    namespace = normalized.get("namespace")
+    if spec.executor == "kubernetes" and namespace is not None:
+        from agent.ops.registry import load_registry
+
+        if namespace not in load_registry().namespaces():
+            # Deployment and namespace are the planner's free strings: a
+            # restart of kube-system/coredns on pod.failed evidence was
+            # allowed with no human. Helix acts alone only where a
+            # registered service runs.
+            return PolicyVerdict(
+                decision=PolicyDecision.REQUIRE_APPROVAL,
+                action=spec.name,
+                risk_tier=tier.value,
+                reason=(
+                    f"namespace {namespace!r} belongs to no registered service: "
+                    "a write there needs a human's approval"
+                ),
+                verification_required=True,
+                params=normalized,
+                fingerprint=fingerprint,
+            )
+
     if environment not in NON_PROD_ENVIRONMENTS:
         label = "production" if environment == "production" else f"unknown ({environment!r})"
         return PolicyVerdict(
