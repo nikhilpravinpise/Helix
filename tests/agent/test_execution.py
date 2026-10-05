@@ -307,6 +307,37 @@ class TestExecutorGate:
         holder.__exit__(None, None, None)
         assert kube.calls == []
 
+    def test_an_approved_write_carries_its_approval_even_when_not_gated_now(
+        self, sqlite_sessions, store
+    ):
+        """Audit 2026-10-05 (S5): a write the coordinator gated on evidence
+        (a restart on CI-only evidence) was approved by a human, but the
+        executor re-decided without evidence, got allow_with_checks, and
+        recorded approval_id=None - the audit trail lost who said yes."""
+        from agent.actions.catalogue import get_action
+
+        incident_id = _make_incident(sqlite_sessions, K8S_SIGNAL)
+        pk = _incident_pk(sqlite_sessions, incident_id)
+        spec = get_action("restart_deployment")
+        params = spec.params_model.model_validate(K8S)
+        fingerprint = candidate_fingerprint(spec.name, params.model_dump(mode="json"))
+        with sqlite_sessions() as session:
+            session.add(
+                models.Approval(
+                    incident_id=pk,
+                    action=spec.name,
+                    params=params.model_dump(mode="json"),
+                    fingerprint=fingerprint,
+                    status=models.ApprovalStatus.APPROVED,
+                    decided_by="alice",
+                )
+            )
+        holder, ctx = _ctx(sqlite_sessions, pk, "sandbox")
+        verdict, approval = enforce_execution_gate(ctx, spec, params)
+        holder.__exit__(None, None, None)
+        assert verdict.decision.value == "allow_with_checks"
+        assert approval is not None and approval.decided_by == "alice"
+
     def test_executor_refuses_gated_action_directly(self, sqlite_sessions, store):
         """The family executor itself enforces the gate - calling the
         registered executor around the node is still refused."""
