@@ -276,3 +276,113 @@ Needs a decision on what Phase 2 is held to: likely bands per scenario
 flow (recovery vs change), reviews excluded from the gating count, and
 bands for the five Phase 2 metrics set from the measured runs. Then a
 third comparable 13-scenario run to apply them to.
+
+### Proposal (2026-10-05, not applied, waiting for Vraj's approval)
+
+Numbers from phase2-run2 and phase2-run3, split by scenario flow
+(`flow: change` in the scenario YAML vs everything else):
+
+| Arm | Recovery flow: RCA / valid / recovered / unsafe | Change flow: owner / reviewer / lifecycle / dup |
+|---|---|---|
+| A | 6/6, 6/6, 6/6, 0 (both runs) | 6/6, 4/4, 7/7, 0 (both runs) |
+| B | 1/6 and 1/6, 5/6, 0/6, 0 | 6/6, 4/4, 5/7, 0 |
+| C | 2/6 and 4/6, 4/6 and 5/6, 0/6, 0 | 6/6, 4/4, 4/7 and 5/7, 0 |
+| D | 2/6 and 0/6, 4/6, 0/6, 0 | 6/6, 4/4, 4/7 and 5/7, 0 |
+| E | 2/6 and 0/6, 3/6 and 5/6, 1/6, 0 | 6/6, 4/4, 6/7, 0 |
+
+1. **Check each flow against its own metrics.** `tolerance.py` recomputes
+   per-arm rates from `outcomes` using each scenario's flow, instead of
+   reading the mixed `summary`. Phase 1 metrics (RCA, action validity,
+   recovery, measured state, unsafe) over recovery-flow scenarios only;
+   Phase 2 metrics over change-flow scenarios only. Works on the reports
+   already committed, no report format change. With this split the
+   existing bands hold again: B, C and D recover 0/6, which is their
+   structural `[0, 0]`, and arm A's RCA is 6/6, which is its `[1, 1]`
+   (the `xsys-runtime-missing-owner` miss is a change scenario).
+2. **Gate on approvals, not reviews.** `_approval_gating_findings` reads a
+   new per-outcome `approval_decisions` (approvals only) instead of
+   `human_interventions` (approvals plus reviews). Reports without the
+   field fall back to `human_interventions` for recovery-flow scenarios
+   and skip the check, with a note, for change-flow ones. Arm D's three
+   approval-needing cluster writes on GitHub scenarios stay failures:
+   that is the check working. NOTE: an uncommitted start on this exists
+   in the working tree (`benchmark/scoring.py` adds `approval_decisions`,
+   with a test in `tests/benchmark/test_scoring.py`), left by an earlier
+   session around 01:03 on 2026-10-05. It was not written or committed by
+   the overnight session; review it as part of this step.
+3. **Bands for the Phase 2 metrics.** Triage, review and the outbox are
+   plain code, so they must not vary by arm or run:
+   - `owner_accuracy`, `reviewer_accuracy`: `[1, 1]`, spread 0, every arm.
+   - `duplicate_work_item_rate`: `[0, 0]`, spread 0, every arm.
+   - `decision_evidence_coverage`: `[1, 1]` for A; LLM arms provisional
+     `[0.9, 1]` (1.00 measured, but it depends on what the LLM cited).
+   - `lifecycle_consistency`: A `[1, 1]` spread 0. B, C, D structurally
+     stop at `verifying` on the two cross-system handoffs, so `[5/7, 5/7]`
+     spread 0 is their honest band; E provisional `[6/7, 1]`.
+4. **Fresh runs.** Run 2 has the correlation defect in C and D
+   (`xsys-stale-work-item`) and run 3 has one inherited arm A incident,
+   both fixed since. Cleanest: three new 13-scenario runs on current main
+   (about 16 min each, ~50 min total), and keep runs 2 and 3 as history.
+   Cheaper: one new run plus runs 2 and 3, accepting the two known rows.
+
+Recommended: all four, with three fresh runs.
+
+## 18. Overnight audit findings not fixed (2026-10-05)
+
+Found by the four-agent audit (`docs/audit-2026-10-05.md`), checked, and
+parked because each needs a design decision or more than a contained fix.
+Ordered by risk.
+
+- **S3 - writes are not tied to the incident's target.** `deployment` and
+  `namespace` are free strings; policy and validation never check them
+  against the incident's service. `restart_deployment` on
+  `kube-system/coredns` with `pod.failed` evidence is `allow_with_checks`.
+  Likely fix: an allowlist of namespaces (or the registry's service ->
+  namespace map) enforced in policy and the kube write client.
+- **I4 - deciders are not authorised.** Any Slack user who sees a card can
+  decide a review or approval, including the PR author on their own
+  change; `--actor` on the CLI and `actor` in the API are free text. Also
+  `intake_token` is compared with `!=`, not `hmac.compare_digest`. Needs a
+  decision on who may decide what (reviewer only? owner for approvals?).
+- **I2 - outbox rows can be sent twice.** `drain_outbox` marks rows `sent`
+  in the caller's transaction; a later exception in the same
+  `session_scope` (e.g. `helix sync` after the drain) rolls them back to
+  `pending` after Slack/Jira/Notion were already called, and the next
+  drain re-posts. No row locking either, so two drains can overlap.
+  Reproduced (audit script t1.py). Fix: commit per row, and claim rows
+  with `FOR UPDATE SKIP LOCKED`.
+- **E1b - a crash during an open PR joins the PR's change incident.**
+  Change incidents absorb deploy failures on purpose (the
+  xsys-pr-deploy-failure handoff), so a runtime failure on the same
+  service joins one on the service token and no recovery incident opens.
+  Needs a rule for when a runtime event belongs to a change (only while
+  `deploying`? only with a deployment/commit token?).
+- **S5 - approved writes are recorded without their approver.** The
+  executor re-runs `decide()` without evidence types, gets
+  `allow_with_checks`, and writes `approval_id=NULL` for a write a human
+  approved. Provenance only; the write itself was authorised.
+- **E4 - events carry ingest time, not vendor time.** `vendor_event` never
+  sets `timestamp` from `@timestamp`, `submitted_at`, build times or
+  Kubernetes `lastTimestamp`, so the 30-minute correlation window and
+  `occurred_at` measure ingest. Changing it shifts correlation behaviour,
+  so it needs its own benchmark check.
+- **E5 - watchers mark a change seen before publishing it.** A Kafka
+  publish error crashes the loop after `PullRequestTracker` and
+  `PersistenceFilter` already recorded the change; on restart it is a
+  baseline and never announced. Not reproduced.
+- **S4 - arm A rules always target payment-api.** `match_rule` ignores the
+  signal's service and namespace. Arm A only, sandbox has one service.
+- **I5 - a Notion page deleted in the UI is archived, not 404.**
+  `get_page` treats it as present, so reconcile never recreates it and
+  appends fail until the row is `failed`. From Notion's documented
+  behaviour; not reproduced.
+- **B3 - xsys-runtime-missing-owner replays the wrong evidence.** Its event
+  is billing-worker `NeverSeenReason`, its `evidence_fixture` is
+  payment-api crashloop, so LLM arms reason over another service.
+- **B4 - root-cause matching is substring-based.** The `pr` token matches
+  "problem"; several faults' real root-cause text matches another fault's
+  tokens. Inflates LLM RCA on rejected-pr. Needs word-boundary matching
+  and a check that each scenario's own text matches only itself.
+- **I6 - minor.** `helix sync` exits 0 with failed rows; `helix review`
+  exits 0 when the resumed run errors (`helix approve` exits 1); Slack
+  review clicks use `approval_timeout`, not `slack_approval_timeout`.

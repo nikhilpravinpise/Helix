@@ -272,3 +272,27 @@ def test_every_scenario_optimal_action_is_coherent_with_its_evidence():
             f"{name}: optimal {optimal} ({spec.executor}) has no evidence from its "
             f"domain in {sorted(evidence)}"
         )
+
+
+class TestSecretPathSpellings:
+    """Audit 2026-10-05: the Secret manifest's fix PR needs approval, but
+    the same file spelled `sandbox/payment-api/./k8s/03-secret.yaml` or
+    with `//` was rated medium and allowed unapproved - the path was only
+    stripped at the front and then compared as an exact string."""
+
+    @pytest.mark.parametrize(
+        "path",
+        [
+            "sandbox/payment-api/./k8s/03-secret.yaml",
+            "sandbox/payment-api//k8s/03-secret.yaml",
+            "./sandbox/payment-api/k8s/./03-secret.yaml",
+        ],
+    )
+    def test_every_spelling_of_the_secret_needs_approval(self, path):
+        verdict = decide(
+            "open_fix_pr",
+            {"branch": "helix/INC-1", "files": [{"path": path, "content": "x"}], "title": "t"},
+            "sandbox",
+        )
+        assert verdict.decision == PolicyDecision.REQUIRE_APPROVAL
+        assert verdict.params["files"][0]["path"] == "sandbox/payment-api/k8s/03-secret.yaml"

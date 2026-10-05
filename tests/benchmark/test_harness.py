@@ -1054,3 +1054,45 @@ def test_keys_only_in_the_extra_keys_setting_still_run_the_llm_arms(monkeypatch)
     cfg = HarnessConfig(arms=["B"], database_url=BAD_URL)
     record = run_scenario("ci-test-regression", SCENARIOS["ci-test-regression"], "B", cfg)
     assert "requires HELIX_LLM_API_KEY" not in (record.skipped or "")
+
+
+class TestDriveAfterASecondApproval:
+    """Audit 2026-10-05: `_drive` treated "same status twice" as parked even
+    when the scripted approver had just decided. A gated proposal rejected,
+    replanned and approved ended the drive at awaiting_approval with no
+    further `helix run`, so the approved action never executed and the
+    arm scored a miss the harness caused."""
+
+    def test_the_drive_runs_again_after_each_decision(self, monkeypatch):
+        statuses = iter(["awaiting_approval", "awaiting_approval", "recovered"])
+        runs, decisions = [], []
+
+        def helix(args, env, stdin_text=None):
+            runs.append(args)
+            return SimpleNamespace(returncode=0, stderr="")
+
+        def approve(factory, incident_id, scenario):
+            decisions.append(incident_id)
+            return SimpleNamespace(outcome="approved", detail="")
+
+        monkeypatch.setattr(harness, "_helix", helix)
+        monkeypatch.setattr(harness, "_current_status", lambda url, iid: next(statuses))
+        monkeypatch.setattr(harness, "_session_factory", lambda cfg: None)
+        monkeypatch.setattr(harness, "service_suspended_run", approve)
+        errors = harness._drive("INC-x", {}, harness.HarnessConfig(database_url="sqlite://"), {})
+        assert errors == []
+        assert len(decisions) == 2
+        assert len(runs) == 3  # the approved action gets its run
+
+    def test_a_status_that_repeats_with_no_decision_is_still_parked(self, monkeypatch):
+        runs = []
+        monkeypatch.setattr(
+            harness,
+            "_helix",
+            lambda args, env, stdin_text=None: (
+                runs.append(args) or SimpleNamespace(returncode=0, stderr="")
+            ),
+        )
+        monkeypatch.setattr(harness, "_current_status", lambda url, iid: "verifying")
+        errors = harness._drive("INC-x", {}, harness.HarnessConfig(database_url="sqlite://"), {})
+        assert errors == [] and len(runs) == 2

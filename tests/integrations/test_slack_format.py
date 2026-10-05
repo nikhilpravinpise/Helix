@@ -179,3 +179,42 @@ class TestCards:
         assert "<@U01VRAJ>" in text and "`restart_deployment`" in text
         assert "build.failed" in text
         assert "helix_approve:17" in text and "helix_reject:17" in text
+
+
+class TestOutsideTextIsEscaped:
+    """Audit 2026-10-05: a PR title, a pod reason or a transition cause is
+    text from outside Helix, and it went into Slack mrkdwn as-is. A PR
+    titled `<!channel> fix <https://evil.example|Re-login>` pinged the
+    whole channel and planted a fake link inside Helix's own card."""
+
+    HOSTILE = "<!channel> fix <https://evil.example|Re-login to Helix> & co"
+
+    def _pr_view(self):
+        return describe_incident(
+            _incident(
+                kind="change",
+                event_records=[
+                    _event("pr.opened", {"pr": 7, "title": self.HOSTILE, "branch": "<!here>"})
+                ],
+            ),
+            repo="VrajVed/helix-sandbox",
+            ui_base="http://helix",
+        )
+
+    def test_a_pr_title_cannot_ping_or_link(self):
+        summary = self._pr_view().summary
+        assert "<!channel>" not in summary and "<!here>" not in summary
+        assert "<https://evil.example" not in summary
+        assert "&lt;!channel&gt;" in summary and "&amp; co" in summary
+
+    def test_a_transition_cause_cannot_ping(self):
+        line = update_text("escalated", "<!everyone> look", owner="VrajVed", people=PEOPLE)
+        assert "<!everyone>" not in line
+        assert "<@U01VRAJ>" in line  # Helix's own mention still pings
+
+    def test_cards_carry_the_escaped_summary(self):
+        view = self._pr_view()
+        blocks = approval_card(
+            view, approval_id=1, action="<!channel>", reason="<!here>", people=PEOPLE
+        )
+        assert "<!channel>" not in str(blocks) and "<!here>" not in str(blocks)

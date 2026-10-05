@@ -218,6 +218,30 @@ def _approval_state(approval: models.Approval) -> dict[str, Any]:
     }
 
 
+def _node_failed_decision(node_failed: dict) -> _Decision:
+    """FAILED for a worker node that timed out or crashed."""
+    # 2.1: name the owning agent in the audited cause, so the
+    # transition record says WHOSE hop failed, not just which node.
+    from agent.ops import is_ops_node
+
+    failed_node = str(node_failed.get("node", "?"))
+    owner_agent = (
+        "ops"
+        if is_ops_node(failed_node)
+        else (
+            "triage"
+            if failed_node == "triage"
+            else "review"
+            if failed_node == "review"
+            else "coordinator"
+        )
+    )
+    return _Decision(
+        IncidentStatus.FAILED,
+        f"{owner_agent}.{failed_node}: {node_failed.get('cause', 'step timeout')}",
+    )
+
+
 def _decide(
     state: WorkflowState,
     approval: models.Approval | None,
@@ -254,6 +278,8 @@ def _decide(
     if status == IncidentStatus.RECEIVED:
         if state.get("kind") == "change":
             if triage is None:
+                if state.get("node_failed"):
+                    return _node_failed_decision(state["node_failed"])
                 return _Decision(None, "")  # router sends to the triage node
             if triage.duplicate_of_id is not None:
                 return _Decision(
@@ -280,6 +306,8 @@ def _decide(
         )
     if status == IncidentStatus.OWNER_ASSIGNED:
         if not state.get("review_complete"):
+            if state.get("node_failed"):
+                return _node_failed_decision(state["node_failed"])
             return _Decision(None, "")  # router sends to the review node
         review_report = state.get("review") or {}
         reviewer = review_report.get("reviewer")
@@ -312,6 +340,8 @@ def _decide(
         if not fix_pushed:
             return _Decision(None, "")  # still waiting for an updated commit
         if not state.get("review_complete"):
+            if state.get("node_failed"):
+                return _node_failed_decision(state["node_failed"])
             return _Decision(None, "")  # router sends to the review node again
         review_report = state.get("review") or {}
         reviewer = review_report.get("reviewer")
@@ -357,26 +387,7 @@ def _decide(
     # diagnosing re-entry + budget then apply like any other failure).
     node_failed = state.get("node_failed")
     if node_failed:
-        # 2.1: name the owning agent in the audited cause, so the
-        # transition record says WHOSE hop failed, not just which node.
-        from agent.ops import is_ops_node
-
-        failed_node = str(node_failed.get("node", "?"))
-        owner_agent = (
-            "ops"
-            if is_ops_node(failed_node)
-            else (
-                "triage"
-                if failed_node == "triage"
-                else "review"
-                if failed_node == "review"
-                else "coordinator"
-            )
-        )
-        return _Decision(
-            IncidentStatus.FAILED,
-            f"{owner_agent}.{failed_node}: {node_failed.get('cause', 'step timeout')}",
-        )
+        return _node_failed_decision(node_failed)
     if status == IncidentStatus.DIAGNOSING:
         if not state.get("diagnosis_complete"):
             # Diagnosis has not run yet in this state (fresh arrival, or a

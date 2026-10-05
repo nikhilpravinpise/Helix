@@ -178,6 +178,25 @@ class TestPullRequestTracker:
         [pushed] = tracker.observe([_open_pr(7, "b" * 40)])
         assert pushed["action"] == "synchronize"
 
+    def test_a_pr_that_closes_and_reopens_is_reopened(self):
+        """Audit 2026-10-05: a closed PR reappearing in the open listing was
+        reported as `opened` with its old head sha, which derived the
+        original event's id and was dropped as a duplicate - the reopened
+        PR was never reviewed."""
+        from events.adapters.github import pull_request_events
+        from events.github_watch import PullRequestTracker
+
+        tracker = PullRequestTracker()
+        tracker.observe([])
+        [opened] = tracker.observe([{**_open_pr(7, "a" * 40), "updated_at": "T1"}])
+        assert tracker.observe([]) == []  # closed: silent
+        [back] = tracker.observe([{**_open_pr(7, "a" * 40), "updated_at": "T2"}])
+        assert back["action"] == "reopened"
+        [first] = pull_request_events(opened)
+        [again] = pull_request_events(back)
+        assert again.event_type == EventType.PR_OPENED
+        assert again.event_id != first.event_id
+
     def test_payloads_are_real_webhook_shape_for_the_adapter(self):
         """The tracker speaks GitHub's webhook shape, so polled and pushed
         PRs go through the same adapter path."""

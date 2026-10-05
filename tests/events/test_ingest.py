@@ -587,3 +587,48 @@ class TestAddressedEvents:
             timestamp=T0 + timedelta(minutes=6),
         )
         assert ingest_event(db_session, stray).incident_id == older.incident_id
+
+
+class TestPullRequestsJoinOnIdentity:
+    """Audit 2026-10-05: a pr.opened arriving while a crash's recovery
+    incident was open on the same service joined it on the service token
+    alone, so the PR was never triaged or reviewed. An event about a PR
+    joins only an incident it shares an identity with."""
+
+    def test_a_pr_opened_during_a_crash_is_its_own_change(self, db_session):
+        crash = ingest_event(
+            db_session,
+            event(EventType.POD_FAILED, EventSource.KUBERNETES, pod="payment-api-x"),
+        )
+        opened = ingest_event(
+            db_session,
+            event(
+                EventType.PR_OPENED,
+                EventSource.GITHUB,
+                at=T0 + timedelta(minutes=5),
+                pr=21,
+                branch="feature/x",
+            ),
+        )
+        assert opened.created is True
+        assert opened.incident_id != crash.incident_id
+        incident = db_session.scalar(
+            select(models.Incident).where(models.Incident.incident_id == opened.incident_id)
+        )
+        assert incident.kind == models.IncidentKind.CHANGE
+
+    def test_a_pr_opened_on_a_pushed_branch_joins_that_push(self, db_session):
+        pushed = ingest_event(
+            db_session, event(EventType.PUSH_CREATED, EventSource.GITHUB, branch="feature/x")
+        )
+        opened = ingest_event(
+            db_session,
+            event(
+                EventType.PR_OPENED,
+                EventSource.GITHUB,
+                at=T0 + timedelta(minutes=5),
+                pr=21,
+                branch="feature/x",
+            ),
+        )
+        assert opened.incident_id == pushed.incident_id

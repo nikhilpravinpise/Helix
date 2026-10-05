@@ -518,3 +518,42 @@ class TestGraphBackedOwnership:
         incident_id = _open_pr(sqlite_sessions)
         owner, reviewer = self._owner_and_reviewer(sqlite_sessions, store, incident_id)
         assert (owner, reviewer) == ("alice", "bob")
+
+
+class TestChangeNodeTimeout:
+    """Audit 2026-10-05: a triage node that hit HELIX_STEP_TIMEOUT left
+    `node_failed` in state, but the RECEIVED branch returned before the
+    coordinator ever read it and the router sent the run back to triage.
+    The run never ended: 480 triage calls in 30 s, each leaving a thread."""
+
+    def test_a_timed_out_triage_fails_the_run(self, sqlite_sessions, store, monkeypatch):
+        import threading
+        import time
+
+        import agent.graph as graph_module
+
+        calls = []
+
+        def slow_triage(deps):
+            def _node(state):
+                calls.append(1)
+                time.sleep(0.3)
+                return {"triage_complete": True}
+
+            return _node
+
+        monkeypatch.setattr(graph_module, "triage_node", slow_triage)
+        deps, _ = make_deps(
+            sqlite_sessions, FakeLLM(), "cluster/crashloop", store, step_timeout=0.05
+        )
+        incident_id = _open_pr(sqlite_sessions)
+        result = {}
+        worker = threading.Thread(
+            target=lambda: result.update(r=run_incident(incident_id, deps=deps, arm="A")),
+            daemon=True,
+        )
+        worker.start()
+        worker.join(timeout=10)
+        assert not worker.is_alive(), f"run never ended ({len(calls)} triage calls)"
+        assert result["r"].status == IncidentStatus.FAILED
+        assert len(calls) == 1

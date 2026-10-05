@@ -569,6 +569,7 @@ def _drive(incident_id: str, env: dict[str, str], cfg: HarnessConfig, scenario: 
         status = _current_status(cfg.database_url or get_settings().database_url, incident_id)
         if status in TERMINAL:
             break
+        acted = False
         if status == IncidentStatus.AWAITING_APPROVAL.value:
             outcome = service_suspended_run(_session_factory(cfg), incident_id, scenario)
             if outcome.outcome == "no_pending":
@@ -577,7 +578,11 @@ def _drive(incident_id: str, env: dict[str, str], cfg: HarnessConfig, scenario: 
             if outcome.outcome == "error":
                 errors.append(f"approver error: {outcome.detail}")
                 break
-        if seen and seen[-1] == status:
+            acted = True
+        # A decision just made is progress even when the status repeats: a
+        # rejected proposal replanned into a second awaiting_approval, once
+        # approved, still needs the run that executes it.
+        if seen and seen[-1] == status and not acted:
             break  # parked (arm B at verifying, or a stuck suspension)
         seen.append(status)
     else:

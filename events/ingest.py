@@ -182,6 +182,14 @@ def _conflicting_identity(session: Session, tokens: set[str], incident: models.I
         theirs = {t for t in known if t.startswith(prefix)}
         if mine and theirs and not (mine & theirs):
             return True
+    # An event about a PR joins on identity, never on the service token
+    # alone. A pr.opened during a crash joined the crash's recovery
+    # incident on service:<name> and was never reviewed; sharing the PR,
+    # its branch or a commit still joins (a push, then its PR).
+    if any(t.startswith("pr:") for t in tokens):
+        identity = {t for t in tokens if not t.startswith("service:")}
+        if not identity & known:
+            return True
     return False
 
 

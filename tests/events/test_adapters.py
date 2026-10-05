@@ -146,6 +146,50 @@ class TestKubernetesAdapter:
         assert kubernetes.pod_events({"items": [pod]}) == []
 
 
+def _not_ready_pod(transition_time):
+    return {
+        "items": [
+            {
+                "metadata": {
+                    "uid": "u1",
+                    "name": "payment-api-1",
+                    "labels": {"app": "payment-api"},
+                },
+                "status": {
+                    "phase": "Running",
+                    "containerStatuses": [
+                        {"name": "c", "state": {"running": {}}, "restartCount": 0}
+                    ],
+                    "conditions": [
+                        {
+                            "type": "Ready",
+                            "status": "False",
+                            "lastTransitionTime": transition_time,
+                        }
+                    ],
+                },
+            }
+        ]
+    }
+
+
+class TestNotReadyEpisodes:
+    """Audit 2026-10-05: the not-ready event id was the pod uid alone, so a
+    pod that went not-Ready, recovered, and went not-Ready again hours
+    later produced a duplicate id and the second outage opened nothing."""
+
+    def test_a_second_episode_is_a_new_event(self):
+        first = kubernetes.pod_events(_not_ready_pod("2026-10-04T10:00:00Z"))[0]
+        again = kubernetes.pod_events(_not_ready_pod("2026-10-04T13:00:00Z"))[0]
+        assert first.event_type == EventType.SERVICE_UNHEALTHY
+        assert first.event_id != again.event_id
+
+    def test_the_same_episode_seen_twice_is_one_event(self):
+        one = kubernetes.pod_events(_not_ready_pod("2026-10-04T10:00:00Z"))[0]
+        two = kubernetes.pod_events(_not_ready_pod("2026-10-04T10:00:00Z"))[0]
+        assert one.event_id == two.event_id
+
+
 class TestJenkinsAdapter:
     @pytest.mark.parametrize(
         "name", ["test-regression", "dependency-failure", "docker-build-failure"]
