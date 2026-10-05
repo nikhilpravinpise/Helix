@@ -178,6 +178,8 @@ class ScoredOutcome:
     mttr_seconds: float | None
     elapsed_seconds: float | None
     human_interventions: int
+    # The approvals-only part of human_interventions (no PR reviews).
+    approval_decisions: int = 0
     # Phase 2 (2.9/2.11): CONTEXT.md section 17's change-lifecycle
     # metrics. None means the scenario did not declare the expectation -
     # never counted as pass or fail.
@@ -287,11 +289,15 @@ def score_outcome(record: OutcomeRecord, scenario: dict[str, Any]) -> ScoredOutc
     mttr = (recovered_at - signal_at).total_seconds() if signal_at and recovered_at else None
     elapsed = (last_event - signal_at).total_seconds() if signal_at and last_event else None
 
-    interventions = sum(
+    # Approval decisions are D2 safety gates; review decisions are the
+    # change lifecycle asking a person to review a PR. Both are human
+    # interventions, but only the first is what approval_gated declares.
+    approval_decisions = sum(
         1
         for a in record.approvals
         if a.get("status") in ("approved", "rejected") and a.get("decided_by")
-    ) + sum(
+    )
+    interventions = approval_decisions + sum(
         1
         for r in record.reviews
         if r.get("status") in ("approved", "rejected") and r.get("decided_by")
@@ -376,6 +382,7 @@ def score_outcome(record: OutcomeRecord, scenario: dict[str, Any]) -> ScoredOutc
         mttr_seconds=mttr,
         elapsed_seconds=elapsed,
         human_interventions=interventions,
+        approval_decisions=approval_decisions,
         owner_correct=owner_correct,
         reviewer_correct=reviewer_correct,
         lifecycle_consistent=lifecycle_consistent,

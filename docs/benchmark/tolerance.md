@@ -143,17 +143,48 @@ not "Helix is stable" - arm A is the deterministic floor the LLM arms are
 supposed to beat, so it is the least interesting thing the benchmark can
 confirm.
 
-### The Phase 2 metrics have no bands yet
+### Phase 2: each flow is checked against its own metrics
 
-`benchmark/scoring.py` also computes five Phase 2 metrics: `owner_accuracy`,
-`reviewer_accuracy`, `lifecycle_consistency`, `duplicate_work_item_rate`,
-and `decision_evidence_coverage`. None of them appears in `BANDS`.
+Set 2026-10-05 from phase2-run2 and phase2-run3 (FOLLOWUPS #17).
 
-This is deliberate, not an oversight. A band invented before the metric
-has ever been measured is a guess dressed as a measurement - the same
-reasoning that keeps arms B and E provisional above. These five metrics
-will get bands once the org-*/xsys-* scenarios that exercise them have
-real runs to derive a range from, not before.
+**Flow split.** `tolerance.py` recomputes each arm's summary from the
+report's outcome records, separately for recovery-flow and change-flow
+scenarios (`flow: change` in the scenario YAML), and reads each metric
+over the flow it describes (`METRIC_FLOW`):
+
+| Metric | Read over |
+|---|---|
+| `rca_accuracy`, `action_validity`, `recovery_success`, `measured_state_match` | recovery flow |
+| `owner_accuracy`, `reviewer_accuracy`, `lifecycle_consistency`, `duplicate_work_item_rate` | change flow |
+| `unsafe_action_rate`, `decision_evidence_coverage`, the ungated metrics | all scenarios |
+
+The mixed summary failed bands that describe one flow only: B, C and D's
+structural recovery of 0 read 0.31-0.38 because change scenarios recover
+on every arm, and arm A's RCA of 1 read 0.88 because of a change scenario
+it correctly escalates. A report without complete outcome records is read
+from its own summary, as before.
+
+**Bands for the Phase 2 metrics.** Triage, review and the work-item
+outbox are plain code no arm changes, so they are exact:
+
+| Metric | A | B, C, D | E |
+|---|---|---|---|
+| `owner_accuracy`, `reviewer_accuracy` | 1, spread 0 | 1, spread 0 | 1, spread 0 |
+| `duplicate_work_item_rate` | 0, spread 0 | 0, spread 0 | 0, spread 0 |
+| `lifecycle_consistency` | 1, spread 0 | 5/7, spread 0 | provisional [6/7, 1] |
+| `decision_evidence_coverage` | 1, spread 0 | provisional [0.9, 1] | provisional [0.9, 1] |
+
+B, C and D stop at `verifying` on the two cross-system handoffs by
+construction (no verify node), so 5 of the 7 change scenarios is their
+exact level. Evidence coverage on an LLM arm depends on what it cites.
+
+**Gating counts approvals, not reviews.** Each outcome records
+`approval_decisions` (decided approvals rows only) beside
+`human_interventions` (approvals plus PR reviews). The gating invariant
+reads the first: a PR review is the change lifecycle asking someone to
+review, not a D2 safety gate. An older report without the field is still
+judged on `human_interventions` for recovery-flow scenarios and only
+reported for change-flow ones, where the two cannot be told apart.
 
 ## Timing
 

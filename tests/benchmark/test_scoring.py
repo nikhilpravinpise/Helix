@@ -437,6 +437,23 @@ def test_review_decisions_count_as_human_interventions():
     assert score_outcome(rejected, CHANGE_SCENARIO).human_interventions == 2
 
 
+def test_approval_decisions_count_approvals_but_not_reviews():
+    """A PR review is not a D2 safety approval: approval_decisions counts
+    only decided approvals rows, so the gating check can tell them apart
+    while human_interventions keeps counting both."""
+    assert score_outcome(_record(), SCENARIOS["crashloop"]).approval_decisions == 1
+    assert score_outcome(_change_record(), CHANGE_SCENARIO).approval_decisions == 0
+    both = _change_record(
+        approvals=[
+            {"action": "rerun_pipeline", "status": "rejected", "decided_by": "benchmark-approver"},
+            {"action": "rerun_pipeline", "status": "pending", "decided_by": None},
+        ]
+    )
+    out = score_outcome(both, CHANGE_SCENARIO)
+    assert out.approval_decisions == 1  # the pending row is not a decision
+    assert out.human_interventions == 2  # one review plus one approval
+
+
 def test_summarize_aggregates_phase2_metrics_over_measured_runs_only():
     ran = score_outcome(_change_record(), CHANGE_SCENARIO)
     undeclared = score_outcome(

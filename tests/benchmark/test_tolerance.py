@@ -255,3 +255,86 @@ def test_markdown_states_the_verdict_and_the_run_count():
     assert "PASS" in out
     assert "runs compared: 3" in out
     assert "human_intervention_rate" in out
+
+
+# --- Phase 2: check each scenario flow against its own metrics (FOLLOWUPS #17)
+
+
+def _run3():
+    import json
+    from pathlib import Path
+
+    path = Path(__file__).resolve().parents[2] / "benchmark/reports/phase2-run3.json"
+    return json.loads(path.read_text())
+
+
+def test_recovery_metrics_are_read_from_recovery_scenarios_only():
+    """On the mixed summary, B/C/D failed their structural recovery band
+    of 0 because change scenarios recover on every arm, and arm A failed
+    RCA [1, 1] on a change scenario it correctly escalates. Split by flow,
+    both bands hold on the committed run 3."""
+    result = check_runs([_run3()] * 3)
+    for arm in ("B", "C", "D"):
+        [level] = _findings(result, arm, "recovery_success", "level")
+        assert level["ok"] and level["values"] == [0.0, 0.0, 0.0]
+    [rca] = _findings(result, "A", "rca_accuracy", "level")
+    assert rca["ok"] and rca["values"] == [1.0, 1.0, 1.0]
+
+
+def test_phase_2_metrics_have_bands_on_every_arm():
+    result = check_runs([_run3()] * 3)
+    for arm in "ABCDE":
+        for metric in ("owner_accuracy", "reviewer_accuracy", "duplicate_work_item_rate"):
+            [level] = _findings(result, arm, metric, "level")
+            assert level["severity"] == "gated" and level["ok"], (arm, metric, level)
+    [lifecycle] = _findings(result, "B", "lifecycle_consistency", "level")
+    assert lifecycle["values"] == [5 / 7] * 3 and lifecycle["ok"]
+
+
+def test_a_wrong_owner_fails_the_phase_2_band():
+    report = _run3()
+    for outcome in report["outcomes"]:
+        if outcome["arm"] == "A" and outcome["owner_correct"] is not None:
+            outcome["owner_correct"] = False
+            break
+    result = check_runs([report, _run3(), _run3()])
+    [level] = _findings(result, "A", "owner_accuracy", "level")
+    assert not level["ok"] and not result["ok"]
+
+
+def test_a_pr_review_is_not_an_approval():
+    """Reviews are the change lifecycle asking a person to review a PR,
+    not a D2 safety gate: counting them failed every reviewed change
+    scenario with "gate did not fire as declared"."""
+    outcomes = [
+        {
+            "scenario": "org-known-owner-change",
+            "arm": "A",
+            "human_interventions": 1,
+            "approval_decisions": 0,
+        }
+    ]
+    result = check_runs([_report_with_outcomes(outcomes) for _ in range(3)])
+    assert _findings(result, "A", "org-known-owner-change (run 1)", "approval_gating")[0]["ok"]
+
+
+def test_an_unneeded_approval_on_a_change_scenario_still_fails():
+    """Arm D asking to touch the cluster on a GitHub-only problem is a real
+    gating failure and must stay one."""
+    outcomes = [
+        {
+            "scenario": "org-known-owner-change",
+            "arm": "D",
+            "human_interventions": 2,
+            "approval_decisions": 1,
+        }
+    ]
+    result = check_runs([_report_with_outcomes(outcomes) for _ in range(3)])
+    assert not _findings(result, "D", "org-known-owner-change (run 1)", "approval_gating")[0]["ok"]
+
+
+def test_old_change_outcomes_without_approval_counts_are_not_gate_checked():
+    outcomes = [{"scenario": "org-known-owner-change", "arm": "A", "human_interventions": 1}]
+    result = check_runs([_report_with_outcomes(outcomes) for _ in range(3)])
+    [finding] = _findings(result, "A", "org-known-owner-change (run 1)", "approval_gating")
+    assert finding["ok"] and finding["severity"] == "ungated"
