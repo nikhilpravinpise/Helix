@@ -261,6 +261,11 @@ Plan when picked up:
 
 ## 17. The tolerance check still describes Phase 1
 
+**Status 2026-10-05: closed.** Applied as proposed (eeb683d), with one
+change Vraj decided on the final runs: approval over-asking is gated on
+arm A and reported on the LLM arms (4eb5198). Three final runs pass
+(phase2-final-run1..3, docs/benchmark/phase-2-evaluation.md section 0).
+
 `python -m benchmark.tolerance` fails Phase 2 runs for reasons that are
 about the checker, not Helix (phase-2-evaluation.md section 6):
 
@@ -277,7 +282,7 @@ flow (recovery vs change), reviews excluded from the gating count, and
 bands for the five Phase 2 metrics set from the measured runs. Then a
 third comparable 13-scenario run to apply them to.
 
-### Proposal (2026-10-05, not applied, waiting for Vraj's approval)
+### Proposal (2026-10-05, approved and applied)
 
 Numbers from phase2-run2 and phase2-run3, split by scenario flow
 (`flow: change` in the scenario YAML vs everything else):
@@ -328,6 +333,10 @@ Numbers from phase2-run2 and phase2-run3, split by scenario flow
 Recommended: all four, with three fresh runs.
 
 ## 18. Overnight audit findings not fixed (2026-10-05)
+
+**Update 2026-10-05:** S3, I4 and S5 are fixed as the human-in-the-loop
+rules (11c4ffb, 30af9a1, 60aa6b4), including the intake token compared
+with hmac.compare_digest. The rest below stands.
 
 Found by the four-agent audit (`docs/audit-2026-10-05.md`), checked, and
 parked because each needs a design decision or more than a contained fix.
@@ -386,3 +395,13 @@ Ordered by risk.
 - **I6 - minor.** `helix sync` exits 0 with failed rows; `helix review`
   exits 0 when the resumed run errors (`helix approve` exits 1); Slack
   review clicks use `approval_timeout`, not `slack_approval_timeout`.
+
+## 19. Rerun arm E for the third Phase 2 final run
+
+In phase2-final-run3, arm E (the last arm) ran out of both Groq keys'
+daily token budget: 7 incidents failed with "every configured API key is
+rate-limited" before any reasoning. Its scores for that run are void and
+the evaluation uses runs 1 and 2 for E. Once the cap resets, run arm E
+alone on the 13 Postgres-only scenarios and add it as the third E data
+point (`bash scripts/benchmark.sh --arm E --scenario ...`). This does not
+change the tolerance verdict: no gated check depends on E's LLM output.
