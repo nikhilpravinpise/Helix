@@ -214,12 +214,13 @@ class TestApprovalEndpoints:
             )
 
         monkeypatch.setattr("agent.runner.run_incident", fake_run)
-        response = client.post(f"/approvals/{approval_id}/approve", json={"actor": "carol"})
+        # decided by an owner: only they may decide (state/deciders.py)
+        response = client.post(f"/approvals/{approval_id}/approve", json={"actor": "alice"})
 
         assert response.status_code == 200
         body = response.json()
         assert body["approval"]["status"] == "approved"
-        assert body["approval"]["decided_by"] == "carol"
+        assert body["approval"]["decided_by"] == "alice"
         assert body["resumed"] is True
         assert body["status"] == "verifying"
         assert calls == [incident_id]
@@ -237,9 +238,10 @@ class TestApprovalEndpoints:
                 run_status=models.RunStatus.TERMINAL,
             ),
         )
+        # decided by an owner: only they may decide (state/deciders.py)
         response = client.post(
             f"/approvals/{approval_id}/reject",
-            json={"actor": "carol", "note": "wait for the freeze"},
+            json={"actor": "alice", "note": "wait for the freeze"},
         )
         body = response.json()
         assert response.status_code == 200
@@ -263,11 +265,14 @@ class TestApprovalEndpoints:
                 run_status=models.RunStatus.TERMINAL,
             ),
         )
+        # both actors are owners who would otherwise be allowed to decide
+        # (state/deciders.py) - the 409 is about the row already being
+        # decided, not about either identity.
         assert (
-            client.post(f"/approvals/{approval_id}/approve", json={"actor": "carol"}).status_code
+            client.post(f"/approvals/{approval_id}/approve", json={"actor": "alice"}).status_code
             == 200
         )
-        second = client.post(f"/approvals/{approval_id}/reject", json={"actor": "dave"})
+        second = client.post(f"/approvals/{approval_id}/reject", json={"actor": "bob"})
         assert second.status_code == 409
 
     def test_missing_actor_is_422(self, client, sqlite_engine):
@@ -392,8 +397,12 @@ class TestReviewEndpoints:
                 run_status=models.RunStatus.TERMINAL,
             ),
         )
-        assert client.post(f"/reviews/{review_id}/approve", json={"actor": "b"}).status_code == 200
-        assert client.post(f"/reviews/{review_id}/reject", json={"actor": "c"}).status_code == 409
+        # decided by the requested reviewer: only they may decide (state/deciders.py);
+        # the 409 is about the row already being decided, not the identity.
+        assert (
+            client.post(f"/reviews/{review_id}/approve", json={"actor": "bob"}).status_code == 200
+        )
+        assert client.post(f"/reviews/{review_id}/reject", json={"actor": "bob"}).status_code == 409
 
 
 @pytest.mark.integration

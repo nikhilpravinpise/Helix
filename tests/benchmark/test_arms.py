@@ -209,7 +209,8 @@ class TestArmARules:
             statuses = {a.status for a in incident.approvals}
             assert models.ApprovalStatus.APPROVED in statuses
             assert models.ApprovalStatus.REJECTED in statuses
-            assert all(a.decided_by == "benchmark-approver" for a in incident.approvals)
+            # decided by an owner: only they may decide (state/deciders.py)
+            assert all(a.decided_by == "alice" for a in incident.approvals)
 
     def test_unmatched_signature_escalates_honestly(self, sqlite_sessions, store):
         """A signature the table does not cover escalates - the rules arm

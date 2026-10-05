@@ -88,6 +88,11 @@ def record_decision(
             f"the review timeout of {int(timeout_s)}s - refusing the decision; "
             "the next run escalates the incident"
         )
+    from state.deciders import review_refusal
+
+    refusal = review_refusal(review, actor)
+    if refusal is not None:
+        raise ReviewDecidedError(f"review {review.id}: {refusal}")
     review.status = models.ApprovalStatus.APPROVED if approved else models.ApprovalStatus.REJECTED
     review.decided_by = actor
     review.decided_at = now

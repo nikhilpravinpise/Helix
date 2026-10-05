@@ -8,8 +8,9 @@ reviewer decision without a human. The semantics mirror the approver's:
   scalar (`approve`/`reject`/`timeout`) applied to every review round, or
   a list applied per round so a reject-then-approve re-review is
   declarable.
-- Every decision is recorded through `state.reviews.record_decision` with
-  `decided_by` naming the benchmark reviewer actor - the same code path
+- Every decision is recorded through `state.reviews.record_decision` as
+  the requested reviewer (the only person the human-in-the-loop rules let
+  decide), with the benchmark reviewer named in the note - the same code path
   `helix review approve|reject` and the API use, never a raw table write.
 - `timeout` means the reviewer never answers: no decision is recorded and
   the run stays parked, which is exactly what a real non-response looks
@@ -80,14 +81,15 @@ def decide_pending(
             reviewer=pending.reviewer,
             detail="scripted reviewer never answers - the request stays pending",
         )
-    actor = scenario.get("reviewer_actor") or REVIEWER_ACTOR
+    # As the requested reviewer: only they may decide (state/deciders.py).
+    actor = scenario.get("reviewer_actor") or pending.reviewer
     try:
         record_decision(
             session,
             pending,
             decision == "approve",
             actor,
-            f"benchmark review: scenario {scenario.get('name')} round {round_index}",
+            f"{REVIEWER_ACTOR}: scenario {scenario.get('name')} round {round_index}",
         )
     except ReviewDecidedError as exc:
         return ReviewerOutcome("error", reviewer=pending.reviewer, detail=str(exc))

@@ -52,7 +52,10 @@ def _pending(incident: models.Incident, action: str = "reapply_manifest") -> mod
 
 def test_approves_the_declared_gated_optimal(sqlite_sessions):
     with sqlite_sessions() as session:
-        incident = _incident(sqlite_sessions)
+        # merge: decide_pending now resolves the author through the
+        # incident's event records (state/deciders.py), which needs an
+        # attached instance, not the detached one _incident() returns.
+        incident = session.merge(_incident(sqlite_sessions))
         session.add(_pending(incident))
         outcome = decide_pending(session, incident, GATED)
         assert outcome.outcome == "approved"
@@ -62,7 +65,9 @@ def test_approves_the_declared_gated_optimal(sqlite_sessions):
             select(models.Approval).where(models.Approval.incident_id == incident.id)
         )
         assert decided.status == ApprovalStatus.APPROVED
-        assert decided.decided_by == APPROVER_ACTOR
+        # decided by an owner: only they may decide (state/deciders.py)
+        assert decided.decided_by == "alice"
+        assert APPROVER_ACTOR in (decided.note or "")
         assert decided.decided_at is not None
 
 
@@ -70,7 +75,10 @@ def test_rejects_when_scenario_is_not_gated(sqlite_sessions):
     """A pending row on a scenario that declares approval_gated=false gets
     declined - the arm asked for an approval the scenario does not bless."""
     with sqlite_sessions() as session:
-        incident = _incident(sqlite_sessions)
+        # merge: decide_pending resolves the author via the incident's
+        # event records (state/deciders.py), which needs an attached
+        # instance, not the detached one _incident() returns.
+        incident = session.merge(_incident(sqlite_sessions))
         session.add(_pending(incident, action="reapply_manifest"))
         outcome = decide_pending(session, incident, UNGATED)
         assert outcome.outcome == "rejected"
@@ -84,7 +92,10 @@ def test_rejects_a_non_optimal_gated_action(sqlite_sessions):
     """On a gated scenario, a pending action that is NOT the declared
     optimal is rejected - the approver never blesses an arm's mistake."""
     with sqlite_sessions() as session:
-        incident = _incident(sqlite_sessions)
+        # merge: decide_pending resolves the author via the incident's
+        # event records (state/deciders.py), which needs an attached
+        # instance, not the detached one _incident() returns.
+        incident = session.merge(_incident(sqlite_sessions))
         session.add(_pending(incident, action="scale_deployment"))
         outcome = decide_pending(session, incident, GATED)
         assert outcome.outcome == "rejected"

@@ -569,7 +569,8 @@ class TestApprovalLifecycle:
     ):
         deps, _caps, incident_id = self._suspend_on_gate(sqlite_sessions, store, [_manifest_plan()])
         self._patch_cli_db(monkeypatch, sqlite_sessions)
-        monkeypatch.setenv("HELIX_OPERATOR", "oncall-bot")
+        # decided by an owner: only they may decide (state/deciders.py)
+        monkeypatch.setenv("HELIX_OPERATOR", "alice")
         monkeypatch.setattr(
             "agent.runner.run_incident", lambda iid, **kw: run_incident(iid, deps=deps)
         )
@@ -577,7 +578,7 @@ class TestApprovalLifecycle:
         assert helix_main(["approve", incident_id]) == 0
         capsys.readouterr()
         approvals = _approvals(sqlite_sessions, incident_id)
-        assert approvals[0].decided_by == "oncall-bot"
+        assert approvals[0].decided_by == "alice"
 
     def test_reject_replans_with_exclusion(self, sqlite_sessions, store, monkeypatch, capsys):
         """Rejected candidate joins the exclusion list: the resumed run
