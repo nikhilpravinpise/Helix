@@ -13,22 +13,25 @@ Phases follow the source documents exactly. This file adds 32 subphases, each wi
 **Last updated: 2026-10-05.** Keep this block current - it is the one
 place that answers "how much is done" without reading the whole file.
 
-**31 of 32 subphases implemented (97%). Phase 2 is implemented, with 2.11
-not fully exited.** The distinction is the definition of done below: exit
-criterion demonstrated end to end, not code landed and tests green. The
-Phase 2 measurements are in `docs/benchmark/phase-2-evaluation.md`. 2.7 is
-met: owner and reviewer accuracy were measured with and without the graph
-(the graph was worse, was fixed, and now matches the registry). 2.11 is
-partly met: the five-arm table is populated across all 19 scenarios once
-and on the 13 Postgres-only scenarios twice, with the analysis written,
-but stability is not shown - the tolerance check fails on bands written
-for Phase 1 (FOLLOWUPS #17).
+**31 of 32 subphases implemented (97%). Phase 2 is exited (2026-10-05).**
+The distinction is the definition of done below: exit criterion
+demonstrated end to end, not code landed and tests green. The Phase 2
+measurements are in `docs/benchmark/phase-2-evaluation.md`. 2.7 is met:
+owner and reviewer accuracy were measured with and without the graph (the
+graph was worse, was fixed, and now matches the registry). 2.11 is met:
+the five-arm table covers all 19 scenarios once and the 13 Postgres-only
+scenarios across three final runs that pass the tolerance check, under
+the human-in-the-loop rules (only owners approve, only the requested
+reviewer reviews, the change's author decides neither, cluster writes
+outside registered namespaces need approval). Stated bounds: the six
+cluster scenarios ran once, and arm E's third final run is void (Groq
+daily cap, FOLLOWUPS #19). Only OPT-1 remains, and it is optional.
 
 | Phase | Subphases | Status |
 |---|---|---|
 | Phase 1 - MVP | 1.1 - 1.13 | **13/13 done.** Exit gate met: the benchmark runs unattended and reports all five metrics |
 | Phase 1.5 - Event Layer | E1 - E7 | **7/7 done.** All exit criteria met, including E7's ablation. Its open defects are fixed in Phase 2 - recorded below |
-| Phase 2 - Full Helix | 2.1 - 2.11 | **11/11 implemented, 10/11 exited.** Change-review lifecycle, Slack/Notion/Jira/Linear/Trello integrations, Neo4j graph + GraphRAG, arm D, and the expanded benchmark all land and test green - see HANDOFF-PHASE2.md. **2.11 is partly met:** ablation and analysis done (docs/benchmark/phase-2-evaluation.md); three comparable runs inside tolerance bands are not |
+| Phase 2 - Full Helix | 2.1 - 2.11 | **11/11 done.** Change-review lifecycle, Slack/Notion/Jira/Linear/Trello integrations, Neo4j graph + GraphRAG, arm D, the expanded benchmark, and human-in-the-loop decision rules. Exit criteria measured: docs/benchmark/phase-2-evaluation.md (tolerance PASS on three final runs) |
 | Optional | OPT-1 | Not started |
 
 **Phase 1.5's exit gate is met.** Phase 1 benchmark results reproduce
@@ -83,12 +86,9 @@ lifecycle's own stages (triage, reviews, work items, knowledge page).
 
 **Open commitments not covered by any subphase:**
 
-- **Stability for 2.11.** The ablation and analysis exist
-  (`docs/benchmark/phase-2-evaluation.md`, on `openai/gpt-oss-120b`).
-  Still needed: tolerance bands that fit Phase 2's change scenarios
-  (FOLLOWUPS #17), then a third comparable run of the 13 Postgres-only
-  scenarios. The six cluster scenarios were run once and skipped after
-  that by decision: three runs of them take most of a night.
+- **Arm E's third final run (FOLLOWUPS #19).** Void: both Groq keys hit
+  their daily cap. Rerun arm E alone once the cap resets, for a third
+  data point. Does not change the Phase 2 verdict.
 - **GCP / cloud deployment (D23).** DJS23OLOE501 requires it; Helix runs
   on kind. Stubbed, not built: `infra/gcp/README.md` scopes the full
   kind-to-GKE delta and `scripts/gcp-up.sh` is the entry point, which

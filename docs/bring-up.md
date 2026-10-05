@@ -181,6 +181,24 @@ them after each run and `helix sync` drains plus reconciles drift
 land via `helix review INC-* approve|reject`, `POST /reviews/{id}/...`,
 or the Slack buttons on the review request.
 
+### Who Helix is, and who may decide
+
+`config/service_registry.yaml` names the live team: each service's owners,
+reviewers, path owners and Kubernetes namespace (default: the service
+name), and each person's display name and Slack member id
+(`people.<handle>.slack`, from Slack: profile, three dots, Copy member ID).
+Owners and reviewers are GitHub logins.
+
+Only an owner of a service may approve its actions, only the requested
+reviewer may decide a review, and a change's author decides neither. So:
+
+- set `HELIX_OPERATOR` in `.env` to your own handle, or `helix approve`
+  is refused;
+- add your Slack member id under `people`, or your Slack clicks are
+  refused (Slack tells you why);
+- give every service you want Helix to act on a registry entry: a cluster
+  write outside a registered namespace always needs approval.
+
 ## 7. The SonarQube quality gate (one-time token step)
 
 The Jenkins `payment-api` pipeline has `SonarQube analysis` +

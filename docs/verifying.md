@@ -11,10 +11,10 @@ If you only run one thing, run tier 1.
 
 ```bash
 make lint      # ruff check + format --check
-make test      # 1252 unit tests
+make test      # 1408 unit tests
 ```
 
-Expected: `All checks passed`, then `1252 passed, 50 deselected`.
+Expected: `All checks passed`, then `1408 passed, 50 deselected`.
 
 The 50 deselected are the integration tier - they need live
 infrastructure and are excluded from every bare `pytest` by design (D9),

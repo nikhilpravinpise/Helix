@@ -62,6 +62,10 @@ class ServiceEntry(BaseModel):
     # Knowledge Agent's neighborhood answer (graph.queries.
     # services_depended_on_by) is real rather than permanently empty.
     depends_on: list[str] = Field(default_factory=list)
+    #: The Kubernetes namespace the service runs in; defaults to the
+    #: service's own name. Helix writes to the cluster unasked only in a
+    #: registered namespace (agent/policy.py).
+    namespace: str | None = None
 
 
 class Person(BaseModel):
@@ -86,6 +90,10 @@ class ServiceRegistry:
 
     def person(self, handle: str) -> Person | None:
         return self.people.get(handle)
+
+    def namespaces(self) -> set[str]:
+        """Every namespace a registered service runs in."""
+        return {entry.namespace or name for name, entry in self.services.items()}
 
 
 def _configured_path() -> Path:

@@ -11,7 +11,8 @@ without a human. The semantics are deliberately narrow:
   is not the declared optimal gets declined, which exercises the real
   rejection -> replan path rather than blessing whatever showed up.
 - Every decision is recorded through `state.approvals.record_decision`
-  with `decided_by="benchmark-approver"` - the same code path
+  as the service's owner (the human-in-the-loop rules allow no one
+  else), with "benchmark-approver" in the note - the same code path
   `helix approve` and the API use, never a raw table write.
 
 This module never resumes the run itself - the harness calls `helix run`
@@ -35,7 +36,7 @@ APPROVER_ACTOR = "benchmark-approver"
 class ApproverOutcome:
     """What the approver did for one suspended run."""
 
-    outcome: str  # "approved" | "rejected" | "no_pending" | "error"
+    outcome: str  # "approved" | "rejected" | "no_pending" | "no_decider" | "error"
     action: str | None = None
     detail: str = ""
 
@@ -52,6 +53,21 @@ def decide_pending(
     pending = pending_for_incident(session, incident.id)
     if pending is None:
         return ApproverOutcome("no_pending", detail="no pending approvals row")
+    # The decision is made as the service's owner, the only person the
+    # human-in-the-loop rules let decide (state/deciders.py); the scripted
+    # role is kept in the note.
+    from state.deciders import approval_deciders
+
+    deciders = approval_deciders(incident)
+    if not deciders:
+        # Nobody may decide: the incident honestly waits for a human (and
+        # escalates on the approval timeout), the same as a real one would.
+        return ApproverOutcome(
+            "no_decider",
+            action=pending.action,
+            detail=f"{incident.service} has no registered owner to decide approvals",
+        )
+    actor = deciders[0]
     expected = bool(scenario.get("approval_gated")) and (
         pending.action == scenario.get("optimal_action")
     )
@@ -61,16 +77,16 @@ def decide_pending(
                 session,
                 pending,
                 True,
-                APPROVER_ACTOR,
-                f"benchmark D2: gated optimal action for scenario {scenario.get('name')}",
+                actor,
+                f"{APPROVER_ACTOR}: D2 gated optimal action for scenario {scenario.get('name')}",
             )
             return ApproverOutcome("approved", action=pending.action)
         record_decision(
             session,
             pending,
             False,
-            APPROVER_ACTOR,
-            "benchmark D2: pending action is not the scenario's declared "
+            actor,
+            f"{APPROVER_ACTOR}: D2 pending action is not the scenario's declared "
             f"gated optimal (optimal={scenario.get('optimal_action')!r})",
         )
         return ApproverOutcome("rejected", action=pending.action)

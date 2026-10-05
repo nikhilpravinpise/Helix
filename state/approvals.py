@@ -97,6 +97,11 @@ def record_decision(
             f"HELIX_APPROVAL_TIMEOUT={int(timeout_s)}s - refusing the decision; "
             "the next run escalates the incident"
         )
+    from state.deciders import approval_refusal
+
+    refusal = approval_refusal(approval.incident, actor)
+    if refusal is not None:
+        raise ApprovalDecidedError(f"approval {approval.id}: {refusal}")
     approval.status = models.ApprovalStatus.APPROVED if approved else models.ApprovalStatus.REJECTED
     approval.decided_by = actor
     approval.decided_at = now

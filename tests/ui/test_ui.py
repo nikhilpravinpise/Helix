@@ -203,7 +203,8 @@ class TestApprovalsPage:
                 .where(models.Incident.incident_id == incident_id)
             ).id
 
-        response = client.post(f"/approvals/{approval_id}/approve", json={"actor": "ui-operator"})
+        # decided by an owner: only they may decide (state/deciders.py)
+        response = client.post(f"/approvals/{approval_id}/approve", json={"actor": "alice"})
         assert response.status_code == 200
         assert response.json()["approval"]["status"] == "approved"
         assert response.json()["resumed"] is True
@@ -211,13 +212,13 @@ class TestApprovalsPage:
         page = client.get("/ui/approvals")
         assert "Nothing awaiting approval" in page.text
         assert "ap-approved" in page.text
-        assert "ui-operator" in page.text
+        assert "alice" in page.text
 
         # The incident detail now shows the decided approval stage and the
         # post-resume execution + verification stages.
         detail = client.get(f"/ui/incidents/{incident_id}")
         assert "ap-approved" in detail.text
-        assert "ui-operator" in detail.text
+        assert "alice" in detail.text
         assert 'data-incident-status="escalated"' in detail.text
 
     def test_reject_post_records_decision(self, client, sqlite_sessions, store, monkeypatch):
@@ -232,9 +233,10 @@ class TestApprovalsPage:
                 .where(models.Incident.incident_id == incident_id)
             ).id
 
+        # decided by an owner: only they may decide (state/deciders.py)
         response = client.post(
             f"/approvals/{approval_id}/reject",
-            json={"actor": "ui-operator", "note": "too risky today"},
+            json={"actor": "alice", "note": "too risky today"},
         )
         assert response.status_code == 200
         assert response.json()["approval"]["status"] == "rejected"

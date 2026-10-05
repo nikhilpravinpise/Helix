@@ -296,3 +296,46 @@ class TestSecretPathSpellings:
         )
         assert verdict.decision == PolicyDecision.REQUIRE_APPROVAL
         assert verdict.params["files"][0]["path"] == "sandbox/payment-api/k8s/03-secret.yaml"
+
+
+class TestRegisteredNamespacesOnly:
+    """Audit 2026-10-05 (S3): deployment and namespace were free strings,
+    so restart_deployment on kube-system/coredns with pod.failed evidence
+    was allowed with no human. Helix acts alone only in a namespace a
+    registered service lives in; anything else needs approval."""
+
+    @pytest.mark.parametrize(
+        "action,params",
+        [
+            ("restart_deployment", {"deployment": "coredns", "namespace": "kube-system"}),
+            (
+                "scale_deployment",
+                {"deployment": "coredns", "namespace": "kube-system", "replicas": 1},
+            ),
+            ("rollback_deployment", {"deployment": "payment-api", "namespace": "sandbox"}),
+        ],
+    )
+    def test_an_unregistered_namespace_needs_approval(self, action, params):
+        verdict = decide(action, params, "sandbox", frozenset({"pod.failed"}))
+        assert verdict.decision == PolicyDecision.REQUIRE_APPROVAL
+        assert "namespace" in verdict.reason
+
+    def test_the_registered_namespace_is_still_allowed(self):
+        verdict = decide(
+            "restart_deployment",
+            {"deployment": "payment-api", "namespace": "payment-api"},
+            "sandbox",
+            frozenset({"pod.failed"}),
+        )
+        assert verdict.decision == PolicyDecision.ALLOW_WITH_CHECKS
+
+    def test_a_registry_entry_can_name_its_namespace(self):
+        from agent.ops.registry import ServiceEntry, ServiceRegistry
+
+        registry = ServiceRegistry(
+            services={
+                "billing": ServiceEntry.model_validate({"namespace": "billing-ns"}),
+                "payment-api": ServiceEntry.model_validate({}),
+            }
+        )
+        assert registry.namespaces() == {"billing-ns", "payment-api"}

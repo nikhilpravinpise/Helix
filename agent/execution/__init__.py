@@ -176,7 +176,10 @@ def enforce_execution_gate(
                 f"for this incident/fingerprint"
             )
         return verdict, approval
-    return verdict, None
+    # Not gated now, but a human may still have approved it: the coordinator
+    # gates on evidence this re-decision cannot see (a restart on CI-only
+    # evidence). Return that approval so the audit row names who said yes.
+    return verdict, _granted_approval(ctx.session, ctx.incident_pk, verdict.fingerprint)
 
 
 # --- Registry --------------------------------------------------------------

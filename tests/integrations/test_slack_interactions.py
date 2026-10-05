@@ -98,6 +98,23 @@ def _post(
     )
 
 
+def _link_slack(monkeypatch, **by_handle: str) -> None:
+    """Link registry handles to Slack member ids for this test - the
+    shared test registry (benchmark/service_registry.yaml) carries no
+    Slack ids of its own. Only a handle whose people.<handle>.slack
+    matches the clicking user's id may decide (state/deciders.py,
+    helix.api._slack_handle)."""
+    from agent.ops import registry as registry_mod
+
+    base = registry_mod.load_registry()
+    people = dict(base.people)
+    for handle, slack_id in by_handle.items():
+        existing = people.get(handle) or registry_mod.Person()
+        people[handle] = existing.model_copy(update={"slack": slack_id})
+    linked = registry_mod.ServiceRegistry(services=base.services, people=people)
+    monkeypatch.setattr(registry_mod, "load_registry", lambda path=None: linked)
+
+
 def _block_actions(approval_id: int, kind: str = "approve", **user) -> dict:
     return {
         "type": "block_actions",
@@ -154,6 +171,8 @@ class TestBlockActions:
         approval_id = _seed_pending(sqlite_engine, incident_id)
         calls: list[str] = []
         _stub_run(monkeypatch, calls)
+        # decided by an owner: only they may decide (state/deciders.py)
+        _link_slack(monkeypatch, alice="U123")
 
         response = _post(client, _block_actions(approval_id))
 
@@ -166,13 +185,15 @@ class TestBlockActions:
         assert calls == [incident_id]
         row = _get_approval(sqlite_engine, approval_id)
         assert row.status == models.ApprovalStatus.APPROVED
-        assert row.decided_by == "slack-carol"
+        assert row.decided_by == "alice"
 
     def test_reject_records_decision_and_resumes(self, client, sqlite_engine, monkeypatch):
         incident_id = _seed_incident(client)
         approval_id = _seed_pending(sqlite_engine, incident_id)
         calls: list[str] = []
         _stub_run(monkeypatch, calls)
+        # decided by an owner: only they may decide (state/deciders.py)
+        _link_slack(monkeypatch, alice="U123")
 
         response = _post(client, _block_actions(approval_id, kind="reject"))
 
@@ -182,14 +203,42 @@ class TestBlockActions:
         assert _get_approval(sqlite_engine, approval_id).status == (models.ApprovalStatus.REJECTED)
 
     def test_actor_falls_back_to_name_then_id(self, client, sqlite_engine, monkeypatch):
+        """Slack identity resolves only through people.<handle>.slack now
+        (state/deciders.py, helix.api._slack_handle) - there is no more
+        "decide as whatever name/id Slack sent" fallback. A linked id
+        decides as its registry handle; an unlinked user is refused
+        outright, with an ephemeral note sent back via response_url."""
+        posts = []
+        monkeypatch.setattr(
+            "helix.api.httpx.post",
+            lambda url, json=None, timeout=None: (
+                posts.append(json) or httpx.Response(200, request=httpx.Request("POST", url))
+            ),
+        )
         incident_id = _seed_incident(client)
         approval_id = _seed_pending(sqlite_engine, incident_id)
         _stub_run(monkeypatch, [])
-        payload = _block_actions(approval_id)
-        payload["user"] = {"id": "U999", "name": "carol-name"}
-        response = _post(client, payload)
+        _link_slack(monkeypatch, alice="U999")
+
+        linked_payload = _block_actions(approval_id)
+        linked_payload["user"] = {"id": "U999", "name": "carol-name"}
+        response = _post(client, linked_payload)
         assert response.status_code == 200
-        assert _get_approval(sqlite_engine, approval_id).decided_by == "carol-name"
+        assert _get_approval(sqlite_engine, approval_id).decided_by == "alice"
+
+        unlinked_id = _seed_pending(sqlite_engine, incident_id)
+        unlinked_payload = {
+            **_block_actions(unlinked_id),
+            "user": {"id": "U000", "name": "mallory-name"},
+            "response_url": "https://hooks.slack.test/unlinked",
+        }
+        response = _post(client, unlinked_payload)
+        assert response.status_code == 200
+        decision = response.json()["decisions"][0]
+        assert "decision" not in decision
+        assert decision.get("note")
+        assert _get_approval(sqlite_engine, unlinked_id).status == models.ApprovalStatus.PENDING
+        assert posts and "Not recorded" in posts[-1]["text"]
 
     def test_duplicate_decision_is_200_with_note(self, client, sqlite_engine, monkeypatch):
         """Slack retries deliveries - a redelivered press must ack, not error."""
@@ -197,6 +246,8 @@ class TestBlockActions:
         approval_id = _seed_pending(sqlite_engine, incident_id)
         calls: list[str] = []
         _stub_run(monkeypatch, calls)
+        # decided by an owner: only they may decide (state/deciders.py)
+        _link_slack(monkeypatch, alice="U123")
 
         first = _post(client, _block_actions(approval_id))
         second = _post(client, _block_actions(approval_id, kind="reject"))
@@ -256,6 +307,8 @@ class TestBlockActions:
             raise RuntimeError("graph blew up")
 
         monkeypatch.setattr("agent.runner.run_incident", boom)
+        # decided by an owner: only they may decide (state/deciders.py)
+        _link_slack(monkeypatch, alice="U123")
         response = _post(client, _block_actions(approval_id))
 
         assert response.status_code == 200
@@ -364,6 +417,8 @@ class TestReviewBlockActions:
         review_id = _seed_review(sqlite_engine, incident_id)
         calls: list[str] = []
         _stub_run(monkeypatch, calls)
+        # decided by the requested reviewer: only they may decide (state/deciders.py)
+        _link_slack(monkeypatch, bob="U456")
 
         response = _post(client, _review_block_actions(review_id))
 
@@ -375,12 +430,14 @@ class TestReviewBlockActions:
         assert calls == [incident_id]
         row = _get_review(sqlite_engine, review_id)
         assert row.status == models.ApprovalStatus.APPROVED
-        assert row.decided_by == "slack-bob"
+        assert row.decided_by == "bob"
 
     def test_review_reject_records_decision(self, client, sqlite_engine, monkeypatch):
         incident_id = _seed_incident(client)
         review_id = _seed_review(sqlite_engine, incident_id)
         _stub_run(monkeypatch, [])
+        # decided by the requested reviewer: only they may decide (state/deciders.py)
+        _link_slack(monkeypatch, bob="U456")
 
         response = _post(client, _review_block_actions(review_id, kind="reject"))
 
@@ -441,6 +498,8 @@ class TestClickFeedback:
         incident_id = _seed_incident(client)
         review_id = _seed_review(sqlite_engine, incident_id)
         _stub_run(monkeypatch, [])
+        # decided by the requested reviewer: only they may decide (state/deciders.py)
+        _link_slack(monkeypatch, bob="U456")
 
         _post(client, self._clicked(_review_block_actions(review_id)))
 
@@ -458,6 +517,8 @@ class TestClickFeedback:
         incident_id = _seed_incident(client)
         review_id = _seed_review(sqlite_engine, incident_id)
         _stub_run(monkeypatch, [])
+        # decided by the requested reviewer: only they may decide (state/deciders.py)
+        _link_slack(monkeypatch, bob="U456")
         _post(client, self._clicked(_review_block_actions(review_id, kind="reject")))
         assert "Changes requested by <@U456>" in str(posts[-1][1]["blocks"])
 
@@ -466,6 +527,8 @@ class TestClickFeedback:
         incident_id = _seed_incident(client)
         review_id = _seed_review(sqlite_engine, incident_id)
         _stub_run(monkeypatch, [])
+        # decided by the requested reviewer: only they may decide (state/deciders.py)
+        _link_slack(monkeypatch, bob="U456")
         response = _post(client, _review_block_actions(review_id))
         assert response.json()["decisions"][0]["decision"] == "approved"
         assert posts == []
@@ -483,6 +546,8 @@ def test_a_rejected_approval_reads_as_rejected(client, sqlite_engine, monkeypatc
     incident_id = _seed_incident(client)
     approval_id = _seed_pending(sqlite_engine, incident_id)
     _stub_run(monkeypatch, [])
+    # decided by an owner: only they may decide (state/deciders.py)
+    _link_slack(monkeypatch, alice="U123")
     _post(
         client,
         {

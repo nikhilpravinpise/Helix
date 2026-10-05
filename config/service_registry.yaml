@@ -35,5 +35,6 @@ services:
 people:
   VrajVed:
     name: Vraj
+    slack: U0C6A5NE7MZ
   nikhilpravinpise:
     name: Nikhil

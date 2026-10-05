@@ -85,7 +85,7 @@ CLI:
 ```bash
 uv run helix approvals                          # pending rows
 uv run helix approve INC-83bbd83e               # actor = HELIX_OPERATOR
-uv run helix approve INC-83bbd83e --actor nikhil --note "lgtm"
+uv run helix approve INC-83bbd83e --actor nikhilpravinpise --note "lgtm"
 uv run helix reject  INC-83bbd83e --note "wait for freeze"
 ```
 
@@ -99,6 +99,16 @@ decision. Rejection sends the incident back to planning with that exact
 (action, params) fingerprint excluded. Decided rows stay listed with who
 decided and when.
 
+**Who may decide** (`state/deciders.py`, enforced on every surface - CLI,
+API, UI, Slack): an approval only by an owner of the incident's service
+(registry `default_owner` / `owners`), never by the author of the change.
+Anyone else is refused with the reason and nothing is recorded. The
+identity is a registry handle: `HELIX_OPERATOR` or `--actor` on the CLI,
+the Operator name in the UI, and for Slack the handle whose
+`people.<handle>.slack` is the clicking user's member id. A service with no
+registered owners cannot be approved by anyone; its incident waits and
+escalates on `HELIX_APPROVAL_TIMEOUT`.
+
 If `HELIX_INTAKE_TOKEN` is set, decision POSTs are gated too: the page
 shows an Intake token field and the browser sends it as a Bearer header.
 
@@ -109,11 +119,12 @@ pending review row instead of an approvals row:
 
 ```bash
 uv run helix reviews                        # pending review requests
-uv run helix review INC-83bbd83e approve --actor alice --note "lgtm"
-uv run helix review INC-83bbd83e reject --note "needs test"
+uv run helix review INC-83bbd83e approve --actor bob --note "lgtm"
+uv run helix review INC-83bbd83e reject --actor bob --note "needs test"
 ```
 
-Approve sends the change to `deploying`; reject drives
+Only the reviewer the request names may decide it, and never the PR's
+author. Approve sends the change to `deploying`; reject drives
 `rejected -> fix_required`, and the author's fix returns to
 `review_pending`. Review buttons on the Slack review request and
 `POST /reviews/{id}/approve|reject` take the same path.

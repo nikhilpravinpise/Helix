@@ -55,7 +55,10 @@ Shipping without these runs would have meant shipping those bugs.
 
 ## Where it stands now
 
-- Run 1 and run 2: done.
-- Run 3: in progress.
-- Left: the graph on/off test, arm D with the graph, then the write-up
-  (`docs/benchmark/phase-2-evaluation.md`).
+Done (2026-10-05). After the first runs, the graph test and a codebase
+audit, three final runs passed the stability check, and Phase 2 is
+exited: `docs/benchmark/phase-2-evaluation.md`. Getting there took about
+ten full benchmark runs plus a dozen shorter ones, and those runs turned up
+four more real bugs, each fixed before the final three. The only rerun
+left is optional: arm E's third run, which hit the LLM provider's daily
+limit (FOLLOWUPS #19).

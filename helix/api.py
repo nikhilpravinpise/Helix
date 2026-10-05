@@ -35,6 +35,7 @@ REJECTED -> FIX_REQUIRED, approval drives REVIEW_PENDING -> APPROVED.
 `helix serve` runs this app under uvicorn at HELIX_API_BIND:HELIX_API_PORT.
 """
 
+import hmac
 import json
 from collections.abc import Iterator
 from datetime import datetime
@@ -85,7 +86,8 @@ def require_intake_token(authorization: Annotated[str | None, Header()] = None) 
             headers={"WWW-Authenticate": "Bearer"},
         )
     scheme, _, credential = authorization.partition(" ")
-    if scheme.lower() != "bearer" or credential != token:
+    # compare_digest: a plain != leaks how much of the token matched.
+    if scheme.lower() != "bearer" or not hmac.compare_digest(credential, token):
         raise HTTPException(status_code=403, detail="invalid intake token")
 
 
@@ -514,6 +516,19 @@ async def slack_interactions(
     return handle_slack_interaction(payload, session, background)
 
 
+def _slack_handle(user: dict) -> str:
+    """The registry handle of the Slack user who clicked: the person whose
+    `people.<handle>.slack` is their member id. Someone not linked keeps
+    their Slack name, which the decision rules then refuse with a reason."""
+    from agent.ops.registry import load_registry
+
+    member = user.get("id")
+    for handle, person in load_registry().people.items():
+        if member and person.slack == member:
+            return handle
+    return user.get("username") or user.get("name") or member or "slack"
+
+
 def handle_slack_interaction(payload: dict, session: Session, background: BackgroundTasks) -> dict:
     """Decide the button presses in one authenticated Slack interaction.
 
@@ -527,7 +542,7 @@ def handle_slack_interaction(payload: dict, session: Session, background: Backgr
         return {"ok": True, "ignored": ptype}
     settings = get_settings()
     user = payload.get("user") or {}
-    actor = user.get("username") or user.get("name") or user.get("id") or "slack"
+    actor = _slack_handle(user)
     timeout = settings.slack_approval_timeout
     if timeout is None:
         timeout = settings.approval_timeout
@@ -550,7 +565,31 @@ def handle_slack_interaction(payload: dict, session: Session, background: Backgr
             (payload.get("message") or {}).get("blocks") or [],
             f"{verdicts[0]} by {who}",
         )
+    refusals = [d["note"] for d in decisions if "decision" not in d and d.get("note")]
+    if refusals and payload.get("response_url"):
+        # A refused click (not the owner or reviewer, already decided,
+        # timed out) must say so to the person who clicked, or it looks
+        # like nothing happened. Only they see it; the card is unchanged.
+        background.add_task(_tell_clicker, str(payload["response_url"]), refusals[0])
     return {"ok": True, "decisions": decisions}
+
+
+def _tell_clicker(response_url: str, text: str) -> None:
+    """An ephemeral reply to the person who clicked."""
+    from integrations.slack.format import escape
+
+    try:
+        httpx.post(
+            response_url,
+            json={
+                "response_type": "ephemeral",
+                "replace_original": False,
+                "text": f"Not recorded: {escape(text)}",
+            },
+            timeout=10.0,
+        ).raise_for_status()
+    except httpx.HTTPError as exc:
+        get_logger().warning("slack refusal note failed", error=str(exc))
 
 
 #: How a recorded decision reads on the message it was made from.

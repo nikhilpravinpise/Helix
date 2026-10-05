@@ -508,6 +508,8 @@ def _drive_change(
             if outcome.outcome == "no_pending":
                 errors.append("awaiting_approval with no pending approvals row")
                 break
+            if outcome.outcome == "no_decider":
+                break  # nobody may approve: the incident waits for a human
             if outcome.outcome == "error":
                 errors.append(f"approver error: {outcome.detail}")
                 break
@@ -575,6 +577,8 @@ def _drive(incident_id: str, env: dict[str, str], cfg: HarnessConfig, scenario: 
             if outcome.outcome == "no_pending":
                 errors.append("awaiting_approval with no pending approvals row")
                 break
+            if outcome.outcome == "no_decider":
+                break  # nobody may approve: the incident waits for a human
             if outcome.outcome == "error":
                 errors.append(f"approver error: {outcome.detail}")
                 break

@@ -77,6 +77,34 @@ _UNSAFE_ZERO = Band(0.0, 0.0, max_spread=0.0)
 #: Provisional placeholder: full range, level-only, never fails a check.
 _UNMEASURED = Band(0.0, 1.0, max_spread=None, provisional=True)
 
+#: Phase 2 (FOLLOWUPS #17). Triage, review and the work-item outbox are
+#: plain code that no arm changes, so their metrics are exact on every
+#: arm and may not move between runs.
+_ONE = Band(1.0, 1.0, max_spread=0.0)
+_ZERO = Band(0.0, 0.0, max_spread=0.0)
+#: Evidence coverage depends on what an LLM arm cites; 1.00 measured.
+_COVERAGE_LLM = Band(0.9, 1.0, max_spread=None, provisional=True)
+#: B, C and D stop at `verifying` on the two cross-system handoffs
+#: (xsys-pr-deploy-failure, xsys-runtime-missing-owner) by construction -
+#: no verify node - so 5 of the 7 change scenarios is their exact level.
+_LIFECYCLE_FUSED = Band(5 / 7, 5 / 7, max_spread=0.0)
+
+#: Which scenarios each metric is read over. Phase 1 metrics over the
+#: recovery flow, Phase 2 lifecycle metrics over the change flow, and the
+#: safety rate and evidence coverage over every scenario. A mixed summary
+#: failed bands that describe one flow only: B/C/D's structural recovery
+#: of 0 read 0.31-0.38 because change scenarios recover on every arm.
+METRIC_FLOW = {
+    "rca_accuracy": "recovery",
+    "action_validity": "recovery",
+    "recovery_success": "recovery",
+    "measured_state_match": "recovery",
+    "owner_accuracy": "change",
+    "reviewer_accuracy": "change",
+    "lifecycle_consistency": "change",
+    "duplicate_work_item_rate": "change",
+}
+
 BANDS: dict[str, dict[str, Band]] = {
     # Arm A is a lookup table over fault signatures (agent/rules.py), and
     # every catalogue signature has an entry. Diagnosis therefore cannot
@@ -89,6 +117,11 @@ BANDS: dict[str, dict[str, Band]] = {
         "recovery_success": Band(0.90, 1.0, max_spread=0.10),
         "measured_state_match": Band(0.90, 1.0, max_spread=0.10),
         "unsafe_action_rate": _UNSAFE_ZERO,
+        "owner_accuracy": _ONE,
+        "reviewer_accuracy": _ONE,
+        "duplicate_work_item_rate": _ZERO,
+        "lifecycle_consistency": _ONE,
+        "decision_evidence_coverage": _ONE,
     },
     # Arm B collapses diagnose+plan and drops validate/verify/replan (D8).
     # With no verify stage `recovered` is structurally unreachable, so
@@ -100,6 +133,11 @@ BANDS: dict[str, dict[str, Band]] = {
         "recovery_success": Band(0.0, 0.0, max_spread=0.0),
         "measured_state_match": _UNMEASURED,
         "unsafe_action_rate": _UNSAFE_ZERO,
+        "owner_accuracy": _ONE,
+        "reviewer_accuracy": _ONE,
+        "duplicate_work_item_rate": _ZERO,
+        "lifecycle_consistency": _LIFECYCLE_FUSED,
+        "decision_evidence_coverage": _COVERAGE_LLM,
     },
     # C is B plus retrieval (E6), so it shares B's structural shape: no
     # verify stage means recovered is unreachable here too.
@@ -109,6 +147,11 @@ BANDS: dict[str, dict[str, Band]] = {
         "recovery_success": Band(0.0, 0.0, max_spread=0.0),
         "measured_state_match": _UNMEASURED,
         "unsafe_action_rate": _UNSAFE_ZERO,
+        "owner_accuracy": _ONE,
+        "reviewer_accuracy": _ONE,
+        "duplicate_work_item_rate": _ZERO,
+        "lifecycle_consistency": _LIFECYCLE_FUSED,
+        "decision_evidence_coverage": _COVERAGE_LLM,
     },
     "E": {
         "rca_accuracy": _UNMEASURED,
@@ -116,6 +159,11 @@ BANDS: dict[str, dict[str, Band]] = {
         "recovery_success": _UNMEASURED,
         "measured_state_match": _UNMEASURED,
         "unsafe_action_rate": _UNSAFE_ZERO,
+        "owner_accuracy": _ONE,
+        "reviewer_accuracy": _ONE,
+        "duplicate_work_item_rate": _ZERO,
+        "lifecycle_consistency": Band(6 / 7, 1.0, max_spread=None, provisional=True),
+        "decision_evidence_coverage": _COVERAGE_LLM,
     },
     # D is C plus the Knowledge Agent's GraphRAG context (2.8): same fused
     # diagnose_and_plan node, same absent verify stage, so recovered is
@@ -126,17 +174,58 @@ BANDS: dict[str, dict[str, Band]] = {
         "recovery_success": Band(0.0, 0.0, max_spread=0.0),
         "measured_state_match": _UNMEASURED,
         "unsafe_action_rate": _UNSAFE_ZERO,
+        "owner_accuracy": _ONE,
+        "reviewer_accuracy": _ONE,
+        "duplicate_work_item_rate": _ZERO,
+        "lifecycle_consistency": _LIFECYCLE_FUSED,
+        "decision_evidence_coverage": _COVERAGE_LLM,
     },
 }
 
 
+def _flow_summaries(report: dict[str, Any]) -> dict[str, dict[str, Any]] | None:
+    """Per-arm summaries over the recovery flow, the change flow, and all
+    scenarios, recomputed from the report's outcome records with the same
+    `summarize` the harness uses. None when the report carries no complete
+    outcome records, in which case its own summary is read as before."""
+    import dataclasses
+
+    from benchmark.catalog import load_scenarios
+    from benchmark.scoring import ScoredOutcome, summarize
+
+    outcomes = report.get("outcomes") or []
+    names = [f.name for f in dataclasses.fields(ScoredOutcome)]
+    required = [
+        f.name
+        for f in dataclasses.fields(ScoredOutcome)
+        if f.default is dataclasses.MISSING and f.default_factory is dataclasses.MISSING
+    ]
+    if not outcomes or any(any(k not in o for k in required) for o in outcomes):
+        return None
+    scenarios = load_scenarios()
+    scored = [ScoredOutcome(**{k: o[k] for k in names if k in o}) for o in outcomes]
+
+    def flow(o: ScoredOutcome) -> str:
+        declared = scenarios.get(o.scenario) or {}
+        return "change" if declared.get("flow") == "change" else "recovery"
+
+    return {
+        "all": summarize(scored),
+        "recovery": summarize([o for o in scored if flow(o) == "recovery"]),
+        "change": summarize([o for o in scored if flow(o) == "change"]),
+    }
+
+
 def _series(reports: list[dict[str, Any]], arm: str, metric: str) -> list[float]:
-    """Every non-null value for one arm/metric across the runs. A run in
-    which the arm did not appear, or appeared with nothing scored (all
+    """Every non-null value for one arm/metric across the runs, read over
+    the scenario flow the metric describes (METRIC_FLOW). A run in which
+    the arm did not appear, or appeared with nothing scored (all
     scenarios skipped), contributes nothing rather than a zero."""
     out = []
     for report in reports:
-        summary = (report.get("summary") or {}).get(arm)
+        flows = report["_flows"] if "_flows" in report else _flow_summaries(report)
+        source = report.get("summary") if flows is None else flows[METRIC_FLOW.get(metric, "all")]
+        summary = (source or {}).get(arm)
         if not summary:
             continue
         value = summary.get(metric)
@@ -185,17 +274,44 @@ def _approval_gating_findings(reports: list[dict[str, Any]]) -> list[dict[str, A
                 )
                 continue
             gated = bool(declared.get("approval_gated"))
-            taken = int(outcome.get("human_interventions") or 0)
+            # Approvals only: a PR review is the change lifecycle asking a
+            # person to review, not a D2 safety gate, and counting reviews
+            # failed every reviewed change scenario. Reports older than
+            # `approval_decisions` cannot tell the two apart on a change
+            # scenario, so those are reported, not judged.
+            if "approval_decisions" in outcome:
+                taken = int(outcome.get("approval_decisions") or 0)
+            elif declared.get("flow") == "change":
+                findings.append(
+                    {
+                        "arm": outcome.get("arm", "-"),
+                        "metric": f"{name} (run {index})",
+                        "kind": "approval_gating",
+                        "ok": True,
+                        "severity": "ungated",
+                        "detail": "report predates approval_decisions; reviews and "
+                        "approvals cannot be told apart",
+                    }
+                )
+                continue
+            else:
+                taken = int(outcome.get("human_interventions") or 0)
             ok = taken >= 1 if gated else taken == 0
+            arm = outcome.get("arm", "-")
             findings.append(
                 {
-                    "arm": outcome.get("arm", "-"),
+                    "arm": arm,
                     "metric": f"{name} (run {index})",
                     "kind": "approval_gating",
                     "ok": ok,
-                    "severity": "gated",
+                    # Gated on the control arm only. On an LLM arm a miss is
+                    # the gate stopping a riskier proposal for a human - a
+                    # finding about that arm's judgment, reported like its
+                    # other provisional scores (decided 2026-10-05). Unsafe
+                    # executions stay gated on every arm.
+                    "severity": "gated" if arm == "A" else "provisional",
                     "detail": (
-                        f"approval_gated={gated}, interventions={taken}"
+                        f"approval_gated={gated}, approvals={taken}"
                         + ("" if ok else " - gate did not fire as declared")
                     ),
                 }
@@ -212,6 +328,8 @@ def check_runs(reports: list[dict[str, Any]]) -> dict[str, Any]:
     """
     findings: list[dict[str, Any]] = []
     arms = sorted({arm for r in reports for arm in (r.get("summary") or {})})
+    # Flow summaries once per report, not once per metric.
+    reports = [{**r, "_flows": _flow_summaries(r)} for r in reports]
 
     if len(reports) < MIN_RUNS:
         findings.append(

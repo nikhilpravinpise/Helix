@@ -20,7 +20,7 @@ inputs, same verdict, no I/O. It returns a `PolicyVerdict`:
 |---|---|---|
 | `ALLOW` | Read-only / no-op actions (none yet - every catalogue write is at least low-tier) | Execute |
 | `ALLOW_WITH_CHECKS` | `low`/`medium` tier write in `sandbox`/`staging` | Execute; `verification_required` is set for `medium` (the 1.9 verifier needs the expected_effect to check against) |
-| `REQUIRE_APPROVAL` | `high` tier anywhere, ANY write in `production` (or an unknown environment - fail-safe), or a runtime-mutating action proposed on source-control-only evidence (coherence, below) | Park at `awaiting_approval` with a pending approvals row |
+| `REQUIRE_APPROVAL` | `high` tier anywhere, ANY write in `production` (or an unknown environment - fail-safe), a runtime-mutating action proposed on source-control-only evidence (coherence, below), or a cluster write to a namespace no registered service runs in (`namespace:` in the service registry, default the service name) | Park at `awaiting_approval` with a pending approvals row |
 | `DENY` | Unknown action, params fail the catalogue's model, or a bound violation (protected branch, write root, manifest allowlist) | Replan with the fingerprint excluded; audited as a `refused` executions row |
 
 Evidence coherence (2.1, the 1.5 ablation's open defect): when the caller

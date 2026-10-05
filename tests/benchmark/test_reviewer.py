@@ -59,7 +59,9 @@ def test_approve_records_through_the_durable_path(sqlite_sessions):
     with sqlite_sessions() as session:
         row = session.scalar(select(models.ReviewRequest))
         assert row.status == models.ApprovalStatus.APPROVED
-        assert row.decided_by == REVIEWER_ACTOR
+        # decided by the requested reviewer: only they may decide (state/deciders.py)
+        assert row.decided_by == "bob"
+        assert REVIEWER_ACTOR in (row.note or "")
         assert row.decided_at is not None
 
 
@@ -75,15 +77,27 @@ def test_reject_records_a_rejected_row(sqlite_sessions):
 
 
 def test_reviewer_actor_override(sqlite_sessions):
-    """A scenario can name its own reviewer identity - recorded, not
-    guessed."""
+    """A scenario can name its own reviewer identity - but only the
+    review's requested reviewer may decide (state/deciders.py), so a
+    mismatched override is refused, and a matching one is recorded. This
+    proves the override is genuinely used, not silently replaced by
+    pending.reviewer."""
     with sqlite_sessions() as session:
         _incident_with_pending_review(session)
-    scenario = {"name": "x", "review_decision": "approve", "reviewer_actor": "carol"}
-    service_suspended_review(sqlite_sessions, "INC-review-test", scenario)
+    mismatched = {"name": "x", "review_decision": "approve", "reviewer_actor": "carol"}
+    outcome = service_suspended_review(sqlite_sessions, "INC-review-test", mismatched)
+    assert outcome.outcome == "error"
     with sqlite_sessions() as session:
         row = session.scalar(select(models.ReviewRequest))
-        assert row.decided_by == "carol"
+        assert row.status == models.ApprovalStatus.PENDING
+        assert row.decided_by is None
+
+    matching = {"name": "x", "review_decision": "approve", "reviewer_actor": "bob"}
+    outcome = service_suspended_review(sqlite_sessions, "INC-review-test", matching)
+    assert outcome.outcome == "approved"
+    with sqlite_sessions() as session:
+        row = session.scalar(select(models.ReviewRequest))
+        assert row.decided_by == "bob"
 
 
 def test_timeout_decides_nothing(sqlite_sessions):
