@@ -102,6 +102,31 @@ no more hand-edited credentials.
 - Observability of Helix itself, backups, data retention and deletion.
 - Pricing and billing only if it is ever offered to others.
 
+## Dashboard redesign
+
+Recorded 2026-10-05: Vraj finds the current dashboard (`ui/`, served by
+`helix serve` at `/ui/`) hard to look at, and it is a blocker for showing
+Helix to anyone. It is a set of server-rendered Jinja pages that were
+built to expose state, not designed.
+
+What a redesign should cover, before any of the stages above build on it:
+
+- A real visual design: type scale, spacing, a restrained palette, light
+  and dark themes, no raw JSON dumps (FOLLOWUPS: the incident page's
+  file dump).
+- An incident list that reads at a glance: status, service, severity,
+  owner, age, and what Helix is waiting on.
+- An incident page as a timeline: signal, evidence, hypothesis, plan,
+  policy verdict, approval (who and when), execution, verification.
+- Approvals and reviews as clear cards with the reason and the
+  allowed deciders, matching the Slack cards.
+- Live updates without reloading.
+
+Keep it read-mostly and behind the same rules as everything else: a
+decision made in the dashboard goes through `record_decision` and the
+human-in-the-loop rules (state/deciders.py), and the dashboard is never
+exposed on a public URL without sign-in (Stage 2).
+
 ## Principles that carry over unchanged
 
 - **Postgres is the source of truth**; Slack, Jira, Notion and the graph
