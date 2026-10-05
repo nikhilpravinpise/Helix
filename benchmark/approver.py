@@ -36,7 +36,7 @@ APPROVER_ACTOR = "benchmark-approver"
 class ApproverOutcome:
     """What the approver did for one suspended run."""
 
-    outcome: str  # "approved" | "rejected" | "no_pending" | "error"
+    outcome: str  # "approved" | "rejected" | "no_pending" | "no_decider" | "error"
     action: str | None = None
     detail: str = ""
 
@@ -60,8 +60,10 @@ def decide_pending(
 
     deciders = approval_deciders(incident)
     if not deciders:
+        # Nobody may decide: the incident honestly waits for a human (and
+        # escalates on the approval timeout), the same as a real one would.
         return ApproverOutcome(
-            "error",
+            "no_decider",
             action=pending.action,
             detail=f"{incident.service} has no registered owner to decide approvals",
         )

@@ -131,3 +131,33 @@ def test_service_suspended_run_wraps_decide(sqlite_sessions):
     outcome = service_suspended_run(sqlite_sessions, incident.incident_id, GATED)
     assert outcome.outcome == "approved"
     assert outcome.action == "reapply_manifest"
+
+
+def test_a_service_nobody_may_approve_is_waiting_not_a_harness_error(monkeypatch):
+    """Phase 2 final runs: on xsys-runtime-missing-owner (billing-worker, no
+    registered owner) the LLM arms proposed a gated write nobody may
+    approve. That is the human-in-the-loop rule holding - the incident
+    waits for a human - but the harness logged it as an approver error."""
+    from types import SimpleNamespace
+
+    from benchmark import harness
+
+    runs = []
+    monkeypatch.setattr(
+        harness,
+        "_helix",
+        lambda args, env, stdin_text=None: (
+            runs.append(args) or SimpleNamespace(returncode=0, stderr="")
+        ),
+    )
+    monkeypatch.setattr(harness, "_current_status", lambda url, iid: "awaiting_approval")
+    monkeypatch.setattr(harness, "_session_factory", lambda cfg: None)
+    monkeypatch.setattr(
+        harness,
+        "service_suspended_run",
+        lambda f, i, s: SimpleNamespace(outcome="no_decider", detail="no owner"),
+    )
+    cfg = harness.HarnessConfig(database_url="sqlite://")
+    assert harness._drive("INC-x", {}, cfg, {}) == []
+    assert harness._drive_change("INC-x", {}, cfg, {}) == []
+    assert len(runs) == 2
