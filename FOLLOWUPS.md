@@ -398,6 +398,11 @@ Ordered by risk.
 
 ## 19. Rerun arm E for the third Phase 2 final run
 
+**Status 2026-10-07: closed.** Rerun with no rate limit
+(phase2-final-run3-arm-e-rerun.json) and merged into
+phase2-final-run3-with-e-rerun.json; tolerance on runs 1, 2 and that
+report is PASS.
+
 In phase2-final-run3, arm E (the last arm) ran out of both Groq keys'
 daily token budget: 7 incidents failed with "every configured API key is
 rate-limited" before any reasoning. Its scores for that run are void and

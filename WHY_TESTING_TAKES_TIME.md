@@ -59,6 +59,5 @@ Done (2026-10-05). After the first runs, the graph test and a codebase
 audit, three final runs passed the stability check, and Phase 2 is
 exited: `docs/benchmark/phase-2-evaluation.md`. Getting there took about
 ten full benchmark runs plus a dozen shorter ones, and those runs turned up
-four more real bugs, each fixed before the final three. The only rerun
-left is optional: arm E's third run, which hit the LLM provider's daily
-limit (FOLLOWUPS #19).
+four more real bugs, each fixed before the final three. Arm E's third run
+hit the LLM provider's daily limit and was rerun the next day.
