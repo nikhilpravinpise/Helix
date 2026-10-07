@@ -358,3 +358,27 @@ def test_jira_assignee_with_no_matching_user_raises(provider_factory):
     ref = provider.create_work_item(_spec())
     with pytest.raises(WorkItemError, match="no Jira user"):
         provider.assign_work_item(ref.external_id, "nobody-in-jira")
+
+
+class TestJiraStatusReadBack:
+    """Live, 2026-10-06: KAN-122 moved to a "Blocked" column, but Helix read
+    it back as `open`. On that board Blocked sits in Jira's To Do status
+    category, and the name check only ran inside the In Progress
+    category, so the mirror disagreed with Jira."""
+
+    @pytest.mark.parametrize("category", ["new", "indeterminate"])
+    def test_a_blocked_status_reads_as_blocked_in_any_category(self, category):
+        from integrations.work.jira import _neutral_status
+
+        status = {"name": "Blocked", "statusCategory": {"key": category}}
+        assert _neutral_status(status) == "blocked"
+
+    def test_ordinary_statuses_still_read_by_category(self):
+        from integrations.work.jira import _neutral_status
+
+        assert _neutral_status({"name": "To Do", "statusCategory": {"key": "new"}}) == "open"
+        assert (
+            _neutral_status({"name": "In Review", "statusCategory": {"key": "indeterminate"}})
+            == "in_progress"
+        )
+        assert _neutral_status({"name": "Done", "statusCategory": {"key": "done"}}) == "done"

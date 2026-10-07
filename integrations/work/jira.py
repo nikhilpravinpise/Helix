@@ -111,10 +111,14 @@ def _neutral_status(status: dict[str, Any]) -> str:
     (closed) ties the category model cannot express."""
     name = str(status.get("name") or "").lower()
     category = str((status.get("statusCategory") or {}).get("key") or "")
+    # A Blocked status may sit in any category: on a team-managed board it
+    # is often in To Do, which read back as "open" while Jira said Blocked.
+    if name in _BLOCKED_STATUS_NAMES:
+        return "blocked"
     if category == "done":
         return "closed" if name in _CLOSED_STATUS_NAMES else "done"
     if category == "indeterminate":
-        return "blocked" if name in _BLOCKED_STATUS_NAMES else "in_progress"
+        return "in_progress"
     return "open"
 
 
