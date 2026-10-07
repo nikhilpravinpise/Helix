@@ -353,7 +353,9 @@ Ordered by risk.
   change; `--actor` on the CLI and `actor` in the API are free text. Also
   `intake_token` is compared with `!=`, not `hmac.compare_digest`. Needs a
   decision on who may decide what (reviewer only? owner for approvals?).
-- **I2 - outbox rows can be sent twice.** `drain_outbox` marks rows `sent`
+- **I2 - outbox rows can be sent twice.** FIXED 2026-10-07: the drain
+  commits after each row and claims rows with FOR UPDATE SKIP LOCKED;
+  three concurrent drains on Postgres sent 5 rows 5 times (15 before). `drain_outbox` marks rows `sent`
   in the caller's transaction; a later exception in the same
   `session_scope` (e.g. `helix sync` after the drain) rolls them back to
   `pending` after Slack/Jira/Notion were already called, and the next

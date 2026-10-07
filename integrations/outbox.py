@@ -26,6 +26,7 @@ incident row and its transitions are already committed truth; the outbox
 row is the promise the drain keeps retrying.
 """
 
+from collections.abc import Callable
 from datetime import UTC, datetime
 from typing import TYPE_CHECKING, Any
 
@@ -439,6 +440,22 @@ def _send_notion(
     session.flush()
 
 
+def _claim_next(session: Session, after_id: int) -> models.IntegrationOutbox | None:
+    """The oldest pending row after `after_id`, locked for this drain.
+
+    SKIP LOCKED: a row another drain is delivering is passed over rather
+    than waited on or sent a second time - a Slack click's resume and a
+    `helix sync` can drain at once. SQLite ignores the lock clause."""
+    return session.scalar(
+        select(models.IntegrationOutbox)
+        .where(models.IntegrationOutbox.status == OutboxStatus.PENDING)
+        .where(models.IntegrationOutbox.id > after_id)
+        .order_by(models.IntegrationOutbox.id.asc())
+        .limit(1)
+        .with_for_update(skip_locked=True)
+    )
+
+
 def drain_outbox(
     session: Session,
     *,
@@ -453,15 +470,16 @@ def drain_outbox(
     settings, and an integration with no credentials records each of its
     rows `skipped` (delivered-to-nowhere is an explicit outcome, never a
     silent backlog or a fake `sent`).
+
+    Commits after every row. Delivery is an outside effect that cannot be
+    rolled back, so its `sent` mark must not be either: rows used to stay
+    uncommitted until the caller's transaction ended, and an error after
+    the drain (helix sync reconciles in the same session) rolled every
+    delivered row back to pending, so the next drain posted it all again.
+    A crash between a delivery and its commit can still repeat that one
+    row - at least once, never a batch. The commit also ends the caller's
+    open transaction, so callers drain after their own state is final.
     """
-    rows = list(
-        session.scalars(
-            select(models.IntegrationOutbox)
-            .where(models.IntegrationOutbox.status == OutboxStatus.PENDING)
-            .order_by(models.IntegrationOutbox.id.asc())
-            .limit(max(1, limit))
-        ).all()
-    )
     summary = {"sent": 0, "skipped": 0, "failed": 0, "pending": 0}
     log = get_logger()
     # Resolve each client once per distinct integration for the whole
@@ -486,61 +504,80 @@ def drain_outbox(
                 work_providers[kind] = provider
         return provider
 
-    for row in rows:
-        incident = row.incident
-        try:
-            if row.integration == "slack":
-                if slack_client is None:
-                    row.status = OutboxStatus.SKIPPED
-                    row.last_error = "slack not configured"
-                    summary["skipped"] += 1
-                    continue
-                _send_slack(session, row, incident, slack_client)
-            elif row.integration == "notion":
-                if notion_client is None:
-                    row.status = OutboxStatus.SKIPPED
-                    row.last_error = "notion not configured"
-                    summary["skipped"] += 1
-                    continue
-                _send_notion(session, row, incident, notion_client)
-            elif row.integration in _WORK_INTEGRATIONS:
-                work_provider = _work_for(row.integration)
-                if work_provider is None:
-                    row.status = OutboxStatus.SKIPPED
-                    row.last_error = "work provider not configured"
-                    summary["skipped"] += 1
-                    continue
-                _send_work(session, row, incident, work_provider)
-            else:
-                row.status = OutboxStatus.FAILED
-                row.last_error = f"unknown integration {row.integration!r}"
-                summary["failed"] += 1
-                continue
-        except DependencyNotReady:
-            # Deferred, not attempted: the row waits for its dependency
-            # without burning retry budget.
-            summary["pending"] += 1
-            continue
-        except (PermanentDeliveryError, WorkItemRejected) as exc:
-            # WorkItemRejected: the provider refused (no such workflow
-            # state, no such user). Retrying cannot change the answer.
-            row.status = OutboxStatus.FAILED
-            row.last_error = str(exc)
-            summary["failed"] += 1
-            continue
-        except Exception as exc:  # one bad row never stalls the queue
-            outcome = _fail_or_retry(row, str(exc))
-            summary[outcome] += 1
-            log.warning(
-                "outbox delivery failed",
-                outbox_id=row.id,
-                integration=row.integration,
-                op=row.op,
-                error=str(exc),
-            )
-            continue
-        if row.status == OutboxStatus.PENDING:
-            row.status = OutboxStatus.SENT
-        row.sent_at = datetime.now(UTC)
-        summary["sent"] += 1
+    last_id = 0
+    for _ in range(max(1, limit)):
+        row = _claim_next(session, last_id)
+        if row is None:
+            break
+        last_id = row.id
+        _deliver_one(session, row, summary, log, slack_client, notion_client, _work_for)
+        session.commit()
     return summary
+
+
+def _deliver_one(
+    session: Session,
+    row: models.IntegrationOutbox,
+    summary: dict[str, int],
+    log: Any,
+    slack_client: "SlackClient | None",
+    notion_client: "NotionClient | None",
+    work_for: Callable[[str], "WorkManagementProvider | None"],
+) -> None:
+    """Deliver one claimed row and record its outcome on it."""
+    incident = row.incident
+    try:
+        if row.integration == "slack":
+            if slack_client is None:
+                row.status = OutboxStatus.SKIPPED
+                row.last_error = "slack not configured"
+                summary["skipped"] += 1
+                return
+            _send_slack(session, row, incident, slack_client)
+        elif row.integration == "notion":
+            if notion_client is None:
+                row.status = OutboxStatus.SKIPPED
+                row.last_error = "notion not configured"
+                summary["skipped"] += 1
+                return
+            _send_notion(session, row, incident, notion_client)
+        elif row.integration in _WORK_INTEGRATIONS:
+            work_provider = work_for(row.integration)
+            if work_provider is None:
+                row.status = OutboxStatus.SKIPPED
+                row.last_error = "work provider not configured"
+                summary["skipped"] += 1
+                return
+            _send_work(session, row, incident, work_provider)
+        else:
+            row.status = OutboxStatus.FAILED
+            row.last_error = f"unknown integration {row.integration!r}"
+            summary["failed"] += 1
+            return
+    except DependencyNotReady:
+        # Deferred, not attempted: the row waits for its dependency
+        # without burning retry budget.
+        summary["pending"] += 1
+        return
+    except (PermanentDeliveryError, WorkItemRejected) as exc:
+        # WorkItemRejected: the provider refused (no such workflow
+        # state, no such user). Retrying cannot change the answer.
+        row.status = OutboxStatus.FAILED
+        row.last_error = str(exc)
+        summary["failed"] += 1
+        return
+    except Exception as exc:  # one bad row never stalls the queue
+        outcome = _fail_or_retry(row, str(exc))
+        summary[outcome] += 1
+        log.warning(
+            "outbox delivery failed",
+            outbox_id=row.id,
+            integration=row.integration,
+            op=row.op,
+            error=str(exc),
+        )
+        return
+    if row.status == OutboxStatus.PENDING:
+        row.status = OutboxStatus.SENT
+    row.sent_at = datetime.now(UTC)
+    summary["sent"] += 1
