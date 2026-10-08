@@ -16,6 +16,7 @@ that re-reports a PR cannot drive anything twice - ingest records it as a
 duplicate.
 """
 
+from collections.abc import Callable
 from typing import Any
 
 
@@ -36,33 +37,38 @@ class PullRequestTracker:
         #: back is reported as `reopened`, not as a fresh `opened`.
         self._seen: set[int] = set()
 
-    def observe(self, open_prs: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    def observe(
+        self, open_prs: list[dict[str, Any]]
+    ) -> tuple[list[dict[str, Any]], Callable[[], None]]:
         current = {int(pr["number"]): pr for pr in open_prs if pr.get("number") is not None}
         heads = {
             number: str((pr.get("head") or {}).get("sha") or "") for number, pr in current.items()
         }
         first = self._heads is None
         previous = self._heads or {}
-        self._heads = heads
         seen_before = set(self._seen)
-        self._seen.update(heads)
-        if first and not self._include_existing:
-            return []
 
         payloads: list[dict[str, Any]] = []
-        for number, pr in sorted(current.items()):
-            if number not in previous:
-                action = "reopened" if number in seen_before else "opened"
-            elif previous[number] != heads[number]:
-                action = "synchronize"
-            else:
-                continue
-            payloads.append(
-                {
-                    "action": action,
-                    "number": number,
-                    "pull_request": pr,
-                    "sender": pr.get("user") or {},
-                }
-            )
-        return payloads
+        if not (first and not self._include_existing):
+            for number, pr in sorted(current.items()):
+                if number not in previous:
+                    action = "reopened" if number in seen_before else "opened"
+                elif previous[number] != heads[number]:
+                    action = "synchronize"
+                else:
+                    continue
+                payloads.append(
+                    {
+                        "action": action,
+                        "number": number,
+                        "pull_request": pr,
+                        "sender": pr.get("user") or {},
+                    }
+                )
+
+        def commit() -> None:
+            """Finalize state changes only after a successful publish."""
+            self._heads = heads
+            self._seen.update(heads)
+
+        return payloads, commit

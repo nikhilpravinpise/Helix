@@ -652,14 +652,24 @@ def _cmd_watch(args: argparse.Namespace) -> int:
 
         github = GitHubEvidenceClient()
         tracker = PullRequestTracker(include_existing=args.include_existing)
+        # The tracker's view is saved only after the poll's events were
+        # published, so a Kafka error reports the same PRs again next poll
+        # instead of losing them.
+        pending: list = []
 
         def fetch() -> list:
-            hooks = tracker.observe(github.list_open_pull_requests_raw())
+            hooks, commit = tracker.observe(github.list_open_pull_requests_raw())
+            pending[:] = [commit]
             return [event for hook in hooks for event in pull_request_events(hook)]
+
+        def save_tracker() -> None:
+            for commit in pending:
+                commit()
 
         polls = 1
         what = f"open pull requests on {get_settings().github_repo}"
     else:
+        save_tracker = None
         from events.adapters.kubernetes import pod_events
         from integrations.kubernetes.client import KubernetesEvidenceClient
 
@@ -681,7 +691,7 @@ def _cmd_watch(args: argparse.Namespace) -> int:
     print(f"watching {what} every {args.interval:g}s{note}", flush=True)
     restore_signals = _stop_cleanly_on_signals()
     try:
-        run_watch(fetch, publish, interval=args.interval, polls=polls)
+        run_watch(fetch, publish, interval=args.interval, polls=polls, after_publish=save_tracker)
     except KeyboardInterrupt:
         print("watch stopped", flush=True)
     finally:

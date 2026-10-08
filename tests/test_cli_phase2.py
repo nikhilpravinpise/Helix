@@ -312,15 +312,21 @@ def test_watch_github_publishes_pr_activity_not_existing_prs(monkeypatch, capsys
     seen = {}
 
     def fake_run_watch(fetch, publish, **kwargs):
+        # Mirrors run_watch: after_publish runs once a poll's events are
+        # published. The PR tracker saves its view there; without it the
+        # first listing stays the baseline forever and no PR is announced.
         seen.update(kwargs)
         for _ in range(2):
             for event in fetch():
                 publish(event)
+            if kwargs.get("after_publish"):
+                kwargs["after_publish"]()
         return 2
 
     monkeypatch.setattr("events.watch.run_watch", fake_run_watch)
     assert cli.main(["watch", "--source", "github"]) == 0
     assert seen["polls"] == 1  # a PR event is a fact, not a condition to confirm
+    assert seen["after_publish"] is not None  # the tracker is saved after publishing
     assert [(str(e.event_type), e.metadata["pr"], e.actor) for e in sent] == [
         ("pr.opened", 2, "dana")
     ]
