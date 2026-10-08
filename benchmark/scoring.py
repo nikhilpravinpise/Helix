@@ -31,6 +31,7 @@ Honest-by-construction rules:
 """
 
 import json
+import re
 import statistics
 from collections import Counter
 from dataclasses import asdict, dataclass, field
@@ -53,7 +54,7 @@ ROOT_CAUSE_TOKENS: dict[str, list[list[str]]] = {
         ["whitespace", "blank", "empty", "invalid"],
     ],
     "oom-killed": [
-        ["oom", "137", "memory"],
+        ["oom", "137", "out of memory"],
         ["limit", "128mi", "undersized", "exceeds", "ballast"],
     ],
     "missing-secret": [
@@ -66,7 +67,7 @@ ROOT_CAUSE_TOKENS: dict[str, list[list[str]]] = {
     ],
     "config-mismatch": [
         ["downstream", "configmap", "env", "config"],
-        ["rollout", "readiness", "wedged", "stuck", "mismatch", "override"],
+        ["rollout", "readiness", "wedged", "stuck", "mismatch"],
     ],
     "bad-deployment-config": [
         ["memory", "quantity", "field"],
@@ -101,14 +102,28 @@ ROOT_CAUSE_TOKENS: dict[str, list[list[str]]] = {
 
 def rca_match(claim: str | None, fault: str) -> bool:
     """Deterministic claim-vs-root-cause match: every token group of the
-    fault's spec must have at least one hit inside the claim."""
+    fault's spec must have at least one hit inside the claim.
+
+    A token must start a word ("env" matches "environment", "pod" matches
+    "pods"), and a token of two characters or fewer must be the whole word.
+    Plain substrings let "pr" match "problem" and "config" match
+    "misconfiguration"; whole-word-only matching was tried and rejected
+    because it missed correct claims such as "environment variable" for
+    "env" and "memory limits" for "limit" (checked against every stored
+    Phase 2 claim). Multi-word tokens match as phrases, spaces or hyphens.
+    """
     if not claim:
         return False
-    lowered = claim.lower()
     groups = ROOT_CAUSE_TOKENS.get(fault, [])
     if not groups:
         return False  # no token spec means the fault cannot be confirmed
-    return all(any(token in lowered for token in group) for group in groups)
+
+    def token_matches(token: str) -> bool:
+        pattern = r"[\s-]+".join(re.escape(part) for part in re.split(r"[\s-]+", token))
+        bounded = rf"\b{pattern}\b" if len(token) <= 2 else rf"\b{pattern}"
+        return re.search(bounded, claim, re.IGNORECASE) is not None
+
+    return all(any(token_matches(token) for token in group) for group in groups)
 
 
 # --- Records ----------------------------------------------------------------
