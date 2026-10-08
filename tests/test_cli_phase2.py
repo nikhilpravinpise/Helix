@@ -112,6 +112,21 @@ def test_sync_drains_and_reports(env_db):
     assert pending == []
 
 
+def test_sync_returns_1_on_failed_outbox(monkeypatch, capsys):
+    """helix sync returns 1 when drain summary has failed > 0."""
+    from helix import cli
+
+    def fake_drain(session, limit):
+        return {"sent": 0, "skipped": 0, "failed": 1, "pending": 0}
+
+    monkeypatch.setattr("integrations.outbox.drain_outbox", fake_drain)
+    rc = cli.main(["sync"])
+    assert rc == 1
+    out = capsys.readouterr()
+    assert "outbox drain:" in out.out
+    assert "1 failed" in out.out
+
+
 def test_reviews_lists_pending(env_db):
     db, env = env_db
     incident_id = _incident(env_db)
@@ -135,6 +150,40 @@ def test_review_decision_records_and_resumes(env_db):
         review = session.scalar(select(models.ReviewRequest))
         assert review.status == models.ApprovalStatus.APPROVED
         assert review.decided_by == "bob"
+
+
+def test_review_returns_1_on_error(env_db, monkeypatch, capsys):
+    """helix review returns 1 when resumed run has result.error set."""
+    from agent.runner import RunResult
+    from helix import cli
+    from state.models import RunStatus
+
+    _db, env = env_db
+    incident_id = _incident(env_db)
+
+    # Mock run_incident to return an error
+    def fake_run(iid):
+        return RunResult(
+            incident_id=iid,
+            status="failed",
+            run_status=RunStatus.FAILED,
+            error="simulated run failure",
+        )
+
+    monkeypatch.setattr("agent.runner.run_incident", fake_run)
+    # Update environment for cli.main
+    import os
+
+    old_env = os.environ.copy()
+    os.environ.update(env)
+    try:
+        rc = cli.main(["review", incident_id, "approve", "--actor", "bob"])
+        assert rc == 1
+        out = capsys.readouterr()
+        assert "run failed" in out.err
+    finally:
+        os.environ.clear()
+        os.environ.update(old_env)
 
 
 def test_review_unknown_incident_is_clean_error(env_db):
@@ -331,6 +380,73 @@ def test_watch_github_publishes_pr_activity_not_existing_prs(monkeypatch, capsys
         ("pr.opened", 2, "dana")
     ]
     assert "pr.opened" in capsys.readouterr().out
+
+
+def test_slack_review_passes_timeout_to_record_decision(monkeypatch):
+    """Slack review button clicks pass timeout_s when calling record_decision."""
+    import uuid
+
+    from fastapi import BackgroundTasks
+    from sqlalchemy import create_engine
+
+    from helix import api
+    from state import models
+    from state import reviews as reviews_module
+    from state.db import session_scope
+
+    # Create a test review request
+    tmp_db = Path(tempfile.mkdtemp(prefix="helix-slack-"))
+    db_path = tmp_db / "state.db"
+    engine = create_engine(f"sqlite:///{db_path}")
+    models.Base.metadata.create_all(engine)
+
+    with session_scope(engine) as session:
+        incident = models.Incident(
+            incident_id=f"INC-{uuid.uuid4().hex[:8]}",
+            kind=models.IncidentKind.CHANGE,
+            service="payment-api",
+            environment="sandbox",
+            severity="high",
+            status=models.IncidentStatus.REVIEW_PENDING,
+            fingerprint=f"fp-{uuid.uuid4().hex[:8]}",
+            owner="alice",
+        )
+        session.add(incident)
+        session.flush()
+        review = models.ReviewRequest(
+            incident_id=incident.id,
+            reviewer="bob",
+            rationale="test",
+            status=models.ApprovalStatus.PENDING,
+        )
+        session.add(review)
+        session.flush()
+        review_id = review.id
+
+    # Mock record_decision to capture the call
+    calls = []
+    original_record = reviews_module.record_decision
+
+    def capture_record_decision(session, review, approved, actor, note, timeout_s=None):
+        calls.append({"timeout_s": timeout_s})
+        return original_record(session, review, approved, actor, note, timeout_s=timeout_s)
+
+    monkeypatch.setattr("state.reviews.record_decision", capture_record_decision)
+
+    # Call handle_slack_interaction with a review button click
+    payload = {
+        "type": "block_actions",
+        "user": {"id": "U123", "username": "testuser"},
+        "actions": [{"action_id": f"helix_review_approve:{review_id}"}],
+    }
+    with session_scope(engine) as session:
+        background = BackgroundTasks()
+        api.handle_slack_interaction(payload, session, background)
+
+    # Verify that timeout_s was passed (should be approval_timeout or slack_approval_timeout)
+    assert len(calls) >= 1
+    assert calls[0]["timeout_s"] is not None
+    assert isinstance(calls[0]["timeout_s"], (int, float))
 
 
 def test_slack_socket_acks_clicks_and_hands_them_to_the_shared_handler(monkeypatch):

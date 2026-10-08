@@ -1002,6 +1002,8 @@ def _cmd_sync(args: argparse.Namespace) -> int:
     if drift:
         detail = ", ".join(f"{k}={v}" for k, v in drift.items() if v)
         print(f"drift reconciliation: {detail or 'none'}")
+    if summary["failed"] > 0:
+        return 1
     return 0
 
 
@@ -1172,6 +1174,9 @@ def _cmd_review(args: argparse.Namespace) -> int:
         )
         return 0
     print(f"{result.incident_id}: status={result.status} run={result.run_status}")
+    if result.error:
+        print(f"helix review: run failed: {result.error}", file=sys.stderr)
+        return 1
     return 0
 
 
