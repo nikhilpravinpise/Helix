@@ -81,6 +81,75 @@ def test_rca_match_handles_unknown_fault():
     assert rca_match("anything", "no-such-fault") is False
 
 
+def test_rca_match_uses_word_boundaries():
+    """Token matches must use word boundaries to avoid false positives like
+    'pr' matching 'problem'. A claim that matches the token as a substring
+    but not as a word should fail."""
+    # The token "pr" should not match "problem" or "improper"
+    assert rca_match("A review flagged a problem", "rejected-pr") is False
+    # A correct claim with the full words should match (needs review from group 0
+    # and pull request from group 1)
+    assert rca_match("the pull request was rejected in review", "rejected-pr") is True
+    # Multi-word tokens like "pull request" must match as a phrase
+    assert rca_match("review: rejected pull request", "rejected-pr") is True
+
+
+def test_rca_match_rejects_scenarios_with_cross_matches():
+    """Scenarios' own root_cause texts must match their own fault and not
+    match any other fault's tokens. These three scenarios had cross-matches
+    before the word-boundary fix was applied."""
+    bad_deployment_root = (
+        "A deployment patch setting resources.limits.memory to the malformed "
+        'quantity "not-a-quantity" was rejected by API-server schema validation; '
+        "the intended memory change was never expressed as a valid manifest."
+    )
+    assert rca_match(bad_deployment_root, "bad-deployment-config") is True
+    assert rca_match(bad_deployment_root, "oom-killed") is False
+
+    docker_build_root = (
+        "sandbox/payment-api/Dockerfile COPYs this-file-does-not-exist-helix-fault.txt, "
+        "a file absent from the build context, so the image build fails on a missing "
+        "COPY source in the Build image stage."
+    )
+    assert rca_match(docker_build_root, "docker-build-failure") is True
+    assert rca_match(docker_build_root, "failed-rollout") is False
+
+    oom_killed_root = (
+        "The deployment's PAYMENT_API_BALLAST_MB=200 env override makes the container "
+        "allocate past its 128Mi memory limit at startup, so the kubelet OOMKills it "
+        "(exit code 137) and the pod CrashLoops."
+    )
+    assert rca_match(oom_killed_root, "oom-killed") is True
+    assert rca_match(oom_killed_root, "config-mismatch") is False
+
+
+def test_catalogue_root_causes_match_own_fault_not_others():
+    """For every scenario in the catalog with an entry in ROOT_CAUSE_TOKENS,
+    its root_cause text must match its own key and not match any other key."""
+    scenarios = catalog.load_scenarios()
+    signal_faults = {
+        s["fault"] for s in scenarios.values() if (s.get("flow") or "signal") == "signal"
+    }
+
+    for scenario_key, scenario in scenarios.items():
+        if (scenario.get("flow") or "signal") != "signal":
+            continue  # Skip change-flow scenarios
+        fault = scenario.get("fault")
+        root_cause = scenario.get("root_cause", "")
+
+        # The scenario's own fault must match
+        assert rca_match(root_cause, fault), (
+            f"Scenario {scenario_key} root_cause does not match its own fault {fault}"
+        )
+
+        # No other fault should match
+        for other_fault in signal_faults:
+            if other_fault != fault:
+                assert not rca_match(root_cause, other_fault), (
+                    f"Scenario {scenario_key} root_cause incorrectly matches {other_fault}"
+                )
+
+
 # --- score_outcome -------------------------------------------------------------
 
 

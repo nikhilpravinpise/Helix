@@ -64,11 +64,29 @@ def _file_change(path: str, replacements: tuple[tuple[str, str], ...] = ()) -> d
     return {"path": path, "content": content}
 
 
-def _fix_pr(state: WorkflowState, *files: dict | None) -> dict | None:
+def _file_change_payment_api(
+    path: str, replacements: tuple[tuple[str, str], ...] = ()
+) -> Callable[[WorkflowState], dict | None]:
+    """Only fix payment-api files; return None for other services."""
+
+    def _change(state: WorkflowState) -> dict | None:
+        if state.get("service") != "payment-api":
+            return None
+        return _file_change(path, replacements)
+
+    return _change
+
+
+def _fix_pr(
+    state: WorkflowState,
+    *files: dict | None | Callable[[WorkflowState], dict | None],
+) -> dict | None:
     """Build open_fix_pr params for the incident's helix/INC-* branch.
-    None when any file's content could not be produced."""
-    file_list = [f for f in files if f is not None]
-    if len(file_list) != len(files) or not file_list:
+    None when any file's content could not be produced, or a file belongs
+    to another service: a fix PR never goes out missing part of the fix.
+    Files can be dicts or callables that take state and return dicts."""
+    file_list = [f(state) if callable(f) else f for f in files]
+    if not file_list or any(f is None for f in file_list):
         return None
     return {
         "title": f"Helix remediation for {state['incident_id']}",
@@ -100,8 +118,24 @@ def _reapply(path: str) -> Callable[[WorkflowState], dict | None]:
     return lambda _state: {"path": path}
 
 
-def _k8s_target(_state: WorkflowState) -> dict | None:
-    return dict(_K8S)
+def _reapply_payment_api(path: str) -> Callable[[WorkflowState], dict | None]:
+    """Only reapply manifests for payment-api service; return None for others."""
+
+    def _apply(state: WorkflowState) -> dict | None:
+        if state.get("service") == "payment-api":
+            return {"path": path}
+        return None
+
+    return _apply
+
+
+def _k8s_target(state: WorkflowState) -> dict | None:
+    """Target the signal's service and namespace, not hardcoded payment-api."""
+    service = state.get("service") or "payment-api"
+    signal = state.get("signal") or {}
+    raw = signal.get("raw") or {}
+    namespace = raw.get("namespace") or service
+    return {"deployment": service, "namespace": namespace}
 
 
 def _rerun(_state: WorkflowState) -> dict | None:
@@ -128,12 +162,12 @@ RULES: tuple[Rule, ...] = (
         ),
         evidence_kinds=("pod_list", "pod_status", "secret_info", "log_lines", "event_list"),
         actions=(
-            ("reapply_manifest", _reapply(_SECRET)),
+            ("reapply_manifest", _reapply_payment_api(_SECRET)),
             # Order 2: after the secret is fixed, a restart escapes the
             # accumulated kubelet backoff immediately instead of waiting
             # out CrashLoopBackOff's retry schedule inside the verify window.
             ("restart_deployment", _k8s_target),
-            ("open_fix_pr", _fix(_file_change(_SECRET))),
+            ("open_fix_pr", _fix(_file_change_payment_api(_SECRET))),
         ),
     ),
     Rule(
@@ -148,7 +182,10 @@ RULES: tuple[Rule, ...] = (
         evidence_kinds=("pod_list", "pod_status", "log_lines", "event_list"),
         actions=(
             ("rollback_deployment", _k8s_target),
-            ("open_fix_pr", _fix(_file_change(_DEPLOYMENT, (("memory: 128Mi", "memory: 256Mi"),)))),
+            (
+                "open_fix_pr",
+                _fix(_file_change_payment_api(_DEPLOYMENT, (("memory: 128Mi", "memory: 256Mi"),))),
+            ),
         ),
     ),
     Rule(
@@ -161,12 +198,12 @@ RULES: tuple[Rule, ...] = (
         ),
         evidence_kinds=("pod_list", "pod_status", "secret_info", "event_list"),
         actions=(
-            ("reapply_manifest", _reapply(_SECRET)),
+            ("reapply_manifest", _reapply_payment_api(_SECRET)),
             # Same reasoning as crashloop: CreateContainerConfigError pods
             # retry on backoff; a restart after the secret exists again
             # recreates the container immediately.
             ("restart_deployment", _k8s_target),
-            ("open_fix_pr", _fix(_file_change(_SECRET))),
+            ("open_fix_pr", _fix(_file_change_payment_api(_SECRET))),
         ),
     ),
     Rule(
@@ -181,7 +218,7 @@ RULES: tuple[Rule, ...] = (
         evidence_kinds=("pod_list", "pod_status", "event_list"),
         actions=(
             ("rollback_deployment", _k8s_target),
-            ("reapply_manifest", _reapply(_DEPLOYMENT)),
+            ("reapply_manifest", _reapply_payment_api(_DEPLOYMENT)),
         ),
     ),
     Rule(
@@ -207,8 +244,11 @@ RULES: tuple[Rule, ...] = (
         ),
         evidence_kinds=("pod_list", "pod_status", "event_list"),
         actions=(
-            ("open_fix_pr", _fix(_file_change(_DEPLOYMENT, (("memory: 128Mi", "memory: 256Mi"),)))),
-            ("reapply_manifest", _reapply(_DEPLOYMENT)),
+            (
+                "open_fix_pr",
+                _fix(_file_change_payment_api(_DEPLOYMENT, (("memory: 128Mi", "memory: 256Mi"),))),
+            ),
+            ("reapply_manifest", _reapply_payment_api(_DEPLOYMENT)),
         ),
     ),
     Rule(
@@ -267,7 +307,7 @@ RULES: tuple[Rule, ...] = (
         ),
         evidence_kinds=("pr_info", "pr_review", "commit", "diff"),
         actions=(
-            ("open_fix_pr", _fix(_file_change(_CONFIGMAP))),
+            ("open_fix_pr", _fix(_file_change_payment_api(_CONFIGMAP))),
             ("rerun_pipeline", _rerun),
         ),
     ),
@@ -282,7 +322,10 @@ RULES: tuple[Rule, ...] = (
         evidence_kinds=("check_run", "commit", "diff"),
         actions=(
             ("rerun_pipeline", _rerun),
-            ("open_fix_pr", _fix(_file_change("sandbox/payment-api/payment_api/config.py"))),
+            (
+                "open_fix_pr",
+                _fix(_file_change_payment_api("sandbox/payment-api/payment_api/config.py")),
+            ),
         ),
     ),
     Rule(
@@ -299,7 +342,7 @@ RULES: tuple[Rule, ...] = (
             (
                 "open_fix_pr",
                 _fix(
-                    _file_change(
+                    _file_change_payment_api(
                         _CONFIGMAP,
                         (
                             (

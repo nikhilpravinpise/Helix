@@ -144,9 +144,19 @@ class TestWebSlackClient:
 
 
 class TestGetSlackClient:
-    def test_fixture_mode_returns_memory_client(self, monkeypatch):
+    def test_fixture_evidence_does_not_fake_slack(self, monkeypatch):
+        """Decided 2026-10-06 (Vraj): where evidence comes from does not
+        decide where messages go. A live Slack test on recorded cluster
+        evidence posted to a fake and nothing reached the channel. Tests
+        and the benchmark stay offline by blanking the token instead."""
         monkeypatch.setenv("HELIX_EVIDENCE_SOURCE", "fixtures")
-        assert isinstance(get_slack_client(), MemorySlackClient)
+        monkeypatch.setenv("HELIX_SLACK_BOT_TOKEN", "xoxb-live")
+        assert isinstance(get_slack_client(), WebSlackClient)
+
+    def test_fixture_mode_without_token_returns_none(self, monkeypatch):
+        monkeypatch.setenv("HELIX_EVIDENCE_SOURCE", "fixtures")
+        monkeypatch.setenv("HELIX_SLACK_BOT_TOKEN", "")
+        assert get_slack_client() is None
 
     def test_live_mode_with_token_returns_web_client(self, monkeypatch):
         monkeypatch.setenv("HELIX_EVIDENCE_SOURCE", "live")

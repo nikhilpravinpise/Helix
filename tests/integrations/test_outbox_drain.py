@@ -502,3 +502,51 @@ def test_approval_card_says_why_helix_had_to_ask(sessions):
         )
         assert "build.failed" in str(card["blocks"])
         assert "`restart_deployment`" in str(card["blocks"])
+
+
+class TestDeliveredRowsStayDelivered:
+    """Audit 2026-10-05 (I2): rows became `sent` only when the caller's
+    whole transaction committed. `helix sync` drains, then reconciles and
+    syncs the graph in the same session_scope, so any later error rolled
+    every delivered row back to `pending` and the next drain posted the
+    same Slack messages and Jira comments again."""
+
+    def test_a_later_failure_does_not_undo_delivery(self, sessions):
+        with sessions() as session:
+            incident = _incident(session)
+            enqueue_for_transition(session, incident, IncidentStatus.TRIAGED, cause="x")
+        slack = _RecordingSlack()
+        with pytest.raises(RuntimeError):
+            with sessions() as session:
+                summary = drain_outbox(session, slack=slack)
+                assert summary["sent"] >= 1
+                raise RuntimeError("reconcile blew up after the drain")
+        posted = len(slack.calls)
+        with sessions() as session:
+            assert _pending(session) == []
+            drain_outbox(session, slack=slack)
+        assert len(slack.calls) == posted  # nothing posted twice
+
+    def test_a_row_another_drain_holds_is_not_sent_again(self, sessions, monkeypatch):
+        """Two drains at once (a Slack click's resume and `helix sync`)
+        must not both deliver one row: each row is claimed before it is
+        sent, and a claimed row is skipped by the other drain."""
+        import integrations.outbox as outbox
+
+        with sessions() as session:
+            incident = _incident(session)
+            enqueue_for_transition(session, incident, IncidentStatus.TRIAGED, cause="x")
+        claimed = []
+        real = outbox._claim_next
+
+        def claim_then_note(session, after_id):
+            row = real(session, after_id)
+            if row is not None:
+                claimed.append(row.id)
+            return row
+
+        monkeypatch.setattr(outbox, "_claim_next", claim_then_note)
+        slack = _RecordingSlack()
+        with sessions() as session:
+            drain_outbox(session, slack=slack)
+        assert claimed and len(claimed) == len(set(claimed))

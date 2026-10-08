@@ -433,6 +433,7 @@ def _slack_action(
                 kind == "helix_review_approve",
                 actor,
                 f"via Slack ({action_id})",
+                timeout_s=timeout_s,
             )
         except ReviewDecidedError as exc:
             return {"review_id": review_id, "note": str(exc)}

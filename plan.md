@@ -23,9 +23,8 @@ the five-arm table covers all 19 scenarios once and the 13 Postgres-only
 scenarios across three final runs that pass the tolerance check, under
 the human-in-the-loop rules (only owners approve, only the requested
 reviewer reviews, the change's author decides neither, cluster writes
-outside registered namespaces need approval). Stated bounds: the six
-cluster scenarios ran once, and arm E's third final run is void (Groq
-daily cap, FOLLOWUPS #19). Only OPT-1 remains, and it is optional.
+outside registered namespaces need approval). Stated bound: the six
+cluster scenarios ran once. Only OPT-1 remains, and it is optional.
 
 | Phase | Subphases | Status |
 |---|---|---|
@@ -86,9 +85,6 @@ lifecycle's own stages (triage, reviews, work items, knowledge page).
 
 **Open commitments not covered by any subphase:**
 
-- **Arm E's third final run (FOLLOWUPS #19).** Void: both Groq keys hit
-  their daily cap. Rerun arm E alone once the cap resets, for a third
-  data point. Does not change the Phase 2 verdict.
 - **GCP / cloud deployment (D23).** DJS23OLOE501 requires it; Helix runs
   on kind. Stubbed, not built: `infra/gcp/README.md` scopes the full
   kind-to-GKE delta and `scripts/gcp-up.sh` is the entry point, which

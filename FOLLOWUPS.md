@@ -353,7 +353,9 @@ Ordered by risk.
   change; `--actor` on the CLI and `actor` in the API are free text. Also
   `intake_token` is compared with `!=`, not `hmac.compare_digest`. Needs a
   decision on who may decide what (reviewer only? owner for approvals?).
-- **I2 - outbox rows can be sent twice.** `drain_outbox` marks rows `sent`
+- **I2 - outbox rows can be sent twice.** FIXED 2026-10-07: the drain
+  commits after each row and claims rows with FOR UPDATE SKIP LOCKED;
+  three concurrent drains on Postgres sent 5 rows 5 times (15 before). `drain_outbox` marks rows `sent`
   in the caller's transaction; a later exception in the same
   `session_scope` (e.g. `helix sync` after the drain) rolls them back to
   `pending` after Slack/Jira/Notion were already called, and the next
@@ -375,11 +377,11 @@ Ordered by risk.
   Kubernetes `lastTimestamp`, so the 30-minute correlation window and
   `occurred_at` measure ingest. Changing it shifts correlation behaviour,
   so it needs its own benchmark check.
-- **E5 - watchers mark a change seen before publishing it.** A Kafka
+- **E5 - watchers mark a change seen before publishing it.** FIXED 2026-10-08 (9a4aeef). A Kafka
   publish error crashes the loop after `PullRequestTracker` and
   `PersistenceFilter` already recorded the change; on restart it is a
   baseline and never announced. Not reproduced.
-- **S4 - arm A rules always target payment-api.** `match_rule` ignores the
+- **S4 - arm A rules always target payment-api.** FIXED 2026-10-08 (a1480b6). `match_rule` ignores the
   signal's service and namespace. Arm A only, sandbox has one service.
 - **I5 - a Notion page deleted in the UI is archived, not 404.**
   `get_page` treats it as present, so reconcile never recreates it and
@@ -388,15 +390,20 @@ Ordered by risk.
 - **B3 - xsys-runtime-missing-owner replays the wrong evidence.** Its event
   is billing-worker `NeverSeenReason`, its `evidence_fixture` is
   payment-api crashloop, so LLM arms reason over another service.
-- **B4 - root-cause matching is substring-based.** The `pr` token matches
+- **B4 - root-cause matching is substring-based.** FIXED 2026-10-08 (1659f04). The `pr` token matches
   "problem"; several faults' real root-cause text matches another fault's
   tokens. Inflates LLM RCA on rejected-pr. Needs word-boundary matching
   and a check that each scenario's own text matches only itself.
-- **I6 - minor.** `helix sync` exits 0 with failed rows; `helix review`
+- **I6 - minor.** FIXED 2026-10-08 (7f00c9a). `helix sync` exits 0 with failed rows; `helix review`
   exits 0 when the resumed run errors (`helix approve` exits 1); Slack
   review clicks use `approval_timeout`, not `slack_approval_timeout`.
 
 ## 19. Rerun arm E for the third Phase 2 final run
+
+**Status 2026-10-07: closed.** Rerun with no rate limit
+(phase2-final-run3-arm-e-rerun.json) and merged into
+phase2-final-run3-with-e-rerun.json; tolerance on runs 1, 2 and that
+report is PASS.
 
 In phase2-final-run3, arm E (the last arm) ran out of both Groq keys'
 daily token budget: 7 incidents failed with "every configured API key is
@@ -405,3 +412,15 @@ the evaluation uses runs 1 and 2 for E. Once the cap resets, run arm E
 alone on the 13 Postgres-only scenarios and add it as the third E data
 point (`bash scripts/benchmark.sh --arm E --scenario ...`). This does not
 change the tolerance verdict: no gated check depends on E's LLM output.
+
+## 20. Unit tests read the developer's .env
+
+`Settings` loads `.env` from the working directory, and tests/conftest.py
+pins only the integration settings, so other values in a developer's
+`.env` reach the unit tier. Seen 2026-10-08:
+`tests/agent/test_unhappy_paths.py::TestStepTimeout::test_step_timeout_fails_run`
+gives each step 50 ms; with Vraj's `.env` and a busy machine it failed 3
+runs in 4 (a step other than `execute` timed out first), and passed 4 in
+4 with no `.env`. Not caused by a code change: it passes on every commit
+in a clean checkout. Fix: make the unit tier ignore `.env` (an autouse
+fixture or `Settings(_env_file=None)` under test), then rerun the suite.

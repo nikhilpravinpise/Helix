@@ -37,36 +37,63 @@ class TestPersistenceFilter:
     def test_a_brief_not_ready_window_is_never_reported(self):
         """The rollout case: not Ready for two polls, then Ready."""
         f = PersistenceFilter(polls=3)
-        assert f.observe([_unready("new")]) == []
-        assert f.observe([_unready("new")]) == []
-        assert f.observe([]) == []
-        assert f.observe([_unready("new")]) == []
+        events, commit = f.observe([_unready("new")])
+        assert events == []
+        commit()
+        events, commit = f.observe([_unready("new")])
+        assert events == []
+        commit()
+        events, commit = f.observe([])
+        assert events == []
+        commit()
+        events, commit = f.observe([_unready("new")])
+        assert events == []
+        commit()
 
     def test_a_persisting_problem_is_reported_once(self):
         f = PersistenceFilter(polls=3)
-        f.observe([_unready("stuck")])
-        f.observe([_unready("stuck")])
-        reported = f.observe([_unready("stuck")])
+        events, commit = f.observe([_unready("stuck")])
+        commit()
+        events, commit = f.observe([_unready("stuck")])
+        commit()
+        reported, commit = f.observe([_unready("stuck")])
         assert [e.metadata["pod"] for e in reported] == ["stuck"]
-        assert f.observe([_unready("stuck")]) == []
-        assert f.observe([_unready("stuck")]) == []
+        commit()
+        events, commit = f.observe([_unready("stuck")])
+        assert events == []
+        commit()
+        events, commit = f.observe([_unready("stuck")])
+        assert events == []
+        commit()
 
     def test_a_crashloop_counts_as_one_condition_across_restarts(self):
         """Each restart is a new event id; the condition is the same, so
         the restart count must not reset the persistence count."""
         f = PersistenceFilter(polls=3)
-        assert f.observe([_pod_failed("p", 1)]) == []
-        assert f.observe([_pod_failed("p", 2)]) == []
-        reported = f.observe([_pod_failed("p", 3)])
+        events, commit = f.observe([_pod_failed("p", 1)])
+        assert events == []
+        commit()
+        events, commit = f.observe([_pod_failed("p", 2)])
+        assert events == []
+        commit()
+        reported, commit = f.observe([_pod_failed("p", 3)])
         assert [e.event_id for e in reported] == ["evt_p_3"]
+        commit()
 
     def test_a_problem_that_clears_and_returns_is_reported_again(self):
         f = PersistenceFilter(polls=2)
-        f.observe([_unready("x")])
-        assert len(f.observe([_unready("x")])) == 1
-        f.observe([])
-        f.observe([_unready("x")])
-        assert len(f.observe([_unready("x")])) == 1
+        events, commit = f.observe([_unready("x")])
+        commit()
+        reported, commit = f.observe([_unready("x")])
+        assert len(reported) == 1
+        commit()
+        events, commit = f.observe([])
+        commit()
+        events, commit = f.observe([_unready("x")])
+        commit()
+        reported, commit = f.observe([_unready("x")])
+        assert len(reported) == 1
+        commit()
 
 
 def test_run_watch_publishes_only_confirmed_problems():
@@ -106,6 +133,39 @@ def test_a_failed_fetch_does_not_stop_the_watch():
         )
         == 3
     )
+
+
+def test_a_failed_publish_does_not_lose_the_event():
+    """A publish failure must not lose the event. The observed state must not
+    be committed until publish succeeds, so the same change is reported again
+    on the next poll. The loop must not crash on a failed publish."""
+    published = []
+    call_count = [0]
+
+    def failing_publish(event):
+        call_count[0] += 1
+        if call_count[0] == 1:
+            raise RuntimeError("kafka down")
+        published.append(event)
+
+    # Same unready pod on three polls to trigger reporting on the third.
+    # After publish fails on the first attempt, a fourth poll should retry
+    # and succeed.
+    snapshots = [[_unready("stuck")], [_unready("stuck")], [_unready("stuck")], [_unready("stuck")]]
+
+    cycles = run_watch(
+        fetch=lambda: snapshots.pop(0),
+        publish=failing_publish,
+        interval=0,
+        polls=3,
+        max_cycles=4,
+        sleep=lambda s: None,
+    )
+
+    assert cycles == 4
+    # Event should be published exactly once, on the second attempt (cycle 4)
+    assert len(published) == 1
+    assert published[0].metadata["pod"] == "stuck"
 
 
 def test_list_pods_raw_returns_the_kubectl_shape_the_adapter_reads():
@@ -158,25 +218,33 @@ class TestPullRequestTracker:
         from events.github_watch import PullRequestTracker
 
         tracker = PullRequestTracker()
-        assert tracker.observe([_open_pr(1, "a" * 40)]) == []
+        payloads, commit = tracker.observe([_open_pr(1, "a" * 40)])
+        assert payloads == []
+        commit()
 
     def test_existing_prs_can_be_announced_on_request(self):
         from events.github_watch import PullRequestTracker
 
         tracker = PullRequestTracker(include_existing=True)
-        [hook] = tracker.observe([_open_pr(1, "a" * 40)])
+        [hook], commit = tracker.observe([_open_pr(1, "a" * 40)])
         assert hook["action"] == "opened"
+        commit()
 
     def test_a_new_pr_is_opened_and_a_new_commit_is_synchronize(self):
         from events.github_watch import PullRequestTracker
 
         tracker = PullRequestTracker()
-        tracker.observe([])
-        [opened] = tracker.observe([_open_pr(7, "a" * 40)])
+        _, commit = tracker.observe([])
+        commit()
+        [opened], commit = tracker.observe([_open_pr(7, "a" * 40)])
         assert opened["action"] == "opened" and opened["number"] == 7
-        assert tracker.observe([_open_pr(7, "a" * 40)]) == []
-        [pushed] = tracker.observe([_open_pr(7, "b" * 40)])
+        commit()
+        payloads, commit = tracker.observe([_open_pr(7, "a" * 40)])
+        assert payloads == []
+        commit()
+        [pushed], commit = tracker.observe([_open_pr(7, "b" * 40)])
         assert pushed["action"] == "synchronize"
+        commit()
 
     def test_a_pr_that_closes_and_reopens_is_reopened(self):
         """Audit 2026-10-05: a closed PR reappearing in the open listing was
@@ -187,11 +255,16 @@ class TestPullRequestTracker:
         from events.github_watch import PullRequestTracker
 
         tracker = PullRequestTracker()
-        tracker.observe([])
-        [opened] = tracker.observe([{**_open_pr(7, "a" * 40), "updated_at": "T1"}])
-        assert tracker.observe([]) == []  # closed: silent
-        [back] = tracker.observe([{**_open_pr(7, "a" * 40), "updated_at": "T2"}])
+        _, commit = tracker.observe([])
+        commit()
+        [opened], commit = tracker.observe([{**_open_pr(7, "a" * 40), "updated_at": "T1"}])
+        commit()
+        payloads, commit = tracker.observe([])
+        assert payloads == []  # closed: silent
+        commit()
+        [back], commit = tracker.observe([{**_open_pr(7, "a" * 40), "updated_at": "T2"}])
         assert back["action"] == "reopened"
+        commit()
         [first] = pull_request_events(opened)
         [again] = pull_request_events(back)
         assert again.event_type == EventType.PR_OPENED
@@ -204,8 +277,10 @@ class TestPullRequestTracker:
         from events.github_watch import PullRequestTracker
 
         tracker = PullRequestTracker()
-        tracker.observe([])
-        [hook] = tracker.observe([_open_pr(7, "c" * 40, author="dana")])
+        _, commit = tracker.observe([])
+        commit()
+        [hook], commit = tracker.observe([_open_pr(7, "c" * 40, author="dana")])
+        commit()
         assert "head" not in hook  # nested under pull_request, as GitHub sends it
         [event] = pull_request_events(hook)
         assert event.metadata["branch"] == "feature/7"
@@ -234,3 +309,41 @@ def test_list_open_pull_requests_raw_asks_for_open_prs():
     assert client.list_open_pull_requests_raw()[0]["number"] == 3
     assert seen[0].url.path == "/repos/VrajVed/helix-sandbox/pulls"
     assert seen[0].url.params["state"] == "open"
+
+
+def test_after_publish_runs_only_once_a_poll_published_cleanly():
+    """The GitHub tracker keeps its own state, so it is saved through this
+    hook: only after every event of the poll was published. A tracker that
+    was never saved announced no PR at all."""
+    from events.watch import run_watch
+
+    saved = []
+    attempts = {"n": 0}
+
+    def publish(event):
+        attempts["n"] += 1
+        if attempts["n"] == 1:
+            raise RuntimeError("kafka down")
+
+    event = _event_for_hook_test()
+    run_watch(
+        lambda: [event],
+        publish,
+        polls=1,
+        max_cycles=2,
+        sleep=lambda s: None,
+        after_publish=lambda: saved.append(True),
+    )
+    assert saved == [True]  # poll 1 failed and was not saved; poll 2 was
+
+
+def _event_for_hook_test():
+    from events.schemas import EngineeringEvent, EventSource, EventType
+
+    return EngineeringEvent(
+        event_type=EventType.PR_OPENED,
+        source=EventSource.GITHUB,
+        service="payment-api",
+        environment="sandbox",
+        metadata={"pr": 7},
+    )

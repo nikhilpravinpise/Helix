@@ -52,22 +52,25 @@ Recovery scenarios (six), per run 1 / 2 / 3:
 | B | 2, 2, 3 | 4, 4, 5 | 0, 0, 0 | 0 |
 | C | 3, 5, 3 | 4, 5, 4 | 0, 0, 0 | 0 |
 | D | 2, 2, 2 | 5, 5, 5 | 0, 0, 0 | 0 |
-| E | 1, 1, void | 5, 5, void | 1, 0, void | 0 |
+| E | 1, 1, 2 | 5, 5, 5 | 1, 0, 4 | 0 |
 
 Change scenarios (seven), every run: owner 6/6 and reviewer 4/4 on every
 arm, zero duplicate work items, lifecycle 7/7 for A, 5/7 for B, C and D
 (they stop at `verifying` on the two cross-system handoffs by
 construction), 6/7 for E.
 
-**Arm E, run 3, is void.** Both Groq keys hit their daily token cap
-during arm E, the last arm of the third run: 7 of its incidents failed
-with "every configured API key is rate-limited" before any reasoning
-happened. No other arm and no other run was affected (counted from the
-transition causes). Arm E's scores above are from runs 1 and 2. The PASS
-does not depend on it: every gated check (arm A, owner, reviewer,
-duplicates on every arm, unsafe executions on every arm) is valid in all
-three runs, and E's diagnosis metrics are provisional. Rerunning E for a
-third data point once the cap resets is FOLLOWUPS #19.
+**Arm E, run 3, was rerun.** In the original third run both Groq keys
+hit their daily token cap during arm E, the last arm: 7 of its incidents
+failed with "every configured API key is rate-limited" before any
+reasoning happened. No other arm and no other run was affected (counted
+from the transition causes). Arm E was rerun alone on the same 13
+scenarios on 2026-10-07 (`phase2-final-run3-arm-e-rerun.json`, no rate
+limit, every incident fresh), and its outcomes replace the void ones in
+`phase2-final-run3-with-e-rerun.json`. The tolerance check on runs 1, 2
+and that report is still **PASS**, with E's lifecycle (7/7) back inside
+its band. E's 4 recoveries against 1 and 0 earlier are LLM variance: in
+runs 1 and 2 its fix PRs named files that do not exist (`src/main.go`),
+which validation refused; in the rerun the paths were real.
 
 **Over-asking is a finding, not a failure** (decided 2026-10-05). In six
 places the LLM arms proposed a riskier action than the scenario needs, the
@@ -243,7 +246,7 @@ in every run; the defects that measuring found, fixed and named.
 
 **Does not:** stability of the six cluster scenarios, which ran once and
 were skipped after that by decision (three runs take most of a night);
-arm E's third final run (void, rate limit); arm D with the fixed graph
+arm D with the fixed graph
 (its owner and reviewer answers cannot differ from arm A's, since triage
 and review are arm-independent, but its diagnosis context was not rerun);
 any claim beyond this catalogue, whose faults the rule table was written
@@ -257,8 +260,7 @@ for.
   benchmark, and the analysis states plainly which components earned
   their place": met.** The table covers all 19 scenarios (run 1) and the
   13 Postgres-only scenarios across three final runs that pass the
-  tolerance check; the analysis is sections 0 and 2. Two bounds are stated
-  rather than hidden: the cluster scenarios have one run, and arm E's
-  third final run is void.
+  tolerance check; the analysis is sections 0 and 2. One bound is stated
+  rather than hidden: the cluster scenarios have one run.
 
 **Phase 2 is exited.**

@@ -24,13 +24,11 @@ __all__ = [
 
 
 def get_slack_client() -> SlackClient | None:
-    """Resolve the configured transport: the recording fake in fixture
-    mode (the same role the Phase 1 write fakes play), WebSlackClient when
-    a bot token is configured, None otherwise - the drain records that
-    case as `skipped`, never a crash."""
+    """Resolve the configured transport: WebSlackClient when a bot token is
+    configured, None otherwise - the drain records that case as
+    `skipped`, never a crash. Fixture evidence does not fake Slack: tests
+    and the benchmark stay offline by blanking the token."""
     settings = get_settings()
-    if settings.evidence_source == "fixtures":
-        return MemorySlackClient()
     if not settings.slack_bot_token:
         return None
     return WebSlackClient(settings.slack_bot_token)
