@@ -100,7 +100,7 @@ def test_rca_match_rejects_scenarios_with_cross_matches():
     before the word-boundary fix was applied."""
     bad_deployment_root = (
         "A deployment patch setting resources.limits.memory to the malformed "
-        "quantity \"not-a-quantity\" was rejected by API-server schema validation; "
+        'quantity "not-a-quantity" was rejected by API-server schema validation; '
         "the intended memory change was never expressed as a valid manifest."
     )
     assert rca_match(bad_deployment_root, "bad-deployment-config") is True
@@ -127,8 +127,9 @@ def test_catalogue_root_causes_match_own_fault_not_others():
     """For every scenario in the catalog with an entry in ROOT_CAUSE_TOKENS,
     its root_cause text must match its own key and not match any other key."""
     scenarios = catalog.load_scenarios()
-    signal_faults = {s["fault"] for s in scenarios.values()
-                     if (s.get("flow") or "signal") == "signal"}
+    signal_faults = {
+        s["fault"] for s in scenarios.values() if (s.get("flow") or "signal") == "signal"
+    }
 
     for scenario_key, scenario in scenarios.items():
         if (scenario.get("flow") or "signal") != "signal":
