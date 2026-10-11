@@ -1249,9 +1249,13 @@ def run_benchmark(cfg: HarnessConfig) -> dict[str, Any]:
     return report
 
 
-def write_report(report: dict[str, Any], out_dir: Path) -> tuple[Path, Path]:
+def write_report(
+    report: dict[str, Any], out_dir: Path, *, update_latest: bool = True
+) -> tuple[Path, Path]:
     """Timestamped artifacts + the `latest.*` pointers (committed - the
-    current benchmark evidence lives in-tree; intermediates are ignored)."""
+    current benchmark evidence lives in-tree; intermediates are ignored).
+    A partial run (`--scenario`) passes update_latest=False: a one-scenario
+    check used to replace the committed multi-arm evidence."""
     out_dir.mkdir(parents=True, exist_ok=True)
     stamp = datetime.now(UTC).strftime("%Y%m%dT%H%M%SZ")
     arms = "-".join(report["arms"]).lower()
@@ -1259,8 +1263,9 @@ def write_report(report: dict[str, Any], out_dir: Path) -> tuple[Path, Path]:
     md_path = out_dir / f"benchmark-{stamp}-{arms}.md"
     json_path.write_text(dumps_report(report), encoding="utf-8")
     md_path.write_text(render_markdown(report), encoding="utf-8")
-    (out_dir / "latest.json").write_text(dumps_report(report), encoding="utf-8")
-    (out_dir / "latest.md").write_text(render_markdown(report), encoding="utf-8")
+    if update_latest:
+        (out_dir / "latest.json").write_text(dumps_report(report), encoding="utf-8")
+        (out_dir / "latest.md").write_text(render_markdown(report), encoding="utf-8")
     return json_path, md_path
 
 
@@ -1319,7 +1324,7 @@ def main(argv: list[str] | None = None) -> int:
         path=args.path,
     )
     report = run_benchmark(cfg)
-    json_path, md_path = write_report(report, cfg.out_dir)
+    json_path, md_path = write_report(report, cfg.out_dir, update_latest=not cfg.scenarios)
     print(f"report: {json_path}", file=sys.stderr)
     print(f"report: {md_path}", file=sys.stderr)
     return 0

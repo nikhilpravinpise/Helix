@@ -1096,3 +1096,16 @@ class TestDriveAfterASecondApproval:
         monkeypatch.setattr(harness, "_current_status", lambda url, iid: "verifying")
         errors = harness._drive("INC-x", {}, harness.HarnessConfig(database_url="sqlite://"), {})
         assert errors == [] and len(runs) == 2
+
+
+def test_a_partial_run_does_not_replace_the_committed_latest_report(tmp_path):
+    """FOLLOWUPS #1: a one-scenario check overwrote benchmark/reports/latest.*,
+    the committed evidence pointer, with a one-scenario report. A partial
+    run keeps its timestamped files and leaves latest.* alone."""
+    report = {"arms": ["A"], "outcomes": [], "summary": {}, "generated_at": "x", "mode": "auto"}
+    (tmp_path / "latest.json").write_text("committed evidence")
+    harness.write_report(report, tmp_path, update_latest=False)
+    assert (tmp_path / "latest.json").read_text() == "committed evidence"
+    assert len(list(tmp_path.glob("benchmark-*.json"))) == 1
+    harness.write_report(report, tmp_path, update_latest=True)
+    assert (tmp_path / "latest.json").read_text() != "committed evidence"
