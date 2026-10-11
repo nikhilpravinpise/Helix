@@ -5,6 +5,9 @@ pick up cold. Nothing here blocks the Phase 2 measurements.
 
 ## 1. Any single-scenario benchmark run clobbers `latest.*`
 
+
+**Status 2026-10-11: closed.** A run limited with `--scenario` no longer
+writes `latest.*` (7fd30ce).
 `benchmark/harness.py:write_report` always writes
 `benchmark/reports/latest.json` and `latest.md`, and those two files are
 committed as "the current-evidence pointer" (see the directory's
@@ -41,6 +44,9 @@ anything other than 1.00, this is the first place to look.
 
 ## 3. The Phase 2 metrics have no tolerance bands
 
+
+**Status 2026-10-05: closed.** Bands set from measured runs in #17
+(848dd5f).
 `owner_accuracy`, `reviewer_accuracy`, `lifecycle_consistency`,
 `duplicate_work_item_rate` and `decision_evidence_coverage` are scored
 (`benchmark/scoring.py:421-434`) but appear in no `BANDS` entry, so the
@@ -68,6 +74,10 @@ while testing `./start.sh --run` on 2026-09-30.
 
 ## 6. Arm A is no longer 1.00 on RCA by construction
 
+
+**Status 2026-10-05: closed.** The tolerance check reads RCA over
+recovery-flow scenarios only (#17), where arm A is 1.00;
+`xsys-runtime-missing-owner` is a change-flow scenario.
 The docs, DEMO.md and the arm A tolerance band (`rca_accuracy:
 Band(1.0, 1.0)`) all say arm A scores 1.00 because every catalogue
 signature has a rule. Phase 2's `xsys-runtime-missing-owner` deliberately
@@ -121,6 +131,10 @@ real Jira.
 
 ## 8. A provider rate limit is scored as the arm failing
 
+
+**Status 2026-10-11: closed.** A run stopped by the provider is recorded
+as skipped with the reason (d0d7766); checked against phase2-final-run3,
+it skips exactly the 7 rate-limited arm E runs.
 The first five-arm run (`benchmark/reports/phase2-run1.json`,
 2026-10-02) exhausted Groq's daily token budget during arm E: its last
 five scenarios ended `failed` with "diagnosis produced no hypothesis:
@@ -199,6 +213,9 @@ Helix verified healthy rather than to whatever came before.
 
 ## 14. A fix PR marks a runtime incident recovered while it is still broken
 
+
+**Status 2026-10-04: closed.** Runtime incidents verify pod health too
+(2cccc02).
 Found 2026-10-03 in the first fully unattended run (INC-aba102e5). `helix
 watch` caught an injected crashloop, `helix consume --run` drove it, and
 arm E chose open_fix_pr. Verification checked fix_pr_exists=pass, the
@@ -387,7 +404,10 @@ Ordered by risk.
   `get_page` treats it as present, so reconcile never recreates it and
   appends fail until the row is `failed`. From Notion's documented
   behaviour; not reproduced.
-- **B3 - xsys-runtime-missing-owner replays the wrong evidence.** Its event
+- **B3 - xsys-runtime-missing-owner replays the wrong evidence.** Tried 2026-10-11: an empty
+  evidence file for an undeployed service breaks the fixture contract (every
+  fixture is a real capture; tests check pods, events and logs and count
+  them). Needs a real capture or a decision to allow non-captured fixtures. Its event
   is billing-worker `NeverSeenReason`, its `evidence_fixture` is
   payment-api crashloop, so LLM arms reason over another service.
 - **B4 - root-cause matching is substring-based.** FIXED 2026-10-08 (1659f04). The `pr` token matches
@@ -415,6 +435,10 @@ change the tolerance verdict: no gated check depends on E's LLM output.
 
 ## 20. Unit tests read the developer's .env
 
+
+**Status 2026-10-11: closed.** `HELIX_ENV_FILE=""` in the unit tier
+turns `.env` off (b165281); the timing test passes 3 of 3 with a local
+`.env`.
 `Settings` loads `.env` from the working directory, and tests/conftest.py
 pins only the integration settings, so other values in a developer's
 `.env` reach the unit tier. Seen 2026-10-08:
