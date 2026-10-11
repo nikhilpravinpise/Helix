@@ -42,5 +42,8 @@ def _no_live_integrations(request, monkeypatch):
     monkeypatch.setenv("HELIX_SERVICE_REGISTRY", str(_TEST_REGISTRY))
     if request.node.get_closest_marker("integration") is not None:
         return
+    # FOLLOWUPS #20: the unit tier never reads the developer's .env; the
+    # empty value also reaches the helix subprocesses tests start.
+    monkeypatch.setenv("HELIX_ENV_FILE", "")
     for name, value in _LIVE_INTEGRATIONS.items():
         monkeypatch.setenv(name, value)

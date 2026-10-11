@@ -870,6 +870,7 @@ def _collect(database_url: str, incident_id: str) -> dict[str, Any]:
                 {
                     "from": t.from_status.value if t.from_status else None,
                     "to": t.to_status.value,
+                    "cause": t.cause,
                 }
                 for t in transitions
             ],
@@ -1197,7 +1198,29 @@ def run_scenario(
     record.duplicate_of = collected.get("duplicate_of")
     record.decision_evidence = collected.get("decision_evidence", {})
     record.measured = _measure(cfg, scenario, collected)
+    limited = _provider_limit(record.transitions)
+    if limited:
+        record.skipped = limited
     return record
+
+
+#: Phrases a transition cause carries when the LLM provider refused, not
+#: the arm: helix/llm.py's all-keys-exhausted error and a raw HTTP 429.
+_PROVIDER_LIMIT_MARKERS = ("rate-limited", "Error code: 429", "rate_limit_exceeded")
+
+
+def _provider_limit(transitions: list[dict[str, Any]]) -> str | None:
+    """Why the run is not the arm's result, when the provider refused.
+
+    A provider's rate limit or daily cap is not the arm reasoning badly.
+    It is recorded as `skipped` with the reason, like a missing key, so it
+    enters no rate (FOLLOWUPS #8: arm E lost runs to Groq's daily cap
+    twice and they were scored as failures)."""
+    for step in transitions:
+        cause = str(step.get("cause") or "")
+        if any(marker in cause for marker in _PROVIDER_LIMIT_MARKERS):
+            return f"LLM provider limit: {cause[:200]}"
+    return None
 
 
 def run_benchmark(cfg: HarnessConfig) -> dict[str, Any]:
@@ -1249,9 +1272,13 @@ def run_benchmark(cfg: HarnessConfig) -> dict[str, Any]:
     return report
 
 
-def write_report(report: dict[str, Any], out_dir: Path) -> tuple[Path, Path]:
+def write_report(
+    report: dict[str, Any], out_dir: Path, *, update_latest: bool = True
+) -> tuple[Path, Path]:
     """Timestamped artifacts + the `latest.*` pointers (committed - the
-    current benchmark evidence lives in-tree; intermediates are ignored)."""
+    current benchmark evidence lives in-tree; intermediates are ignored).
+    A partial run (`--scenario`) passes update_latest=False: a one-scenario
+    check used to replace the committed multi-arm evidence."""
     out_dir.mkdir(parents=True, exist_ok=True)
     stamp = datetime.now(UTC).strftime("%Y%m%dT%H%M%SZ")
     arms = "-".join(report["arms"]).lower()
@@ -1259,8 +1286,9 @@ def write_report(report: dict[str, Any], out_dir: Path) -> tuple[Path, Path]:
     md_path = out_dir / f"benchmark-{stamp}-{arms}.md"
     json_path.write_text(dumps_report(report), encoding="utf-8")
     md_path.write_text(render_markdown(report), encoding="utf-8")
-    (out_dir / "latest.json").write_text(dumps_report(report), encoding="utf-8")
-    (out_dir / "latest.md").write_text(render_markdown(report), encoding="utf-8")
+    if update_latest:
+        (out_dir / "latest.json").write_text(dumps_report(report), encoding="utf-8")
+        (out_dir / "latest.md").write_text(render_markdown(report), encoding="utf-8")
     return json_path, md_path
 
 
@@ -1319,7 +1347,7 @@ def main(argv: list[str] | None = None) -> int:
         path=args.path,
     )
     report = run_benchmark(cfg)
-    json_path, md_path = write_report(report, cfg.out_dir)
+    json_path, md_path = write_report(report, cfg.out_dir, update_latest=not cfg.scenarios)
     print(f"report: {json_path}", file=sys.stderr)
     print(f"report: {md_path}", file=sys.stderr)
     return 0

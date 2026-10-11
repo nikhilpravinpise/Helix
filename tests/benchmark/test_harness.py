@@ -1096,3 +1096,44 @@ class TestDriveAfterASecondApproval:
         monkeypatch.setattr(harness, "_current_status", lambda url, iid: "verifying")
         errors = harness._drive("INC-x", {}, harness.HarnessConfig(database_url="sqlite://"), {})
         assert errors == [] and len(runs) == 2
+
+
+def test_a_partial_run_does_not_replace_the_committed_latest_report(tmp_path):
+    """FOLLOWUPS #1: a one-scenario check overwrote benchmark/reports/latest.*,
+    the committed evidence pointer, with a one-scenario report. A partial
+    run keeps its timestamped files and leaves latest.* alone."""
+    report = {"arms": ["A"], "outcomes": [], "summary": {}, "generated_at": "x", "mode": "auto"}
+    (tmp_path / "latest.json").write_text("committed evidence")
+    harness.write_report(report, tmp_path, update_latest=False)
+    assert (tmp_path / "latest.json").read_text() == "committed evidence"
+    assert len(list(tmp_path.glob("benchmark-*.json"))) == 1
+    harness.write_report(report, tmp_path, update_latest=True)
+    assert (tmp_path / "latest.json").read_text() != "committed evidence"
+
+
+class TestProviderLimitIsNotTheArmFailing:
+    """FOLLOWUPS #8: when Groq's daily cap ran out mid-run, the arm's
+    remaining scenarios ended `failed` and were scored as the arm reasoning
+    badly (phase2-run1 arm E, phase2-final-run3 arm E). A provider refusal
+    is recorded as skipped with the reason, like a missing key, and enters
+    no rate."""
+
+    def test_a_rate_limited_run_is_recognised(self):
+        transitions = [
+            {"to": "diagnosing", "cause": "coordinator: begin diagnosis"},
+            {
+                "to": "failed",
+                "cause": "diagnosis produced no hypothesis: structured LLM request "
+                "failed: every configured API key is rate-limited or rejected",
+            },
+        ]
+        reason = harness._provider_limit(transitions)
+        assert reason is not None and "rate-limited" in reason
+
+    def test_a_429_cause_is_recognised(self):
+        transitions = [{"to": "failed", "cause": "LLM request failed: Error code: 429 - TPD"}]
+        assert harness._provider_limit(transitions) is not None
+
+    def test_an_ordinary_failure_is_still_a_result(self):
+        transitions = [{"to": "escalated", "cause": "rules: every tabled action is excluded"}]
+        assert harness._provider_limit(transitions) is None
