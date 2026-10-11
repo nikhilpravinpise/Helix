@@ -5,6 +5,7 @@ Secrets (API keys, tokens) are read from environment variables or a local
 variable names.
 """
 
+import os
 from typing import Any, Literal
 
 from pydantic import Field, ValidationInfo, field_validator
@@ -228,5 +229,9 @@ class Settings(BaseSettings):
 
 def get_settings() -> Settings:
     """Load settings from environment and .env. Call sites should not cache
-    this across tests, since env vars may change between them."""
-    return Settings()
+    this across tests, since env vars may change between them.
+
+    HELIX_ENV_FILE names another env file; set to "" it reads none, which
+    is how the unit tier keeps a developer's .env out of tests."""
+    env_file = os.environ.get("HELIX_ENV_FILE", ".env")
+    return Settings(_env_file=env_file or None)
