@@ -14,10 +14,15 @@ url="${url/#postgres:\/\//postgresql+psycopg://}"
 url="${url/#postgresql:\/\//postgresql+psycopg://}"
 export HELIX_DATABASE_URL="${url}"
 
-if [[ -z "${HELIX_UI_PASSWORD:-}" ]]; then
-  echo "render-start: refusing to serve a public URL without HELIX_UI_PASSWORD" >&2
-  exit 1
-fi
+# A public URL is served only behind Sign in with GitHub (helix/auth.py).
+for var in HELIX_GITHUB_OAUTH_CLIENT_ID HELIX_GITHUB_OAUTH_CLIENT_SECRET HELIX_SESSION_SECRET; do
+  if [[ -z "${!var:-}" ]]; then
+    echo "render-start: refusing to serve a public URL without ${var}" >&2
+    exit 1
+  fi
+done
+# GitHub sends the user back here; Render provides the service's own URL.
+export HELIX_PUBLIC_URL="${HELIX_PUBLIC_URL:-${RENDER_EXTERNAL_URL:-}}"
 
 alembic -c state/migrations/alembic.ini upgrade head
 export HELIX_API_BIND=0.0.0.0 HELIX_API_PORT="${PORT:-8787}"
