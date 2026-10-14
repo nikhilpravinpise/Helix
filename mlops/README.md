@@ -35,8 +35,23 @@ committed.
 - The held-out quarter is split by incident, so no incident sits on both
   sides.
 - Accuracy is always reported beside a baseline that guesses the most common
-  outcome; the verdict says "no better than baseline" when it is.
-- First run (2026-10-14, 305 actions): held-out accuracy 0.949 vs baseline
-  0.603 on 78 actions. Almost all of the history is benchmark-generated and
-  repetitive, which flatters the score; it measures the pipeline, not how
-  well the model would do on a real team's incidents.
+  outcome. "Beats baseline" needs a margin of two standard errors of the
+  baseline's accuracy on the held-out rows; otherwise the verdict is "no
+  better than baseline".
+- Rows from ablation arms B, C and D are left out: they have no verify step,
+  so they never reach recovered whatever action they pick. `arm` is not a
+  feature: production runs one arm.
+
+## Current result (2026-10-14, Jenkins build #4)
+
+305 actions exported, 140 from arms B, C and D left out; 125 to train, 40
+held out. Held-out accuracy 0.900 against a 0.850 baseline: **no better than
+baseline**. Most remaining actions in this benchmark history succeeded, so
+guessing "fixed" is already right 85% of the time, and the model has too
+little varied data to do reliably better.
+
+The first version reported 0.949 against 0.603. That number came from the
+`arm` column (which benchmark arm ran), not from the action: arm A fixes
+almost always and arms B, C and D never can. Removing them is why the score
+fell. The pipeline meets OPT-1's exit criterion; the model will only become
+useful with history from real incidents.
