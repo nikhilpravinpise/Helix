@@ -83,6 +83,10 @@ def run(data: Path, out: Path, *, git_sha: str = "unknown") -> dict:
         verbose=False,
         html=False,
         system_log=False,  # PyCaret otherwise writes logs.log into the cwd
+        # One worker: the default starts one per CPU core, each loading the
+        # whole library, and that ran the Jenkins container (capped at 1 GB)
+        # out of memory. A few hundred rows gain nothing from parallelism.
+        n_jobs=1,
     )
     model = compare_models(include=["lr", "dt", "rf", "nb"], sort="Accuracy", verbose=False)
 

@@ -1,0 +1,82 @@
+// OPT-1: train, evaluate and version the advisory model over Helix's
+// incident history. Its own job (helix-mlops in jenkins.yaml), separate from
+// the payment-api build: it never builds, deploys or notifies anything.
+//
+// Stages:
+//   - Connect: Postgres listens on the host's loopback only, so this
+//     container joins Postgres's Docker network and reaches it by name.
+//   - Prepare: copy the read-only source mount into the workspace, leaving
+//     out .env (no secret reaches the workspace) and local virtualenvs.
+//   - Export: `helix export-history` writes the training CSV.
+//   - Train: mlops/ (Python 3.11, PyCaret) trains, evaluates against a
+//     held-out set and a baseline, and writes a new model version. Model
+//     versions accumulate in the workspace across builds.
+//   - Archive: the CSV and the models directory become build artifacts.
+pipeline {
+    agent any
+
+    environment {
+        HELIX_SRC          = '/workspace/helix-src'
+        WORK               = "${WORKSPACE}/helix"
+        STATE_NETWORK      = 'helix-state_default'
+        HELIX_DATABASE_URL = 'postgresql+psycopg://helix:helix@helix-postgres:5432/helix'
+        HELIX_ENV_FILE     = ''
+    }
+
+    stages {
+        stage('Connect') {
+            steps {
+                sh '''
+                    set -euo pipefail
+                    docker network connect "${STATE_NETWORK}" helix-jenkins 2>/dev/null || true
+                    getent hosts helix-postgres
+                '''
+            }
+        }
+
+        stage('Prepare') {
+            steps {
+                sh '''
+                    set -euo pipefail
+                    rm -rf "${WORK}" && mkdir -p "${WORK}" "${WORKSPACE}/data" "${WORKSPACE}/models"
+                    tar -C "${HELIX_SRC}" \
+                        --exclude=./.env --exclude=./.git --exclude=./.venv \
+                        --exclude=./mlops/.venv --exclude=./mlops/models \
+                        -cf - . | tar -C "${WORK}" -xf -
+                    git -c safe.directory='*' -C "${HELIX_SRC}" rev-parse --short HEAD > "${WORKSPACE}/git-sha"
+                '''
+            }
+        }
+
+        stage('Export') {
+            steps {
+                sh '''
+                    set -euo pipefail
+                    cd "${WORK}"
+                    uv sync --frozen --no-dev
+                    uv run --no-dev helix export-history --out "${WORKSPACE}/data/history.csv"
+                '''
+            }
+        }
+
+        stage('Train') {
+            steps {
+                sh '''
+                    set -euo pipefail
+                    cd "${WORK}/mlops"
+                    uv sync --frozen --no-dev
+                    uv run --no-dev python train.py \
+                        --data "${WORKSPACE}/data/history.csv" \
+                        --out "${WORKSPACE}/models" \
+                        --git-sha "$(cat "${WORKSPACE}/git-sha")"
+                '''
+            }
+        }
+
+        stage('Archive') {
+            steps {
+                archiveArtifacts artifacts: 'data/history.csv, models/**', fingerprint: true
+            }
+        }
+    }
+}

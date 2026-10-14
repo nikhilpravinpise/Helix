@@ -20,9 +20,12 @@ FROM jenkins/jenkins:lts-jdk17
 
 USER root
 
+# libgomp1: the OpenMP runtime LightGBM loads when PyCaret imports it in the
+# helix-mlops job (OPT-1); without it training fails at import.
 RUN apt-get update && apt-get install -y --no-install-recommends \
       ca-certificates \
       curl \
+      libgomp1 \
     && rm -rf /var/lib/apt/lists/*
 
 # Docker CLI only, as a static binary - this container never runs a Docker

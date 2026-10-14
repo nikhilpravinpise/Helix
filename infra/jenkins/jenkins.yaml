@@ -62,3 +62,13 @@ jobs:
           }
         }
       }
+  - script: >
+      pipelineJob('helix-mlops') {
+        description('OPT-1: train, evaluate and version the advisory model over incident history')
+        definition {
+          cps {
+            script(new File('/workspace/helix-src/infra/jenkins/Jenkinsfile.mlops').text)
+            sandbox(true)
+          }
+        }
+      }
