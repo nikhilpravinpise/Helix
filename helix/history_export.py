@@ -48,7 +48,7 @@ _FAULT_KEYS = (
 )
 
 
-def _fault(incident: models.Incident) -> str:
+def incident_fault(incident: models.Incident) -> str:
     """`<source>:<what went wrong>`, from the first signal or, for an
     incident the event path opened, its first outside event."""
     if incident.signals:
@@ -77,7 +77,7 @@ def export_rows(session: Session) -> list[dict[str, Any]]:
         if not actions:
             continue
         recovered = incident.status == IncidentStatus.RECOVERED
-        fault = _fault(incident)
+        fault = incident_fault(incident)
         for index, execution in enumerate(actions):
             components = (execution.candidate.components if execution.candidate else None) or {}
             rows.append(
