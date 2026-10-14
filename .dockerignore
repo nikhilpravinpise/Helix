@@ -1,0 +1,15 @@
+# Never in the image: secrets and local state.
+.env
+.env.*
+!.env.example
+.git
+.venv
+**/.venv
+**/__pycache__
+.pytest_cache
+.ruff_cache
+mlops/models
+mlops/logs.log
+benchmark/reports
+infra/terraform/.terraform
+*.log
