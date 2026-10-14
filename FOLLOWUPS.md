@@ -379,7 +379,9 @@ Ordered by risk.
   drain re-posts. No row locking either, so two drains can overlap.
   Reproduced (audit script t1.py). Fix: commit per row, and claim rows
   with `FOR UPDATE SKIP LOCKED`.
-- **E1b - a crash during an open PR joins the PR's change incident.**
+- **E1b - a crash during an open PR joins the PR's change incident.** FIXED
+  2026-10-14, rule decided by Vraj: only while the change is deploying, or
+  on a shared identity such as its commit.
   Change incidents absorb deploy failures on purpose (the
   xsys-pr-deploy-failure handoff), so a runtime failure on the same
   service joins one on the service token and no recovery incident opens.
