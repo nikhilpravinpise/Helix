@@ -13,6 +13,7 @@ replay a capture.
 """
 
 import json
+from datetime import UTC, datetime
 from pathlib import Path
 
 import pytest
@@ -563,3 +564,128 @@ class TestAdaptedEventsReachKafka:
                     future.result(timeout=15)
                 except Exception:
                     pass
+
+
+class TestVendorTime:
+    """Audit 2026-10-05 (E4): every adapter stamped events with the time
+    Helix read them, so the 30-minute correlation window and occurred_at
+    measured ingest, not when things happened - and the correlation
+    benchmark had to backdate events by hand. Each adapter now takes the
+    time from the vendor's own field, falling back to now only when the
+    payload carries none."""
+
+    WHEN = datetime(2026, 8, 28, 12, 14, 46, tzinfo=UTC)
+    ISO = "2026-08-28T12:14:46Z"
+
+    def test_elk_uses_the_log_time(self):
+        resp = {
+            "hits": {
+                "hits": [
+                    {
+                        "_index": "i",
+                        "_id": "1",
+                        "_source": {
+                            "message": "ERROR boom",
+                            "@timestamp": "2026-08-28T12:14:46.000Z",
+                            "kubernetes": {"pod": {"name": "p"}, "labels": {"app": "payment-api"}},
+                        },
+                    }
+                ]
+            }
+        }
+        assert elk.log_events(resp)[0].timestamp == self.WHEN
+
+    def test_github_check_uses_its_completion_time(self):
+        payload = {
+            "sha": "a" * 40,
+            "items": [
+                {
+                    "name": "ci",
+                    "status": "completed",
+                    "conclusion": "failure",
+                    "url": "u",
+                    "completed_at": self.ISO,
+                }
+            ],
+        }
+        assert github.check_run_events(payload)[0].timestamp == self.WHEN
+
+    def test_github_review_uses_its_submission_time(self):
+        payload = {"number": 7, "items": [{"id": 1, "state": "APPROVED", "submitted_at": self.ISO}]}
+        assert github.review_events(payload)[0].timestamp == self.WHEN
+
+    def test_a_pr_opened_uses_its_creation_time(self):
+        hook = {
+            "action": "opened",
+            "number": 7,
+            "pull_request": {
+                "head": {"sha": "a" * 40, "ref": "f"},
+                "created_at": self.ISO,
+                "updated_at": "2026-08-29T00:00:00Z",
+            },
+        }
+        assert github.pull_request_events(hook)[0].timestamp == self.WHEN
+
+    def test_jenkins_uses_build_end_time(self):
+        start_ms = int(self.WHEN.timestamp() * 1000) - 60_000
+        payload = {
+            "job": "payment-api",
+            "number": 4,
+            "result": "FAILURE",
+            "timestamp": start_ms,
+            "duration": 60_000,
+        }
+        assert jenkins.build_event(payload).timestamp == self.WHEN
+
+    def test_a_crashing_pod_uses_its_last_exit_time(self):
+        pod = {
+            "items": [
+                {
+                    "metadata": {
+                        "uid": "u",
+                        "name": "payment-api-1",
+                        "labels": {"app": "payment-api"},
+                    },
+                    "status": {
+                        "phase": "Running",
+                        "containerStatuses": [
+                            {
+                                "name": "c",
+                                "restartCount": 3,
+                                "state": {"waiting": {"reason": "CrashLoopBackOff"}},
+                                "lastState": {
+                                    "terminated": {
+                                        "reason": "Error",
+                                        "exitCode": 1,
+                                        "finishedAt": self.ISO,
+                                    }
+                                },
+                            }
+                        ],
+                    },
+                }
+            ]
+        }
+        assert kubernetes.pod_events(pod)[0].timestamp == self.WHEN
+
+    def test_a_not_ready_pod_uses_the_ready_transition_time(self):
+        assert kubernetes.pod_events(_not_ready_pod(self.ISO))[0].timestamp == self.WHEN
+
+    def test_a_kubernetes_warning_uses_its_last_time(self):
+        payload = {
+            "items": [
+                {
+                    "type": "Warning",
+                    "reason": "BackOff",
+                    "metadata": {"uid": "e1"},
+                    "involvedObject": {"kind": "Pod", "name": "payment-api-1"},
+                    "lastTimestamp": self.ISO,
+                }
+            ]
+        }
+        assert kubernetes.object_events(payload)[0].timestamp == self.WHEN
+
+    def test_no_vendor_time_falls_back_to_now(self):
+        before = datetime.now(UTC)
+        payload = {"job": "payment-api", "number": 4, "result": "FAILURE"}
+        assert jenkins.build_event(payload).timestamp >= before

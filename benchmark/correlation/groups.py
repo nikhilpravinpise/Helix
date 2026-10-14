@@ -49,10 +49,12 @@ built by hand, exactly as that test class already does.
 
 ## Why every event's `timestamp` is set explicitly, backdated to capture time
 
-None of the adapters in `events/adapters/*.py` populate `timestamp` from
-the vendor payload - it defaults to "now" (`EngineeringEvent`'s
-`default_factory`), which is correct for a real producer processing a
-webhook as it arrives. It is wrong here: running every adapter in one
+Since 2026-10-14 the adapters take `timestamp` from the vendor's own field
+(audit finding E4), and for four of these five events that already yields
+the captured time. The Jenkins capture carries no build time, so its event
+still falls back to "now" (`EngineeringEvent`'s `default_factory`), which
+is correct for a real producer processing a webhook as it arrives. Before
+E4 every adapter fell back to "now". It is wrong here: running every adapter in one
 script invocation would stamp both groups within the same few seconds of
 each other, when the fixtures were actually captured roughly a day apart
 (`cluster/crashloop.json`: 2026-08-28T12:14Z; `github/failed-check.json`:

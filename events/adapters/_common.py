@@ -16,18 +16,41 @@ introduces no cycle, and a second redactor would be a second thing to
 keep correct.
 """
 
+from datetime import UTC, datetime
 from typing import Any
 
 from events.schemas import EngineeringEvent
 from integrations.redaction import redact
 
 
-def vendor_event(**fields: Any) -> EngineeringEvent:
+def vendor_time(*values: Any) -> datetime | None:
+    """The first value that reads as a time: an ISO-8601 string (a trailing
+    Z included) or epoch milliseconds. None when none does."""
+    for value in values:
+        if value in (None, ""):
+            continue
+        try:
+            if isinstance(value, (int, float)):
+                return datetime.fromtimestamp(value / 1000, tz=UTC)
+            parsed = datetime.fromisoformat(str(value).replace("Z", "+00:00"))
+        except (TypeError, ValueError, OverflowError):
+            continue
+        return parsed if parsed.tzinfo else parsed.replace(tzinfo=UTC)
+    return None
+
+
+def vendor_event(*, occurred: datetime | None = None, **fields: Any) -> EngineeringEvent:
     """Build a canonical event from a vendor payload, metadata redacted.
 
     Redaction is applied to `metadata` only. The envelope fields are
     Helix's own vocabulary - a service name, an environment, an event type
     - and none of them is a place a credential can arrive.
+
+    `occurred` is when the vendor says it happened. Without it the event
+    is stamped with now, which made the correlation window measure when
+    Helix read an event rather than when it happened (audit finding E4).
     """
     fields["metadata"] = redact(fields.get("metadata") or {})
+    if occurred is not None:
+        fields["timestamp"] = occurred
     return EngineeringEvent(**fields)

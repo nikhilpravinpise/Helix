@@ -391,7 +391,8 @@ Ordered by risk.
   executor re-runs `decide()` without evidence types, gets
   `allow_with_checks`, and writes `approval_id=NULL` for a write a human
   approved. Provenance only; the write itself was authorised.
-- **E4 - events carry ingest time, not vendor time.** `vendor_event` never
+- **E4 - events carry ingest time, not vendor time.** FIXED 2026-10-14: each
+  adapter reads the vendor's time field, falling back to now. `vendor_event` never
   sets `timestamp` from `@timestamp`, `submitted_at`, build times or
   Kubernetes `lastTimestamp`, so the 30-minute correlation window and
   `occurred_at` measure ingest. Changing it shifts correlation behaviour,
