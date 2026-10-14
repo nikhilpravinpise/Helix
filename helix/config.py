@@ -170,6 +170,9 @@ class Settings(BaseSettings):
     #: benchmark/service_registry.yaml, a fixed cast their expectations are
     #: written against, so the live file can describe the real team.
     service_registry: str = "config/service_registry.yaml"
+    #: OPT-1: the advisory table mlops/train.py writes, shown in
+    #: `helix provenance` only. Relative paths resolve from the repo root.
+    advisory_path: str = "mlops/models/advisory.json"
     graph_enabled: bool = False
     neo4j_uri: str = "bolt://127.0.0.1:7687"
     neo4j_user: str = "neo4j"

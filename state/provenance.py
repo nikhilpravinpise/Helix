@@ -345,6 +345,19 @@ def _knowledge_page(page: models.KnowledgePage | None) -> dict[str, Any] | None:
     }
 
 
+def _advisory(
+    incident: models.Incident, selected: models.Candidate | None
+) -> dict[str, Any] | None:
+    """How often the selected action fixed similar past incidents, per the
+    OPT-1 model; None without a model or a selection."""
+    if selected is None:
+        return None
+    from helix.advisory import advice_for
+    from helix.history_export import incident_fault
+
+    return advice_for(incident_fault(incident), selected.action)
+
+
 def assemble_provenance(session: Session, incident_id: str) -> dict[str, Any] | None:
     """The ordered provenance record for `incident_id`, or None when no
     such incident exists. Pure over its inputs: reads only, returns a
@@ -376,6 +389,8 @@ def assemble_provenance(session: Session, incident_id: str) -> dict[str, Any] | 
             "reviews": _reviews(list(incident.review_requests)),
             "work_items": _work_items(list(incident.work_items)),
             "knowledge_page": _knowledge_page(incident.knowledge_page),
+            # OPT-1: the model's estimate, display only (helix/advisory.py).
+            "advisory": _advisory(incident, selected),
         },
         "transitions": _transitions(list(incident.transitions)),
     }
@@ -494,6 +509,14 @@ def render_markdown(record: dict[str, Any]) -> str:
         )
     else:
         lines.append("- no selection recorded")
+    advice = stages.get("advisory")
+    if advice:
+        lines.append(
+            f"- advisory (model {advice['version']}, {advice['verdict']}: held-out accuracy "
+            f"{advice['accuracy']:.2f} vs baseline {advice['baseline_accuracy']:.2f}): "
+            f"this action fixed {advice['p_fixed']:.0%} of {advice['n']} similar past "
+            "actions; not used by any decision"
+        )
 
     lines += ["", "## Validation"]
     if stages["validation"]:

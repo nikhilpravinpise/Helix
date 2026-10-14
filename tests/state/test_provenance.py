@@ -202,6 +202,8 @@ class TestAssembleProvenance:
             "reviews",
             "work_items",
             "knowledge_page",
+            # OPT-1: the model's display-only estimate (None without a model).
+            "advisory",
         ]
         # A recovery incident's Phase 2 stages are empty but present.
         assert stages["triage"] == []
@@ -316,6 +318,7 @@ class TestProvenanceApi:
             "reviews",
             "work_items",
             "knowledge_page",
+            "advisory",
         ]
         assert len(body["stages"]["trigger"]) == 1
         assert [t["to_status"] for t in body["transitions"]] == ["received"]

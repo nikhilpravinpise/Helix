@@ -255,7 +255,31 @@ def build_parser() -> argparse.ArgumentParser:
         "service registry (idempotent; needs HELIX_GRAPH_ENABLED=true)",
     )
 
+    export = subparsers.add_parser(
+        "export-history",
+        help="write every executed remediation action, with whether it fixed "
+        "the incident, as CSV - the training data for mlops/ (OPT-1)",
+    )
+    export.add_argument("--out", required=True, help="CSV path to write")
+
     return parser
+
+
+def _cmd_export_history(args: argparse.Namespace) -> int:
+    """OPT-1: the incident history mlops/ trains on, as CSV."""
+    from pathlib import Path
+
+    from sqlalchemy import create_engine
+    from sqlalchemy.orm import Session
+
+    from helix.config import get_settings
+    from helix.history_export import export_rows, write_csv
+
+    engine = create_engine(get_settings().database_url)
+    with Session(engine) as session:
+        count = write_csv(export_rows(session), Path(args.out))
+    print(f"helix export-history: {count} row(s) -> {args.out}")
+    return 0
 
 
 def _cmd_serve() -> int:
@@ -1220,4 +1244,6 @@ def main(argv: list[str] | None = None) -> int:
         return _cmd_review(args)
     if args.command == "graph-sync":
         return _cmd_graph_sync()
+    if args.command == "export-history":
+        return _cmd_export_history(args)
     return 2

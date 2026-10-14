@@ -1,0 +1,16 @@
+[project]
+name = "helix-mlops"
+version = "0.1.0"
+description = "OPT-1: PyCaret model over Helix incident history, advisory only"
+# PyCaret 3.3.2 refuses Python 3.12 at import, and Helix is 3.12, so the
+# model lives in its own project. Helix never imports it; it only reads
+# the advisory table this project writes.
+requires-python = ">=3.11,<3.12"
+dependencies = ["pycaret==3.3.2"]
+
+[dependency-groups]
+dev = ["pytest>=8"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["."]
