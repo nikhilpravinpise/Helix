@@ -13,7 +13,7 @@ Phases follow the source documents exactly. This file adds 32 subphases, each wi
 **Last updated: 2026-10-05.** Keep this block current - it is the one
 place that answers "how much is done" without reading the whole file.
 
-**31 of 32 subphases implemented (97%). Phase 2 is exited (2026-10-05).**
+**32 of 32 subphases implemented. Phase 2 is exited (2026-10-05); the optional OPT-1 is done (2026-10-14).**
 The distinction is the definition of done below: exit criterion
 demonstrated end to end, not code landed and tests green. The Phase 2
 measurements are in `docs/benchmark/phase-2-evaluation.md`. 2.7 is met:
@@ -24,14 +24,14 @@ scenarios across three final runs that pass the tolerance check, under
 the human-in-the-loop rules (only owners approve, only the requested
 reviewer reviews, the change's author decides neither, cluster writes
 outside registered namespaces need approval). Stated bound: the six
-cluster scenarios ran once. Only OPT-1 remains, and it is optional.
+cluster scenarios ran once. OPT-1 (optional) is done too: see the table.
 
 | Phase | Subphases | Status |
 |---|---|---|
 | Phase 1 - MVP | 1.1 - 1.13 | **13/13 done.** Exit gate met: the benchmark runs unattended and reports all five metrics |
 | Phase 1.5 - Event Layer | E1 - E7 | **7/7 done.** All exit criteria met, including E7's ablation. Its open defects are fixed in Phase 2 - recorded below |
 | Phase 2 - Full Helix | 2.1 - 2.11 | **11/11 done.** Change-review lifecycle, Slack/Notion/Jira/Linear/Trello integrations, Neo4j graph + GraphRAG, arm D, the expanded benchmark, and human-in-the-loop decision rules. Exit criteria measured: docs/benchmark/phase-2-evaluation.md (tolerance PASS on three final runs) |
-| Optional | OPT-1 | Not started |
+| Optional | OPT-1 | **Done (2026-10-14).** PyCaret model over incident history in `mlops/` (Python 3.11), trained, evaluated against a held-out set and a baseline, and versioned through the `helix-mlops` Jenkins job; shown in `helix provenance` as advisory only. See `mlops/README.md` |
 
 **Phase 1.5's exit gate is met.** Phase 1 benchmark results reproduce
 through the event path with no regression, correlation and replay metrics

@@ -14,8 +14,9 @@ on its own, and asks a human at the points that matter:
 Postgres is the source of truth. Slack, Jira, Notion and a Neo4j graph are
 projections of it, fed through a transactional outbox.
 
-**Status: Phase 1, Phase 1.5 and Phase 2 are done** (31 of 32 subphases;
-only the optional OPT-1 remains). See the Current Status block in
+**Status: Phase 1, Phase 1.5, Phase 2 and the optional OPT-1 are done**
+(32 of 32 subphases). OPT-1 is an advisory PyCaret model, see
+[mlops/README.md](mlops/README.md). See the Current Status block in
 [plan.md](plan.md) and the evaluation in
 [docs/benchmark/phase-2-evaluation.md](docs/benchmark/phase-2-evaluation.md).
 
