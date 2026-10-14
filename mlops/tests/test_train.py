@@ -16,7 +16,11 @@ import train
 def _history(path, n_incidents, label):
     rng = random.Random(7)
     with path.open("w", newline="") as handle:
-        writer = csv.DictWriter(handle, fieldnames=train.FEATURES + ["incident_id", "fixed"])
+        # The export's own columns: arm is in the data even though the model
+        # does not use it as a feature.
+        writer = csv.DictWriter(
+            handle, fieldnames=sorted(set(train.FEATURES) | {"arm", "incident_id", "fixed"})
+        )
         writer.writeheader()
         for i in range(n_incidents):
             fault = rng.choice(["kubernetes:CrashLoopBackOff", "jenkins:Test"])
@@ -73,3 +77,42 @@ def test_the_same_data_gives_the_same_split_and_version_data_hash(tmp_path):
     assert first["data_sha256"] == second["data_sha256"]
     assert first["holdout_incidents"] == second["holdout_incidents"]
     assert first["accuracy"] == second["accuracy"]
+
+
+def test_arms_that_cannot_record_a_fix_are_left_out_and_arm_is_not_a_feature(tmp_path):
+    """Arms B, C and D have no verify step, so they never reach recovered
+    whatever action they pick: every one of their rows is labelled "not
+    fixed". Trained on them, the model learned which benchmark arm ran (0.949
+    held-out) rather than which action fixes a fault (0.667 without arm).
+    Production runs one arm, so arm carries no information there either."""
+    data = tmp_path / "history.csv"
+    rng = random.Random(3)
+    with data.open("w", newline="") as handle:
+        fields = sorted(set(train.FEATURES) | {"arm", "incident_id", "fixed"})
+        writer = csv.DictWriter(handle, fieldnames=fields)
+        writer.writeheader()
+        for i in range(200):
+            arm = rng.choice(["A", "B", "C", "D", "E"])
+            action = rng.choice(["restart_deployment", "open_fix_pr"])
+            fixed = int(arm in ("A", "E") and action == "restart_deployment")
+            writer.writerow(
+                {
+                    "incident_id": f"INC-{i}",
+                    "fault": "kubernetes:CrashLoopBackOff",
+                    "action": action,
+                    "arm": arm,
+                    "risk_tier": "low",
+                    "environment": "sandbox",
+                    "kind": "recovery",
+                    "attempt": 0,
+                    "fixed": fixed,
+                }
+            )
+    assert "arm" not in train.FEATURES
+    metrics = train.run(data, tmp_path / "models", git_sha="t")["metrics"]
+    import pandas as pd
+
+    frame = pd.read_csv(data)
+    expected_excluded = int(frame["arm"].isin(["B", "C", "D"]).sum())
+    assert metrics["excluded_rows"] == expected_excluded
+    assert metrics["train_rows"] + metrics["holdout_rows"] == len(frame) - expected_excluded
