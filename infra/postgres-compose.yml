@@ -10,6 +10,12 @@
 # an unrelated project on this host that also uses <repo>/infra as its
 # compose directory.
 #
+# The default network's subnet is pinned too. Left to Docker's address pool it
+# was auto-assigned 192.168.0.0/20, which swallowed the 192.168.2.x DNS
+# servers handed out by some campus/guest wifi networks and broke DNS (and
+# captive-portal detection) while this stack was up. 10.222.0.0/24 sits
+# outside the 192.168/16 and 172.16/12 ranges those networks tend to use.
+#
 # Credentials come from POSTGRES_USER / POSTGRES_PASSWORD / POSTGRES_DB with
 # local-sandbox defaults - set them in the environment or a .env file passed
 # via `docker compose --env-file`. These are placeholder credentials for a
@@ -36,6 +42,12 @@ services:
       interval: 5s
       timeout: 5s
       retries: 20
+
+networks:
+  default:
+    ipam:
+      config:
+        - subnet: 10.222.0.0/24
 
 volumes:
   postgres-data:
