@@ -21,3 +21,7 @@ infra/terraform/*-config
 .helix-serve.pid
 .helix-serve.log
 .helix-demo-signal.json
+
+# OPT-1 model artifacts (Jenkins archives them; never committed)
+mlops/models/
+mlops/logs.log
