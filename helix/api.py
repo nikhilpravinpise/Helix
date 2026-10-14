@@ -35,6 +35,7 @@ REJECTED -> FIX_REQUIRED, approval drives REVIEW_PENDING -> APPROVED.
 `helix serve` runs this app under uvicorn at HELIX_API_BIND:HELIX_API_PORT.
 """
 
+import base64
 import hmac
 import json
 from collections.abc import Iterator
@@ -43,7 +44,7 @@ from typing import Annotated
 from urllib.parse import parse_qsl
 
 import httpx
-from fastapi import BackgroundTasks, Depends, FastAPI, Header, HTTPException, Request
+from fastapi import BackgroundTasks, Depends, FastAPI, Header, HTTPException, Request, Response
 from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy import select
 from sqlalchemy.orm import Session
@@ -62,6 +63,53 @@ app = FastAPI(
     title="Helix",
     description="Evidence-constrained DevOps recovery - intake and incident state",
 )
+
+#: Routes the password gate leaves open: the host's health check, and
+#: Slack's callback, which Slack signs and handle_slack_interaction verifies.
+_OPEN_PATHS = frozenset({"/healthz", "/slack/interactions"})
+
+
+def _gate_allows(authorization: str | None) -> bool:
+    """HTTP Basic with the configured user and password, or the intake
+    token as a Bearer header: the dashboard's approve/reject calls and
+    machine clients send that, and both share the one Authorization header."""
+    settings = get_settings()
+    scheme, _, credential = (authorization or "").partition(" ")
+    if scheme.lower() == "bearer" and settings.intake_token:
+        return hmac.compare_digest(credential, settings.intake_token)
+    if scheme.lower() != "basic":
+        return False
+    try:
+        user, _, password = base64.b64decode(credential).decode().partition(":")
+    except (ValueError, UnicodeDecodeError):
+        return False
+    return hmac.compare_digest(user, settings.ui_user) and hmac.compare_digest(
+        password, settings.ui_password or ""
+    )
+
+
+@app.middleware("http")
+async def password_gate(request: Request, call_next):
+    """Every route needs the password when HELIX_UI_PASSWORD is set: the
+    dashboard has no accounts, so on a public URL it would otherwise show
+    every incident to anyone with the link."""
+    if (
+        get_settings().ui_password
+        and request.url.path not in _OPEN_PATHS
+        and not _gate_allows(request.headers.get("authorization"))
+    ):
+        return Response(
+            status_code=401,
+            content="Helix: sign in required",
+            headers={"WWW-Authenticate": 'Basic realm="Helix"'},
+        )
+    return await call_next(request)
+
+
+@app.get("/healthz")
+def healthz() -> dict[str, bool]:
+    """Liveness for the hosting platform; open even behind the gate."""
+    return {"ok": True}
 
 
 def get_db_session() -> Iterator[Session]:

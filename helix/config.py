@@ -82,6 +82,10 @@ class Settings(BaseSettings):
     api_bind: str = "127.0.0.1"
     api_port: int = 8787
     intake_token: str | None = Field(default=None, repr=False)
+    #: A password in front of every page and API route, for a public
+    #: deployment (HTTP Basic, user ui_user). Unset: no gate, as before.
+    ui_user: str = "helix"
+    ui_password: str | None = Field(default=None, repr=False)
 
     # Coordinator + diagnosis (subphase 1.5). max_evidence_rounds bounds the
     # LLM's request-more-evidence loop so an investigation cannot run away.
