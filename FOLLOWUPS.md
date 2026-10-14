@@ -406,7 +406,9 @@ Ordered by risk.
   `get_page` treats it as present, so reconcile never recreates it and
   appends fail until the row is `failed`. From Notion's documented
   behaviour; not reproduced.
-- **B3 - xsys-runtime-missing-owner replays the wrong evidence.** Tried 2026-10-11: an empty
+- **B3 - xsys-runtime-missing-owner replays the wrong evidence.** FIXED
+  2026-10-14 (decided by Vraj): it replays `cluster/unregistered-service`, a
+  fixture declared `"captured": false` with no evidence. Tried 2026-10-11: an empty
   evidence file for an undeployed service breaks the fixture contract (every
   fixture is a real capture; tests check pods, events and logs and count
   them). Needs a real capture or a decision to allow non-captured fixtures. Its event
