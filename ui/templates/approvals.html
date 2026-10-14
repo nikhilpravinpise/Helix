@@ -6,10 +6,16 @@
   <span class="muted">{{ pending|length }} pending</span>
 </div>
 
+{%- set who = request.state.user if request.state is defined else none %}
 <div class="card actor-bar">
+  {% if who %}
+  <span>Deciding as <b>{{ who }}</b></span>
+  <input id="actor" type="hidden" value="{{ who }}">
+  {% else %}
   <label for="actor">Operator</label>
   <input id="actor" type="text" value="{{ default_actor }}" maxlength="128" autocomplete="off">
-  {% if token_required %}
+  {% endif %}
+  {% if token_required and not who %}
   <label for="intake-token">Intake token</label>
   <input id="intake-token" type="password" maxlength="256" autocomplete="off"
          placeholder="HELIX_INTAKE_TOKEN">

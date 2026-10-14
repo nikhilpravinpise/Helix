@@ -20,10 +20,10 @@ from helix.api import app, get_db_session
 
 @pytest.fixture
 def client(sqlite_engine, monkeypatch):
-    from sqlalchemy.orm import Session
+    from state.db import session_scope
 
     def override():
-        with Session(sqlite_engine) as session:
+        with session_scope(sqlite_engine) as session:
             yield session
 
     app.dependency_overrides[get_db_session] = override
@@ -129,3 +129,64 @@ def test_the_allow_list_defaults_to_the_registry_people(monkeypatch):
     assert auth.allowed_users() == {"VrajVed", "nikhilpravinpise"}
     monkeypatch.setenv("HELIX_ALLOWED_USERS", "VrajVed")
     assert auth.allowed_users() == {"VrajVed"}
+
+
+def _pending_approval(client, sqlite_engine, monkeypatch):
+    """A parked approval on a payment-api incident (owners alice, bob)."""
+    from sqlalchemy import select
+    from test_api import K8S_SIGNAL
+
+    from state import models
+    from state.db import session_scope
+
+    monkeypatch.setattr(
+        "agent.runner.run_incident",
+        lambda *a, **k: (_ for _ in ()).throw(RuntimeError("resume not under test")),
+    )
+    monkeypatch.setenv("HELIX_INTAKE_TOKEN", "tok")
+    incident_id = client.post(
+        "/intake/kubernetes", json=K8S_SIGNAL, headers={"Authorization": "Bearer tok"}
+    ).json()["incident_id"]
+    with session_scope(sqlite_engine) as session:
+        incident = session.scalar(
+            select(models.Incident).where(models.Incident.incident_id == incident_id)
+        )
+        row = models.Approval(
+            incident_id=incident.id,
+            action="reapply_manifest",
+            params={},
+            fingerprint="fp",
+            status=models.ApprovalStatus.PENDING,
+        )
+        session.add(row)
+        session.flush()
+        return row.id
+
+
+def test_a_signed_in_owner_decides_as_themselves(client, sqlite_engine, monkeypatch):
+    """Signed in, the decision is recorded as the GitHub login, whatever
+    name the request body carries, and the dashboard needs no intake token."""
+    approval_id = _pending_approval(client, sqlite_engine, monkeypatch)
+    _enable(monkeypatch, login="alice")
+    monkeypatch.setenv("HELIX_ALLOWED_USERS", "alice")
+    _sign_in(client)
+    response = client.post(f"/approvals/{approval_id}/approve", json={"actor": "mallory"})
+    assert response.status_code == 200
+    assert response.json()["approval"]["decided_by"] == "alice"
+
+
+def test_a_signed_in_non_owner_is_still_refused(client, sqlite_engine, monkeypatch):
+    approval_id = _pending_approval(client, sqlite_engine, monkeypatch)
+    _enable(monkeypatch, login="carol")
+    monkeypatch.setenv("HELIX_ALLOWED_USERS", "carol")
+    _sign_in(client)
+    response = client.post(f"/approvals/{approval_id}/approve", json={"actor": "alice"})
+    assert response.status_code == 409 and "not allowed" in response.json()["detail"]
+
+
+def test_the_approvals_page_shows_who_is_deciding(client, monkeypatch):
+    _enable(monkeypatch, login="VrajVed")
+    _sign_in(client)
+    page = client.get("/ui/approvals").text
+    assert "Deciding as <b>VrajVed</b>" in page
+    assert 'id="intake-token"' not in page

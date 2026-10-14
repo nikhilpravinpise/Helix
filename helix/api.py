@@ -91,11 +91,20 @@ def get_db_session() -> Iterator[Session]:
 DbSession = Annotated[Session, Depends(get_db_session)]
 
 
-def require_intake_token(authorization: Annotated[str | None, Header()] = None) -> None:
+def _signed_in(request: Request) -> str | None:
+    """The GitHub login the sign-in gate attached (helix/auth.py), if any."""
+    return getattr(request.state, "user", None)
+
+
+def require_intake_token(
+    request: Request, authorization: Annotated[str | None, Header()] = None
+) -> None:
     """Bearer-token gate for intake POSTs. No-op when HELIX_INTAKE_TOKEN is
-    unset (local-only trust). Missing header -> 401, wrong token -> 403."""
+    unset (local-only trust), or for a user signed in with GitHub: the
+    dashboard's own buttons carry the session, not the token. Missing
+    header -> 401, wrong token -> 403."""
     token = get_settings().intake_token
-    if not token:
+    if not token or _signed_in(request):
         return
     if authorization is None:
         raise HTTPException(
@@ -343,8 +352,15 @@ class ApprovalDecisionOut(BaseModel):
     run_error: str | None = None
 
 
+def _decider(request: Request, body: "ApprovalDecisionIn") -> str:
+    """Who the decision is recorded as: the signed-in GitHub user when
+    there is one - a typed name cannot override a session - else the
+    body's actor (CLI, machine clients with the intake token)."""
+    return _signed_in(request) or body.actor
+
+
 def _decide_approval(
-    approval_id: int, approved: bool, body: ApprovalDecisionIn, session: Session
+    approval_id: int, approved: bool, body: ApprovalDecisionIn, session: Session, actor: str
 ) -> ApprovalDecisionOut:
     """Record the decision on a pending row and resume the suspended run.
 
@@ -356,7 +372,7 @@ def _decide_approval(
     if approval is None:
         raise HTTPException(status_code=404, detail=f"no such approval: {approval_id}")
     try:
-        record_decision(session, approval, approved, body.actor, body.note)
+        record_decision(session, approval, approved, actor, body.note)
     except ApprovalDecidedError as exc:
         raise HTTPException(status_code=409, detail=str(exc)) from exc
     incident_id = approval.incident.incident_id
@@ -385,17 +401,19 @@ def _decide_approval(
 
 @app.post("/approvals/{approval_id}/approve", response_model=ApprovalDecisionOut)
 def approve_approval(
+    request: Request,
     approval_id: int,
     body: ApprovalDecisionIn,
     session: DbSession,
     _: Annotated[None, Depends(require_intake_token)],
 ) -> ApprovalDecisionOut:
     """Approve the pending row and resume the suspended run."""
-    return _decide_approval(approval_id, True, body, session)
+    return _decide_approval(approval_id, True, body, session, _decider(request, body))
 
 
 @app.post("/approvals/{approval_id}/reject", response_model=ApprovalDecisionOut)
 def reject_approval(
+    request: Request,
     approval_id: int,
     body: ApprovalDecisionIn,
     session: DbSession,
@@ -403,7 +421,7 @@ def reject_approval(
 ) -> ApprovalDecisionOut:
     """Reject the pending row and resume: the incident replans with the
     rejected fingerprint excluded."""
-    return _decide_approval(approval_id, False, body, session)
+    return _decide_approval(approval_id, False, body, session, _decider(request, body))
 
 
 def _slack_action(
@@ -691,7 +709,7 @@ class ReviewDecisionOut(BaseModel):
 
 
 def _decide_review(
-    review_id: int, approved: bool, body: ApprovalDecisionIn, session: Session
+    review_id: int, approved: bool, body: ApprovalDecisionIn, session: Session, actor: str
 ) -> ReviewDecisionOut:
     """The review-side twin of `_decide_approval`: record the decision on
     the pending review_requests row (durable first), then best-effort
@@ -703,7 +721,7 @@ def _decide_review(
     if review is None:
         raise HTTPException(status_code=404, detail=f"no such review: {review_id}")
     try:
-        record_review_decision(session, review, approved, body.actor, body.note)
+        record_review_decision(session, review, approved, actor, body.note)
     except ReviewDecidedError as exc:
         raise HTTPException(status_code=409, detail=str(exc)) from exc
     incident_id = review.incident.incident_id
@@ -732,6 +750,7 @@ def _decide_review(
 
 @app.post("/reviews/{review_id}/approve", response_model=ReviewDecisionOut)
 def approve_review(
+    request: Request,
     review_id: int,
     body: ApprovalDecisionIn,
     session: DbSession,
@@ -739,11 +758,12 @@ def approve_review(
 ) -> ReviewDecisionOut:
     """Approve the pending review request and resume: the change proceeds
     toward APPROVED -> DEPLOYING."""
-    return _decide_review(review_id, True, body, session)
+    return _decide_review(review_id, True, body, session, _decider(request, body))
 
 
 @app.post("/reviews/{review_id}/reject", response_model=ReviewDecisionOut)
 def reject_review(
+    request: Request,
     review_id: int,
     body: ApprovalDecisionIn,
     session: DbSession,
@@ -751,7 +771,7 @@ def reject_review(
 ) -> ReviewDecisionOut:
     """Reject the pending review request and resume: the change drives
     REJECTED -> FIX_REQUIRED awaiting an updated commit."""
-    return _decide_review(review_id, False, body, session)
+    return _decide_review(review_id, False, body, session, _decider(request, body))
 
 
 # Subphase 1.12 (D11): mount the server-rendered operator UI - / redirects
