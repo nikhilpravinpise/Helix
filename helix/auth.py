@@ -1,0 +1,215 @@
+"""Sign in with GitHub for a hosted Helix (decided by Vraj 2026-10-14).
+
+Active only when a GitHub OAuth app is configured
+(HELIX_GITHUB_OAUTH_CLIENT_ID / _SECRET). Then every page needs a signed-in
+GitHub user on the allow-list (HELIX_ALLOWED_USERS, default: the people in
+the service registry): pages send a signed-out visitor to /login, API
+routes answer 401. Machine clients keep using the intake token as a Bearer
+header. /healthz, /slack/interactions (Slack-signed) and the sign-in routes
+stay open.
+
+The session is a cookie holding the GitHub login and an expiry, signed with
+HMAC-SHA256 under HELIX_SESSION_SECRET; no passwords exist anywhere. The
+OAuth `state` is a second signed cookie, checked on the callback, so a
+callback Helix did not start is refused.
+"""
+
+import base64
+import hashlib
+import hmac
+import html
+import json
+import secrets
+import time
+from urllib.parse import urlencode
+
+import httpx
+from fastapi import APIRouter, Request
+from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse, Response
+
+from helix.config import get_settings
+
+SESSION_COOKIE = "helix_session"
+STATE_COOKIE = "helix_oauth_state"
+SESSION_SECONDS = 12 * 3600
+_OPEN_PATHS = frozenset(
+    {
+        "/healthz",
+        "/slack/interactions",
+        "/login",
+        "/logout",
+        "/auth/github",
+        "/auth/github/callback",
+    }
+)
+
+router = APIRouter()
+
+
+def enabled() -> bool:
+    return bool(get_settings().github_oauth_client_id)
+
+
+def allowed_users() -> set[str]:
+    """HELIX_ALLOWED_USERS when set, else everyone the registry names."""
+    configured = get_settings().allowed_users
+    if configured:
+        return {name.strip() for name in configured.split(",") if name.strip()}
+    from agent.ops.registry import load_registry
+
+    return set(load_registry().people)
+
+
+def _secret() -> bytes:
+    secret = get_settings().session_secret
+    if not secret:
+        raise RuntimeError("HELIX_SESSION_SECRET must be set when GitHub sign-in is enabled")
+    return secret.encode()
+
+
+def _sign(payload: dict) -> str:
+    body = base64.urlsafe_b64encode(json.dumps(payload).encode()).decode()
+    mac = hmac.new(_secret(), body.encode(), hashlib.sha256).hexdigest()
+    return f"{body}.{mac}"
+
+
+def _unsign(value: str | None) -> dict | None:
+    if not value or "." not in value:
+        return None
+    body, _, mac = value.rpartition(".")
+    expected = hmac.new(_secret(), body.encode(), hashlib.sha256).hexdigest()
+    if not hmac.compare_digest(mac, expected):
+        return None
+    try:
+        payload = json.loads(base64.urlsafe_b64decode(body))
+    except ValueError:
+        return None
+    return payload if payload.get("exp", 0) > time.time() else None
+
+
+def signed_in_user(request: Request) -> str | None:
+    """The GitHub login of the signed-in user, or None."""
+    payload = _unsign(request.cookies.get(SESSION_COOKIE))
+    login = (payload or {}).get("login")
+    return login if login in allowed_users() else None
+
+
+def _public_url(request: Request) -> str:
+    return (get_settings().public_url or str(request.base_url)).rstrip("/")
+
+
+def _secure(request: Request) -> bool:
+    return _public_url(request).startswith("https://")
+
+
+def github_login(code: str, redirect_uri: str) -> str:
+    """Exchange the OAuth code for the user's GitHub login."""
+    settings = get_settings()
+    token = httpx.post(
+        "https://github.com/login/oauth/access_token",
+        data={
+            "client_id": settings.github_oauth_client_id,
+            "client_secret": settings.github_oauth_client_secret,
+            "code": code,
+            "redirect_uri": redirect_uri,
+        },
+        headers={"Accept": "application/json"},
+        timeout=10.0,
+    ).json()["access_token"]
+    user = httpx.get(
+        "https://api.github.com/user",
+        headers={"Authorization": f"Bearer {token}", "Accept": "application/vnd.github+json"},
+        timeout=10.0,
+    )
+    user.raise_for_status()
+    return str(user.json()["login"])
+
+
+def gate(request: Request) -> Response | None:
+    """None when the request may proceed; otherwise the response to send."""
+    if not enabled() or request.url.path in _OPEN_PATHS or request.url.path.startswith("/static/"):
+        return None
+    token = get_settings().intake_token
+    scheme, _, credential = (request.headers.get("authorization") or "").partition(" ")
+    if token and scheme.lower() == "bearer" and hmac.compare_digest(credential, token):
+        return None
+    user = signed_in_user(request)
+    if user:
+        request.state.user = user
+        return None
+    if request.url.path == "/" or request.url.path.startswith("/ui"):
+        return RedirectResponse("/login", status_code=303)
+    return JSONResponse({"detail": "sign in required"}, status_code=401)
+
+
+_PAGE = """<!doctype html><html lang="en"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Helix - sign in</title><link rel="stylesheet" href="/static/style.css"></head>
+<body><main class="container"><h1>Helix</h1>{body}</main></body></html>"""
+
+
+@router.get("/login", response_class=HTMLResponse)
+def login_page() -> str:
+    return _PAGE.format(
+        body="<p>Sign in to see incidents and decide approvals.</p>"
+        '<p><a class="button" href="/auth/github">Sign in with GitHub</a></p>'
+    )
+
+
+@router.get("/auth/github")
+def start(request: Request) -> Response:
+    state = secrets.token_urlsafe(24)
+    query = urlencode(
+        {
+            "client_id": get_settings().github_oauth_client_id,
+            "redirect_uri": f"{_public_url(request)}/auth/github/callback",
+            "scope": "read:user",
+            "state": state,
+            "allow_signup": "false",
+        }
+    )
+    response = RedirectResponse(f"https://github.com/login/oauth/authorize?{query}", 303)
+    response.set_cookie(
+        STATE_COOKIE,
+        _sign({"state": state, "exp": time.time() + 600}),
+        max_age=600,
+        httponly=True,
+        secure=_secure(request),
+        samesite="lax",
+    )
+    return response
+
+
+@router.get("/auth/github/callback")
+def callback(request: Request, code: str = "", state: str = "") -> Response:
+    expected = (_unsign(request.cookies.get(STATE_COOKIE)) or {}).get("state")
+    if not code or not expected or not hmac.compare_digest(state, expected):
+        return HTMLResponse(
+            _PAGE.format(body='<p>Sign-in expired. <a href="/login">Try again</a>.</p>'), 400
+        )
+    login = github_login(code, f"{_public_url(request)}/auth/github/callback")
+    if login not in allowed_users():
+        return HTMLResponse(
+            _PAGE.format(
+                body=f"<p>GitHub user <b>{html.escape(login)}</b> is not allowed to use Helix.</p>"
+            ),
+            403,
+        )
+    response = RedirectResponse("/ui/", status_code=303)
+    response.delete_cookie(STATE_COOKIE)
+    response.set_cookie(
+        SESSION_COOKIE,
+        _sign({"login": login, "exp": time.time() + SESSION_SECONDS}),
+        max_age=SESSION_SECONDS,
+        httponly=True,
+        secure=_secure(request),
+        samesite="lax",
+    )
+    return response
+
+
+@router.get("/logout")
+def logout() -> Response:
+    response = RedirectResponse("/login", status_code=303)
+    response.delete_cookie(SESSION_COOKIE)
+    return response
