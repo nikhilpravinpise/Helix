@@ -21,6 +21,7 @@ and points models/latest.json and models/advisory.json at it.
 import argparse
 import hashlib
 import json
+import math
 import shutil
 import sys
 from datetime import UTC, datetime
@@ -29,13 +30,27 @@ from pathlib import Path
 import pandas as pd
 from sklearn.model_selection import GroupShuffleSplit
 
-FEATURES = ["fault", "action", "arm", "risk_tier", "environment", "kind", "attempt"]
+#: `arm` is deliberately not a feature: production runs one arm, so it
+#: carries no information there, and in benchmark history it stood in for
+#: the label (see NO_FIX_ARMS).
+FEATURES = ["fault", "action", "risk_tier", "environment", "kind", "attempt"]
+#: Ablation arms with no verify step. They never reach `recovered`
+#: whatever action they pick, so every one of their rows reads "not fixed"
+#: and says nothing about the action. Trained on them, the model learned
+#: which arm ran (held-out 0.949) instead of which action fixes a fault
+#: (0.667 once arm was removed).
+NO_FIX_ARMS = {"B", "C", "D"}
 TARGET = "fixed"
 SEED = 42
 HOLDOUT = 0.25
-#: The model must beat the baseline by more than this to count as better;
-#: a hair's difference on a small held-out set is noise.
-MARGIN = 0.02
+
+
+def _margin(baseline: float, rows: int) -> float:
+    """How far the model must beat the baseline to count as better: two
+    standard errors of the baseline's accuracy on `rows` held-out rows. A
+    fixed 0.02 let a model on pure noise "beat" the baseline on ~60 rows,
+    where chance alone moves accuracy by more than that."""
+    return 2 * math.sqrt(baseline * (1 - baseline) / max(rows, 1))
 
 
 def _split(frame: pd.DataFrame) -> tuple[pd.DataFrame, pd.DataFrame]:
@@ -69,7 +84,8 @@ def run(data: Path, out: Path, *, git_sha: str = "unknown") -> dict:
     )
 
     raw = data.read_bytes()
-    frame = pd.read_csv(data)
+    loaded = pd.read_csv(data)
+    frame = loaded[~loaded["arm"].isin(NO_FIX_ARMS)].reset_index(drop=True)
     frame["attempt"] = frame["attempt"].astype(int)
     train, holdout = _split(frame)
 
@@ -101,13 +117,17 @@ def run(data: Path, out: Path, *, git_sha: str = "unknown") -> dict:
     metrics = {
         "version": version,
         "model": type(model).__name__,
+        "excluded_rows": int(len(loaded) - len(frame)),
         "train_rows": int(len(train)),
         "holdout_rows": int(len(holdout)),
         "holdout_incidents": sorted(holdout["incident_id"].unique().tolist()),
         "accuracy": round(accuracy, 4),
         "baseline_accuracy": round(baseline, 4),
+        "required_margin": round(_margin(baseline, len(holdout)), 4),
         "verdict": (
-            "beats baseline" if accuracy > baseline + MARGIN else "no better than baseline"
+            "beats baseline"
+            if accuracy > baseline + _margin(baseline, len(holdout))
+            else "no better than baseline"
         ),
         "data_sha256": data_sha,
         "git_sha": git_sha,
