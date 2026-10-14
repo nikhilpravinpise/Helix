@@ -379,7 +379,9 @@ Ordered by risk.
   drain re-posts. No row locking either, so two drains can overlap.
   Reproduced (audit script t1.py). Fix: commit per row, and claim rows
   with `FOR UPDATE SKIP LOCKED`.
-- **E1b - a crash during an open PR joins the PR's change incident.**
+- **E1b - a crash during an open PR joins the PR's change incident.** FIXED
+  2026-10-14, rule decided by Vraj: only while the change is deploying, or
+  on a shared identity such as its commit.
   Change incidents absorb deploy failures on purpose (the
   xsys-pr-deploy-failure handoff), so a runtime failure on the same
   service joins one on the service token and no recovery incident opens.
@@ -389,7 +391,8 @@ Ordered by risk.
   executor re-runs `decide()` without evidence types, gets
   `allow_with_checks`, and writes `approval_id=NULL` for a write a human
   approved. Provenance only; the write itself was authorised.
-- **E4 - events carry ingest time, not vendor time.** `vendor_event` never
+- **E4 - events carry ingest time, not vendor time.** FIXED 2026-10-14: each
+  adapter reads the vendor's time field, falling back to now. `vendor_event` never
   sets `timestamp` from `@timestamp`, `submitted_at`, build times or
   Kubernetes `lastTimestamp`, so the 30-minute correlation window and
   `occurred_at` measure ingest. Changing it shifts correlation behaviour,
@@ -404,7 +407,9 @@ Ordered by risk.
   `get_page` treats it as present, so reconcile never recreates it and
   appends fail until the row is `failed`. From Notion's documented
   behaviour; not reproduced.
-- **B3 - xsys-runtime-missing-owner replays the wrong evidence.** Tried 2026-10-11: an empty
+- **B3 - xsys-runtime-missing-owner replays the wrong evidence.** FIXED
+  2026-10-14 (decided by Vraj): it replays `cluster/unregistered-service`, a
+  fixture declared `"captured": false` with no evidence. Tried 2026-10-11: an empty
   evidence file for an undeployed service breaks the fixture contract (every
   fixture is a real capture; tests check pods, events and logs and count
   them). Needs a real capture or a decision to allow non-captured fixtures. Its event

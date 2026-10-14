@@ -18,7 +18,7 @@ root_cause: >-
   blocked for a human.
 requires:
   - postgres
-evidence_fixture: cluster/crashloop
+evidence_fixture: cluster/unregistered-service
 events:
   - type: pod.failed
     source: kubernetes

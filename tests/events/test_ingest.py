@@ -632,3 +632,52 @@ class TestPullRequestsJoinOnIdentity:
             ),
         )
         assert opened.incident_id == pushed.incident_id
+
+
+class TestRuntimeEventsAndOpenChanges:
+    """Audit 2026-10-05 (E1b), rule decided by Vraj 2026-10-14: a pod
+    crash on a service with an open PR joined that PR's change incident on
+    the service token alone, so no recovery incident opened and the crash
+    was never remediated. A runtime event joins a change incident only
+    while it is deploying (the crash is then likely the change's), or when
+    it shares a real identity with it."""
+
+    def _open_change(self, db_session, status=IncidentStatus.REVIEW_PENDING):
+        opened = ingest_event(
+            db_session, event(EventType.PR_OPENED, EventSource.GITHUB, pr=20, sha="c" * 40)
+        )
+        incident = db_session.scalar(
+            select(models.Incident).where(models.Incident.incident_id == opened.incident_id)
+        )
+        incident.status = status
+        db_session.flush()
+        return opened
+
+    def _crash(self, **metadata):
+        return event(
+            EventType.POD_FAILED,
+            EventSource.KUBERNETES,
+            at=T0 + timedelta(minutes=5),
+            pod="payment-api-x",
+            waiting_reason="CrashLoopBackOff",
+            **metadata,
+        )
+
+    def test_a_crash_during_review_opens_its_own_recovery_incident(self, db_session):
+        change = self._open_change(db_session)
+        crash = ingest_event(db_session, self._crash())
+        assert crash.created is True and crash.incident_id != change.incident_id
+        incident = db_session.scalar(
+            select(models.Incident).where(models.Incident.incident_id == crash.incident_id)
+        )
+        assert incident.kind == models.IncidentKind.RECOVERY
+
+    def test_a_crash_while_the_change_deploys_joins_it(self, db_session):
+        change = self._open_change(db_session, status=IncidentStatus.DEPLOYING)
+        crash = ingest_event(db_session, self._crash())
+        assert crash.incident_id == change.incident_id
+
+    def test_a_crash_sharing_the_changes_commit_joins_it(self, db_session):
+        change = self._open_change(db_session)
+        crash = ingest_event(db_session, self._crash(sha="c" * 40))
+        assert crash.incident_id == change.incident_id

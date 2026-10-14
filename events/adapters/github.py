@@ -7,7 +7,7 @@ reviews, and branch comparison state. GitHub's vocabulary - `conclusion`,
 
 from typing import Any
 
-from events.adapters._common import vendor_event
+from events.adapters._common import vendor_event, vendor_time
 from events.schemas import (
     EngineeringEvent,
     EventSource,
@@ -51,6 +51,7 @@ def check_run_events(
                 # redeliveries; the ref plus name is the fallback when a
                 # payload omits it, and is unique per run on that commit.
                 event_id=derive_event_id("github", item.get("url") or f"{ref}:{item.get('name')}"),
+                occurred=vendor_time(item.get("completed_at")),
                 event_type=event_type,
                 source=EventSource.GITHUB,
                 service=service,
@@ -89,6 +90,7 @@ def review_events(
             vendor_event(
                 # A review id is immutable once submitted.
                 event_id=derive_event_id("github", "review", item.get("id")),
+                occurred=vendor_time(item.get("submitted_at")),
                 event_type=event_type,
                 source=EventSource.GITHUB,
                 service=service,
@@ -172,6 +174,10 @@ def pull_request_events(
                 )
                 if action == "reopened"
                 else derive_event_id("github", "pr", number, head.get("sha"))
+            ),
+            # Opened: when the PR was created; any later action: its last update.
+            occurred=vendor_time(
+                pr.get("created_at") if action == "opened" else pr.get("updated_at")
             ),
             event_type=event_type,
             source=EventSource.GITHUB,

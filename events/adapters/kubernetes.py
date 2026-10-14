@@ -29,7 +29,7 @@ per object.
 
 from typing import Any
 
-from events.adapters._common import vendor_event
+from events.adapters._common import vendor_event, vendor_time
 from events.schemas import (
     EngineeringEvent,
     EventSource,
@@ -72,6 +72,7 @@ def _failing_container(pod: dict[str, Any]) -> dict[str, Any] | None:
                 "exit_code": terminated.get("exitCode"),
                 "restart_count": cs.get("restartCount", 0),
                 "image": cs.get("image"),
+                "finished_at": terminated.get("finishedAt"),
             }
     return None
 
@@ -142,6 +143,7 @@ def pod_events(
                         "kubernetes", uid, failing["container"], failing["restart_count"]
                     ),
                     event_type=EventType.POD_FAILED,
+                    occurred=vendor_time(failing.get("finished_at"), _ready_since(pod)),
                     metadata={
                         "pod": metadata.get("name"),
                         "namespace": metadata.get("namespace"),
@@ -160,6 +162,7 @@ def pod_events(
                     # a duplicate of the first.
                     event_id=derive_event_id("kubernetes", uid, "not-ready", _ready_since(pod)),
                     event_type=EventType.SERVICE_UNHEALTHY,
+                    occurred=vendor_time(_ready_since(pod)),
                     metadata={
                         "pod": metadata.get("name"),
                         "namespace": metadata.get("namespace"),
@@ -196,6 +199,9 @@ def object_events(
                 # and bumps the counter, so the uid alone would make the
                 # tenth occurrence indistinguishable from the first.
                 event_id=derive_event_id("kubernetes", metadata.get("uid"), item.get("count", 1)),
+                occurred=vendor_time(
+                    item.get("lastTimestamp"), item.get("eventTime"), item.get("firstTimestamp")
+                ),
                 event_type=EventType.POD_FAILED
                 if involved.get("kind") == "Pod"
                 else EventType.DEPLOYMENT_FAILED,

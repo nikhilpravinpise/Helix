@@ -83,7 +83,10 @@ def _existing_record(session: Session, event_id: str) -> models.EventRecord | No
 
 
 def _correlated_incident(
-    session: Session, tokens: set[str], occurred_at: datetime
+    session: Session,
+    tokens: set[str],
+    occurred_at: datetime,
+    event_type: EventType | None = None,
 ) -> models.Incident | None:
     """The open incident sharing a token with this event, if any.
 
@@ -103,6 +106,8 @@ def _correlated_incident(
         if incident is None or incident.status in machine.TERMINAL_STATUSES:
             continue
         if _conflicting_identity(session, tokens, incident):
+            continue
+        if _runtime_outside_deploy(session, tokens, incident, event_type):
             continue
         # The window is measured against the incident's most recent event,
         # not its creation: a long chain of related events legitimately
@@ -163,6 +168,40 @@ def _addressed_incident(session: Session, event: EngineeringEvent) -> models.Inc
 #: pods, a rerun gets a new build number and a PR gains commits, all within
 #: one incident.
 _EXCLUSIVE_TOKEN_KINDS = ("pr",)
+
+
+#: Events about a running workload, as opposed to a change in review.
+_RUNTIME_EVENT_TYPES = frozenset({EventType.POD_FAILED, EventType.SERVICE_UNHEALTHY})
+
+
+def _runtime_outside_deploy(
+    session: Session,
+    tokens: set[str],
+    incident: models.Incident,
+    event_type: EventType | None,
+) -> bool:
+    """True when a runtime event must not join this change incident.
+
+    A pod crash on a service with an open PR joined the PR's change
+    incident on the service token alone, so no recovery incident opened
+    and the crash was never remediated. It joins only while the change is
+    deploying (the crash is then likely the change's) or when it shares a
+    real identity with it, such as the change's commit."""
+    if event_type not in _RUNTIME_EVENT_TYPES:
+        return False
+    if incident.kind != models.IncidentKind.CHANGE:
+        return False
+    if incident.status == IncidentStatus.DEPLOYING:
+        return False
+    known = set(
+        session.scalars(
+            select(models.CorrelationToken.token).where(
+                models.CorrelationToken.incident_id == incident.id
+            )
+        )
+    )
+    identity = {t for t in tokens if not t.startswith("service:")}
+    return not (identity & known)
 
 
 def _conflicting_identity(session: Session, tokens: set[str], incident: models.Incident) -> bool:
@@ -227,7 +266,7 @@ def ingest_event(session: Session, event: EngineeringEvent) -> IngestResult:
     tokens = tokens_for(event)
     occurred_at = _aware(event.timestamp)
     incident = _addressed_incident(session, event) or _correlated_incident(
-        session, tokens, occurred_at
+        session, tokens, occurred_at, event.event_type
     )
     created = incident is None
     correlated = not created

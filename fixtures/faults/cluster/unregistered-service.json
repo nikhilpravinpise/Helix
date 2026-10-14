@@ -1,0 +1,11 @@
+{
+  "fault": "unregistered-service",
+  "layer": "cluster",
+  "captured": false,
+  "captured_at": null,
+  "trigger": "Not captured, by design: billing-worker is not deployed in the sandbox, so every evidence lookup for it finds nothing, as it would live. xsys-runtime-missing-owner replays this instead of payment-api's crashloop capture, so the LLM arms reason over the real absence of evidence rather than another service's.",
+  "fault_script": null,
+  "fault_script_exit_code": null,
+  "fault_script_output": "",
+  "evidence": {}
+}

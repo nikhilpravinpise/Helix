@@ -74,7 +74,10 @@ def test_fixture_store_lists_all_faults(store):
     assert "github/rejected-pr" in names
     assert "github/failed-check" in names
     assert "github/stale-branch" in names
-    assert len(names) == 14
+    # B3 (2026-10-14) added cluster/unregistered-service, declared not
+    # captured, for the billing-worker scenario.
+    assert "cluster/unregistered-service" in names
+    assert len(names) == 15
 
 
 def test_ambiguous_bare_fault_name_errors(store):
@@ -91,3 +94,17 @@ def test_selected_fixture_by_name(monkeypatch):
     monkeypatch.setenv("HELIX_FIXTURE_PATH", "crashloop")
     doc = selected_fixture(get_settings())
     assert doc["fault"] == "crashloop"
+
+
+def test_the_unregistered_service_scenario_replays_no_other_services_evidence(store):
+    """Audit 2026-10-05 (B3): xsys-runtime-missing-owner's event is a
+    billing-worker pod failure, but it replayed payment-api's crashloop
+    capture, so the LLM arms reasoned over the wrong service. billing-worker
+    is not deployed in the sandbox, so its honest evidence is none, declared
+    as not captured (decided by Vraj 2026-10-14)."""
+    from benchmark import catalog
+
+    scenario = catalog.load_scenarios()["xsys-runtime-missing-owner"]
+    fixture = store.load(scenario["evidence_fixture"])
+    assert fixture.get("captured") is False
+    assert not any("payment_api" in key for key in fixture.get("evidence") or {})

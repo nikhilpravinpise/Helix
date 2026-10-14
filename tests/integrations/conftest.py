@@ -33,7 +33,14 @@ from integrations.work import (
 from state import models
 from state.db import session_scope
 
-CLUSTER_FIXTURES = sorted(f"cluster/{p.stem}" for p in (FIXTURES_ROOT / "cluster").glob("*.json"))
+#: Real captures only: a fixture declared `"captured": false` (a service
+#: absent from the sandbox, whose honest evidence is none) has nothing for
+#: the capture-normalization tests to check.
+CLUSTER_FIXTURES = sorted(
+    f"cluster/{p.stem}"
+    for p in (FIXTURES_ROOT / "cluster").glob("*.json")
+    if json.loads(p.read_text()).get("captured", True)
+)
 CI_FIXTURES = sorted(f"ci/{p.stem}" for p in (FIXTURES_ROOT / "ci").glob("*.json"))
 
 

@@ -32,7 +32,7 @@ properly.
 
 from typing import Any
 
-from events.adapters._common import vendor_event
+from events.adapters._common import vendor_event, vendor_time
 from events.schemas import EngineeringEvent, EventSource, EventType, derive_event_id
 
 #: Error-severity markers, matched case-insensitively against the message.
@@ -85,6 +85,7 @@ def log_events(
                 # The document id: stable, and what a re-read of the same
                 # index returns unchanged.
                 event_id=derive_event_id("elk", hit.get("_index"), hit.get("_id")),
+                occurred=vendor_time(source.get("@timestamp")),
                 event_type=EventType.SERVICE_UNHEALTHY,
                 source=EventSource.ELK,
                 service=_service_of(source, service),

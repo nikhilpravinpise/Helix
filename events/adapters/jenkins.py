@@ -13,7 +13,7 @@ real CI failure.
 
 from typing import Any
 
-from events.adapters._common import vendor_event
+from events.adapters._common import vendor_event, vendor_time
 from events.schemas import (
     EngineeringEvent,
     EventSource,
@@ -104,4 +104,11 @@ def build_event(
         service=service or str(job or "unknown"),
         environment=environment,
         metadata=metadata,
+        # The API gives the build's start (ms) and its duration; it ended,
+        # and so failed or passed, at their sum.
+        occurred=vendor_time(
+            payload["timestamp"] + (payload.get("duration") or 0)
+            if isinstance(payload.get("timestamp"), (int, float))
+            else None
+        ),
     )
