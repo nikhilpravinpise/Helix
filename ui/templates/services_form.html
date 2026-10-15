@@ -73,20 +73,20 @@
       <p class="small muted">Databases, queues or other services. Separate with commas or new lines.</p>
     </div>
 
-    <span class="svc-label" id="svc-owners-label">Owners</span>
+    <span class="svc-label" id="svc-owners-label">Approvers</span>
     <div class="bot-field">
       <div class="svc-checks" role="group" aria-labelledby="svc-owners-label">
         {% for c in choices %}<label class="svc-check"><input type="checkbox" name="owner" value="{{ c.login }}"{% if c.login in f.owners %} checked{% endif %}> {{ c.name }}{% if c.name != c.login %} <span class="mono small muted">{{ c.login }}</span>{% endif %}</label>{% endfor %}
       </div>
-      <p class="small muted">Owners decide approvals for this service. Only people on the team can be chosen.</p>
+      <p class="small muted">Approvers decide approvals for this service. Only people on the team can be chosen.</p>
     </div>
-    <label for="svc-default-owner">Default owner</label>
+    <label for="svc-default-owner">Default approver</label>
     <div class="bot-field">
       <select id="svc-default-owner" name="default_owner">
-        <option value="">The first owner</option>
+        <option value="">The first approver</option>
         {% for c in choices %}<option value="{{ c.login }}"{% if c.login == f.default_owner %} selected{% endif %}>{{ c.name }}{% if c.name != c.login %} ({{ c.login }}){% endif %}</option>{% endfor %}
       </select>
-      <p class="small muted">Asked first when no path rule matches. Must be one of the owners.</p>
+      <p class="small muted">Asked first when no path rule matches. Must be one of the approvers.</p>
     </div>
 
     <span class="svc-label" id="svc-reviewers-label">Reviewers</span>

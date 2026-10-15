@@ -17,7 +17,7 @@ def session(sqlite_engine):
     with Session(sqlite_engine, expire_on_commit=False) as s:
         s.add_all(
             [
-                Person(login="VrajVed", name="Vraj", role="admin"),
+                Person(login="VrajVed", name="Vraj", role="owner", main_owner=True),
                 Person(login="nikhil", name="Nikhil", role="member"),
             ]
         )
@@ -45,7 +45,7 @@ def test_invite_accepts_edge_valid_logins(session):
 
 def test_invite_refuses_a_bad_role(session):
     with pytest.raises(TeamError, match="admin or a member"):
-        _invite(session, role="owner")
+        _invite(session, role="root")
 
 
 def test_invite_creates_a_pending_invite_that_expires_in_seven_days(session):
@@ -173,17 +173,19 @@ def test_set_role_and_rename(session):
         team.set_role(session, "ghost", "admin")
 
 
-def test_the_last_admin_cannot_be_demoted_or_removed_even_by_themselves(session):
+def test_the_main_owner_cannot_be_demoted_or_removed_even_by_themselves(session):
+    me = team.acting(session, "VrajVed")
     for action in (
+        lambda: team.set_role(session, "VrajVed", "member", actor=me),
+        lambda: team.remove_person(session, "VrajVed", actor=me),
         lambda: team.set_role(session, "VrajVed", "member"),
         lambda: team.remove_person(session, "VrajVed"),
     ):
-        with pytest.raises(TeamError, match="Helix needs at least one admin."):
+        with pytest.raises(TeamError, match="main owner cannot be removed or demoted"):
             action()
-    team.set_role(session, "nikhil", "admin")
-    team.set_role(session, "VrajVed", "member")  # fine with another admin
-    with pytest.raises(TeamError, match="at least one admin"):
-        team.remove_person(session, "nikhil")
+    team.set_role(session, "nikhil", "owner")
+    with pytest.raises(TeamError, match="main owner cannot be removed or demoted"):
+        team.remove_person(session, "VrajVed", actor=team.acting(session, "nikhil"))
 
 
 def test_is_admin(session):
@@ -207,7 +209,7 @@ def test_remove_is_refused_while_a_service_uses_the_person(session, fields):
     with pytest.raises(TeamError) as err:
         team.remove_person(session, "nikhil")
     assert str(err.value) == (
-        "Nikhil still owns or reviews payment-api. Change that on the Services page first."
+        "Nikhil still approves or reviews payment-api. Change that on the Services page first."
     )
     assert session.get(Person, "nikhil") is not None
 

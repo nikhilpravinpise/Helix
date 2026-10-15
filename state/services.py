@@ -69,13 +69,13 @@ def _clean(
         )
     owners = _unique(owners)
     if not owners:
-        raise ServiceError(f"Add at least one owner, or nobody can approve changes to {name}.")
+        raise ServiceError(f"Add at least one approver, or nobody can approve changes to {name}.")
     for login in owners:
         _on_team(session, login)
     if default_owner:
         _on_team(session, default_owner)
         if default_owner not in owners:
-            raise ServiceError("The default owner must be one of the owners.")
+            raise ServiceError("The default approver must be one of the approvers.")
     reviewers = [r.strip() for r in default_reviewers if r.strip()]
     for login in reviewers:
         _on_team(session, login)
@@ -89,7 +89,7 @@ def _clean(
             continue
         rule_owners = _unique(rule.get("owners") or [])
         if not rule_owners:
-            raise ServiceError(f"The rule for {pattern} needs at least one owner.")
+            raise ServiceError(f"The rule for {pattern} needs at least one approver.")
         for login in rule_owners:
             _on_team(session, login)
         rules.append({"pattern": pattern, "owners": rule_owners})

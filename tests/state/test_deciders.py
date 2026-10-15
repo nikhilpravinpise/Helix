@@ -94,8 +94,9 @@ class TestApprovals:
 
     def test_a_service_with_no_owners_cannot_be_approved(self, db_session):
         approval = _approval(db_session, _incident(db_session, service="billing-worker"))
-        with pytest.raises(ApprovalDecidedError, match="no registered owners"):
+        with pytest.raises(ApprovalDecidedError, match="has no approvers who may") as err:
             decide_approval(db_session, approval, True, "alice", timeout_s=0)
+        assert "(add approvers on the Services page)" in str(err.value)
 
 
 class TestReviews:

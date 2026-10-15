@@ -17,7 +17,9 @@
       Remove buttons and an Add button that clones the form's <template> row;
       rule rows renumber their owner checkboxes (rule_owners_<i>) to match the
       row order. Without this the server-rendered rows submit as they are.
-   5. Sidebar: drag its right edge (or use the arrow keys, Home, End on the
+   5. Team page: picking a role in a row's role dropdown saves it at once
+      (its Change role button stays for browsers without JavaScript).
+   6. Sidebar: drag its right edge (or use the arrow keys, Home, End on the
       focused handle) to resize it; the width lives in the --sidebar-w custom
       property on .app, is clamped to 200-440px, double-click resets it, and
       it persists in localStorage (base.html applies it before first paint). */
@@ -316,7 +318,22 @@
     sync();
   }
 
+  /* ---- team page: a role dropdown saves on change ---- */
+
+  function initAutosubmit() {
+    document.querySelectorAll("select[data-autosubmit]").forEach(function (select) {
+      var form = select.form;
+      form.querySelectorAll("[data-js-hide]").forEach(function (el) {
+        el.hidden = true;
+      });
+      select.addEventListener("change", function () {
+        form.submit();
+      });
+    });
+  }
+
   function init() {
+    initAutosubmit();
     initSidebarResize();
     initServiceForm();
     initIncidentPolling();

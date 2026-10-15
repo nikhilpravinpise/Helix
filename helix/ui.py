@@ -149,7 +149,7 @@ def _why(incident: dict[str, Any], stages: dict[str, Any]) -> str | None:
         if t["owner"] and t["owner"] in rationale:
             return rationale[:1].upper() + rationale[1:]
         owner = _display_name(t["owner"]) if t["owner"] else "unresolved"
-        return f"Owner {owner}. {rationale}"
+        return f"Assigned to {owner}. {rationale}"
     hypotheses = stages.get("hypothesis") or []
     if not hypotheses:
         return None
@@ -414,7 +414,7 @@ def _needs_you(session: Session, user: str | None) -> tuple[list[dict], list[dic
                 "what": a.action,
                 "created_at": a.created_at,
                 "href": f"/ui/approvals#approval-{a.id}",
-                "waiting_on": ", ".join(_display_name(o) for o in owners) or "no registered owner",
+                "waiting_on": ", ".join(_display_name(o) for o in owners) or "no approver",
                 "mine": bool(user) and approval_refusal(a.incident, user) is None,
             }
         )

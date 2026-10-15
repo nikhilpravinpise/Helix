@@ -132,7 +132,7 @@ def test_a_long_team_is_refused(session):
 def test_no_owners_is_refused(session):
     with pytest.raises(ServiceError) as err:
         services.create_service(session, **_fields(owners=[], default_owner=""))
-    assert str(err.value) == "Add at least one owner, or nobody can approve changes to orders."
+    assert str(err.value) == "Add at least one approver, or nobody can approve changes to orders."
 
 
 @pytest.mark.parametrize(
@@ -157,7 +157,7 @@ def test_a_pending_invitee_is_not_on_the_team(session):
 
 
 def test_the_default_owner_must_be_an_owner(session):
-    with pytest.raises(ServiceError, match="default owner must be one of the owners"):
+    with pytest.raises(ServiceError, match="default approver must be one of the approvers"):
         services.create_service(session, **_fields(default_owner="kai"))
 
 
@@ -190,7 +190,7 @@ def test_empty_rule_patterns_are_dropped(session):
 
 
 def test_a_rule_without_owners_is_refused(session):
-    with pytest.raises(ServiceError, match=r"The rule for k8s/\* needs at least one owner"):
+    with pytest.raises(ServiceError, match=r"The rule for k8s/\* needs at least one approver"):
         services.create_service(
             session, **_fields(path_owners=[{"pattern": "k8s/*", "owners": []}])
         )
@@ -271,7 +271,7 @@ def test_deleting_an_unknown_service_is_refused(session):
 
 def test_a_person_can_be_removed_once_off_every_service(session):
     _create(session, path_owners=RULES)
-    with pytest.raises(team.TeamError, match="still owns or reviews orders"):
+    with pytest.raises(team.TeamError, match="still approves or reviews orders"):
         team.remove_person(session, "kai")
     services.update_service(
         session,

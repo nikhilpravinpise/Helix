@@ -50,8 +50,8 @@ def approval_refusal(incident: models.Incident, actor: str) -> str | None:
         return f"{actor} is the author of this change and may not approve it"
     if not allowed:
         return (
-            f"{incident.service} has no registered owners who may decide approvals "
-            "(add owners on the Services page)"
+            f"{incident.service} has no approvers who may decide approvals "
+            "(add approvers on the Services page)"
         )
     return f"{actor} is not allowed to decide approvals for {incident.service} ({allowed})"
 

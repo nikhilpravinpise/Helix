@@ -34,7 +34,9 @@ def db(tmp_path, monkeypatch):
     with Session(engine) as s:
         s.add_all(
             [
-                models.Person(login="VrajVed", name="Vraj Ved", role="admin", email="v@x.com"),
+                models.Person(
+                    login="VrajVed", name="Vraj Ved", role="owner", main_owner=True, email="v@x.com"
+                ),
                 models.Person(login="nikhil", name="Nikhil P", role="member"),
             ]
         )
@@ -258,7 +260,7 @@ def test_find_in_slack_links_the_person_and_saves_the_email(client, db, slack, m
     page = _find(client)
     person = _person(db, "nikhil")
     assert (person.slack_id, person.email) == ("U55", "nik@x.com")
-    assert "Linked nikhil to their Slack account" in page.text
+    assert "Linked Nikhil P to their Slack account" in page.text
     assert "Find in Slack" in client.get("/ui/team").text
 
 

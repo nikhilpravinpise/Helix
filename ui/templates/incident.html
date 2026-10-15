@@ -45,7 +45,7 @@
       <div><dt>attempts</dt><dd class="num">{{ i.attempt_count }}</dd></div>
       {% if i.kind == "change" %}
       <div><dt>lifecycle</dt><dd><span class="badge">change</span></dd></div>
-      {% if i.owner %}<div><dt>owner</dt><dd>{{ i.owner|person }}</dd></div>{% endif %}
+      {% if i.owner %}<div><dt>assigned to</dt><dd>{{ i.owner|person }}</dd></div>{% endif %}
       {% if i.priority %}<div><dt>priority</dt><dd class="mono">{{ i.priority }}</dd></div>{% endif %}
       {% if i.duplicate_of %}<div><dt>duplicate of</dt><dd class="mono"><a href="/ui/incidents/{{ i.duplicate_of }}">{{ i.duplicate_of }}</a></dd></div>{% endif %}
       {% endif %}
@@ -90,7 +90,7 @@
           <div class="record-head">
             <span class="mono strong">#{{ t.id }} - {{ t.affected_service }}</span>
             <span class="badge sev-{{ t.blast_radius }}">{{ t.blast_radius }}</span>
-            {% if t.owner %}<span class="muted">owner {{ t.owner|person }} ({{ t.owner_source }})</span>{% endif %}
+            {% if t.owner %}<span class="muted">assigned to {{ t.owner|person }} ({{ t.owner_source }})</span>{% endif %}
             {% if t.duplicate_of %}<span class="badge st-escalated">dup of {{ t.duplicate_of }}</span>{% endif %}
             <span class="mono muted ts">{{ t.created_at|dt }}</span>
           </div>

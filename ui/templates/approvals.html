@@ -10,7 +10,7 @@
       <span class="mono strong">review #{{ r.id }} - {{ r.reviewer|person }}</span>
       <a class="mono" href="/ui/incidents/{{ r.incident_id }}">{{ r.incident_id }}</a>
       <span class="badge">{{ r.service }}</span>
-      {% if r.owner %}<span class="muted">owner {{ r.owner|person }}</span>{% endif %}
+      {% if r.owner %}<span class="muted">assigned to {{ r.owner|person }}</span>{% endif %}
       <span class="badge">{{ r.incident_status|label }}</span>
       <span class="mono muted ts" title="{{ r.created_at|dt }}">waiting {{ r.created_at|age }}</span>
     </div>
@@ -127,7 +127,7 @@
       <span class="mono strong">review #{{ r.id }} - {{ r.reviewer|person }}</span>
       <a class="mono" href="/ui/incidents/{{ r.incident_id }}">{{ r.incident_id }}</a>
       <span class="badge">{{ r.service }}</span>
-      {% if r.owner %}<span class="muted">owner {{ r.owner|person }}</span>{% endif %}
+      {% if r.owner %}<span class="muted">assigned to {{ r.owner|person }}</span>{% endif %}
       <span class="badge">{{ r.incident_status|label }}</span>
       <span class="mono muted ts" title="{{ r.created_at|dt }}">waiting {{ r.created_at|age }}</span>
     </div>

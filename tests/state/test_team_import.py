@@ -22,7 +22,7 @@ def _counts(session: Session) -> tuple[int, int]:
     )
 
 
-def test_real_registry_arrives_intact_with_everyone_admin(sqlite_engine):
+def test_real_registry_arrives_intact_with_everyone_owner(sqlite_engine):
     registry = load_registry(REAL_YAML)
     assert registry.services and registry.people
     with Session(sqlite_engine) as session:
@@ -49,7 +49,7 @@ def test_real_registry_arrives_intact_with_everyone_admin(sqlite_engine):
             assert row is not None
             assert row.name == person.name
             assert row.slack_id == person.slack
-            assert row.role == "admin"
+            assert row.role == "owner"
             assert row.email is None
             assert row.last_signed_in_at is None
 

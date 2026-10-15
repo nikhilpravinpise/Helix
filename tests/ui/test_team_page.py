@@ -28,7 +28,7 @@ def db(tmp_path, monkeypatch):
     with Session(engine) as s:
         s.add_all(
             [
-                models.Person(login="VrajVed", name="Vraj Ved", role="admin"),
+                models.Person(login="VrajVed", name="Vraj Ved", role="owner", main_owner=True),
                 models.Person(login="nikhil", name="Nikhil P", role="member"),
             ]
         )
@@ -190,7 +190,7 @@ TEAM_POSTS = [
     "/ui/team/invites/1/resend",
     "/ui/team/invites/1/cancel",
     "/ui/team/people/nikhil/role",
-    "/ui/team/people/nikhil/rename",
+    "/ui/team/people/VrajVed/rename",
     "/ui/team/people/nikhil/remove",
 ]
 
@@ -208,6 +208,18 @@ def test_a_member_gets_403_on_every_team_post_and_connections_post(
         assert r.status_code == 403, path
         assert "Only admins" in r.text
     assert _people(db)["nikhil"].role == "member"
+    assert _people(db)["VrajVed"].name == "Vraj Ved"
+
+
+def test_a_member_can_rename_themselves_and_only_themselves(client, db, sign_in_on, monkeypatch):
+    _sign_in(client, monkeypatch, "nikhil")
+    done = client.post(
+        "/ui/team/people/nikhil/rename", data={"name": "Nik"}, follow_redirects=False
+    )
+    assert done.status_code == 303
+    assert _people(db)["nikhil"].name == "Nik"
+    other = client.post("/ui/team/people/VrajVed/rename", data={"name": "X"})
+    assert other.status_code == 403
 
 
 def test_a_member_can_still_read_the_team_and_connections(client, db, sign_in_on, monkeypatch):
@@ -270,7 +282,7 @@ def test_team_page_lists_members_and_pending_invites(client, db):
     assert "fresh" in text and "Invited by Vraj Ved" in text and "Expires in 7 days" in text
     assert "stale" not in text
     assert f"https://helix.example/invite/{token}" in text
-    for label in ("Resend", "Cancel", "Make member", "Make admin", "Rename", "Remove"):
+    for label in ("Resend", "Cancel", "Change role", "Rename", "Remove"):
         assert label in text
 
 
@@ -292,8 +304,10 @@ def test_team_page_is_read_only_for_members(client, db, sign_in_on, monkeypatch)
     _invite(db, "fresh")
     _sign_in(client, monkeypatch, "nikhil")
     text = client.get("/ui/team").text
-    assert "Only admins can change the team." in text
-    for hidden in ("Resend", "Make admin", "Rename", 'action="/ui/team/invite"'):
+    assert "Only owners and admins can change the team." in text
+    # A member can rename only themselves.
+    assert text.count("Rename") == 1 and 'action="/ui/team/people/nikhil/rename"' in text
+    for hidden in ("Resend", "Change role", "Remove", 'action="/ui/team/invite"'):
         assert hidden not in text
 
 
@@ -304,7 +318,7 @@ def test_team_page_notices_and_errors_come_back_as_notices(client, db):
     assert done.status_code == 200
     assert "notice-bad" in done.text and "GitHub login" in done.text
     refused = client.post("/ui/team/people/VrajVed/remove", follow_redirects=True)
-    assert "Helix needs at least one admin." in refused.text
+    assert "The main owner cannot be removed or demoted." in refused.text
 
 
 def test_team_posts_work_end_to_end(client, db):

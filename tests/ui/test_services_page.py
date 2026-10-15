@@ -192,7 +192,7 @@ def test_a_failed_save_shows_the_message_and_keeps_what_was_typed(client, db):
         data=_form(owner=[], default_owner="", team="Platform <b>", rule_pattern=["src/**"]),
     )
     assert r.status_code == 400
-    assert "Add at least one owner, or nobody can approve changes to orders." in r.text
+    assert "Add at least one approver, or nobody can approve changes to orders." in r.text
     assert 'value="orders"' in r.text and 'value="acme/orders"' in r.text
     assert "Platform &lt;b&gt;" in r.text and 'value="src/**"' in r.text
     assert "queue" in r.text  # the dependencies textarea
@@ -297,6 +297,17 @@ def test_the_form_has_ordered_rows_a_blank_rule_and_the_template(client, db):
     assert "<template" in page
     assert "cannot be changed" in page and "readonly" in page
     assert 'name="rule_owners_1"' in page
+    assert "Approvers decide approvals for this service" in page
+    assert "Default approver" in page and "The first approver" in page
+    assert "Must be one of the approvers." in page
+    assert "Owners" not in page and "Default owner" not in page
+
+
+def test_the_list_calls_a_services_owners_approvers(client, db):
+    _seed(db)
+    page = client.get("/ui/services").text
+    assert "<dt>Approvers</dt>" in page and "(default)" in page
+    assert "<dt>Owners</dt>" not in page
 
 
 def test_the_new_form_renders_for_an_admin(client, db):
