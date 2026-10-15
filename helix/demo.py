@@ -7,17 +7,26 @@ harness on arm A - the same code path an operator drives - and one change
 incident is parked at `review_pending`, so the dashboard has a pending
 review to decide. It is a no-op on a database that already holds any
 incident, so it never touches real data and is safe on every boot.
+
+`start_sample` is the visitor-facing half: it raises one signal-flow
+incident from the same recordings and drives it live in a background
+thread, one at a time (the free host has no memory for two runs).
 """
 
 import os
+import random
 import sys
+import threading
 
 from sqlalchemy import create_engine, func, select
+from sqlalchemy.orm import Session
 
 from benchmark import harness
 from helix.config import get_settings
+from helix.logging import get_logger
 from state import models
 from state.db import session_scope
+from state.intake import Signal, intake_signal
 from state.machine import IncidentStatus
 
 #: Fixture-mode scenarios the demo replays to their end state (seven
@@ -38,6 +47,24 @@ DEMO_SCENARIOS = (
 #: (a change incident needs one to triage, even though it never deploys).
 PARKED_SCENARIO = "org-known-owner-change"
 PARKED_FIXTURE = "ci/docker-build-failure"
+
+
+#: The signal-flow scenarios a visitor's "Run a sample incident" picks from.
+SAMPLE_SCENARIOS = (
+    "ci-test-regression",
+    "ci-dependency-failure",
+    "ci-docker-build-failure",
+    "failed-check",
+    "rejected-pr",
+    "stale-branch",
+)
+
+# Single flight: _sample_lock is held from intake until the background drive
+# ends; _start_guard makes a racing second caller wait out the intake so it
+# sees the running incident's id.
+_sample_lock = threading.Lock()
+_start_guard = threading.Lock()
+_running_incident: str | None = None
 
 
 class SeedError(RuntimeError):
@@ -99,6 +126,60 @@ def seed_demo(database_url: str | None = None) -> int:
         raise SeedError(f"scenarios did not run: {', '.join(failed) or 'catalog mismatch'}")
     _park_review(url)
     return len(DEMO_SCENARIOS) + 1
+
+
+def _drive_sample(incident_id: str, scenario: dict, database_url: str) -> None:
+    """Background body of a sample: the harness's own hop loop, then free
+    the slot - whatever happened."""
+    global _running_incident
+    try:
+        env = harness._isolated_env()
+        env.update(harness.FIXTURE_RUN_ENV)
+        env.update(
+            HELIX_ARM="A",
+            HELIX_DATABASE_URL=database_url,
+            HELIX_FIXTURE_PATH=scenario["evidence_fixture"],
+            UV_NO_SYNC="1",
+        )
+        cfg = harness.HarnessConfig(arms=["A"], mode="fixture", database_url=database_url)
+        errors = harness._drive(incident_id, env, cfg, scenario)
+        if errors:
+            get_logger().warning(
+                "sample drive reported errors", incident_id=incident_id, errors=errors
+            )
+    except Exception as exc:
+        get_logger().error("sample drive failed", incident_id=incident_id, error=str(exc))
+    finally:
+        _running_incident = None
+        _sample_lock.release()
+
+
+def start_sample(session: Session) -> tuple[str, bool]:
+    """Raise one random sample incident and drive it in the background.
+
+    Returns (incident_id, already_running). While a sample runs, a second
+    call starts nothing and returns the running incident's id with True.
+    Intake commits on `session` before the thread starts, so the drive
+    always finds the incident."""
+    global _running_incident
+    with _start_guard:
+        if not _sample_lock.acquire(blocking=False):
+            return _running_incident or "", True
+        try:
+            scenario = harness.catalog.load_scenarios()[random.choice(SAMPLE_SCENARIOS)]
+            result = intake_signal(session, Signal.model_validate(scenario["signal"]))
+            session.commit()
+            _running_incident = result.incident_id
+            threading.Thread(
+                target=_drive_sample,
+                args=(result.incident_id, scenario, get_settings().database_url),
+                daemon=True,
+            ).start()
+        except BaseException:
+            _running_incident = None
+            _sample_lock.release()
+            raise
+        return result.incident_id, False
 
 
 def main() -> int:

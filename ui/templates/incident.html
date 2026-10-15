@@ -8,6 +8,8 @@
     {% if not terminal %}<span class="live muted" id="live-check">live - polling</span>{% endif %}
   </div>
 
+  {% if busy %}<p class="callout">A sample is already running - showing it.</p>{% endif %}
+
   <section class="card">
     <dl class="fields">
       <div><dt>service</dt><dd>{{ i.service }}</dd></div>

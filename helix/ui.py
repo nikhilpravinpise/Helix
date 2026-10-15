@@ -11,6 +11,10 @@ Pages (the JSON API keeps its own routes, unchanged):
                                approval -> execution -> verification),
                                assembled by state.provenance; unknown id
                                renders a 404 page
+    POST /ui/samples           demo only: raise a random recorded sample
+                               incident, drive it live in the background and
+                               redirect to its page (one at a time; a start
+                               during a run redirects to the running one)
     GET /ui/approvals          pending approval queue + decided rows;
                                approve/reject buttons POST to the 1.8 JSON
                                endpoints (POST /approvals/{id}/approve|reject)
@@ -32,13 +36,14 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Annotated, Any
 
-from fastapi import APIRouter, Depends, FastAPI, Request
+from fastapi import APIRouter, Depends, FastAPI, HTTPException, Request
 from fastapi.responses import HTMLResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
+from helix import demo
 from helix.config import get_settings
 from state import models
 from state.db import session_scope
@@ -129,6 +134,12 @@ def index() -> RedirectResponse:
     return RedirectResponse("/ui/", status_code=307)
 
 
+def _samples_enabled() -> bool:
+    """Run-a-sample exists only on the hosted fixture demo."""
+    settings = get_settings()
+    return settings.environment == "demo" and settings.evidence_source == "fixtures"
+
+
 @router.get("/ui/", response_class=HTMLResponse)
 def incident_list(request: Request, session: DbSession) -> HTMLResponse:
     """All incidents, newest first - the operator's entry point."""
@@ -153,12 +164,29 @@ def incident_list(request: Request, session: DbSession) -> HTMLResponse:
     return templates.TemplateResponse(
         request,
         "incidents.html",
-        {"active": "incidents", "incidents": rows, "pending_count": _pending_count(session)},
+        {
+            "active": "incidents",
+            "incidents": rows,
+            "pending_count": _pending_count(session),
+            "samples_enabled": _samples_enabled(),
+        },
     )
 
 
+@router.post("/ui/samples")
+def start_sample(session: DbSession) -> RedirectResponse:
+    """Demo only: start a sample incident, or point at the one running."""
+    if not _samples_enabled():
+        raise HTTPException(status_code=404)
+    incident_id, already_running = demo.start_sample(session)
+    suffix = "?busy=1" if already_running else ""
+    return RedirectResponse(f"/ui/incidents/{incident_id}{suffix}", status_code=303)
+
+
 @router.get("/ui/incidents/{incident_id}", response_class=HTMLResponse)
-def incident_detail(request: Request, incident_id: str, session: DbSession) -> HTMLResponse:
+def incident_detail(
+    request: Request, incident_id: str, session: DbSession, busy: bool = False
+) -> HTMLResponse:
     """One incident's header plus its full decision-provenance timeline.
 
     `terminal` tells app.js whether to poll GET /incidents/{id} - the JSON
@@ -187,6 +215,7 @@ def incident_detail(request: Request, incident_id: str, session: DbSession) -> H
             "stages": record["stages"],
             "transitions": record["transitions"],
             "terminal": incident["status"] in TERMINAL_STATUSES,
+            "busy": busy,
         },
     )
 
