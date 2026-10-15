@@ -40,13 +40,12 @@ services:
       # Verifies Slack button clicks posted to /slack/interactions.
       - key: HELIX_SLACK_SIGNING_SECRET
         sync: false
-      # The Helix GitHub App behind Connect GitHub (installation, no OAuth);
-      # the private key is the app's PEM, "\n" sequences allowed.
+      # The Helix GitHub App behind Connect GitHub (installation, no OAuth).
+      # Its private key is the Secret File github-app.pem, which
+      # scripts/render-start.sh exports as HELIX_GITHUB_APP_PRIVATE_KEY.
       - key: HELIX_GITHUB_APP_ID
         sync: false
       - key: HELIX_GITHUB_APP_SLUG
-        sync: false
-      - key: HELIX_GITHUB_APP_PRIVATE_KEY
         sync: false
       - key: HELIX_JIRA_OAUTH_CLIENT_ID
         sync: false

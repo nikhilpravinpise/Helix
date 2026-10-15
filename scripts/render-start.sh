@@ -21,6 +21,13 @@ for var in HELIX_GITHUB_OAUTH_CLIENT_ID HELIX_GITHUB_OAUTH_CLIENT_SECRET HELIX_S
     exit 1
   fi
 done
+# The GitHub App's private key is multi-line, so Render holds it as a Secret
+# File rather than an env var.
+key_file=/etc/secrets/github-app.pem
+if [[ -z "${HELIX_GITHUB_APP_PRIVATE_KEY:-}" && -r "${key_file}" ]]; then
+  export HELIX_GITHUB_APP_PRIVATE_KEY="$(<"${key_file}")"
+fi
+
 # GitHub sends the user back here; Render provides the service's own URL.
 export HELIX_PUBLIC_URL="${HELIX_PUBLIC_URL:-${RENDER_EXTERNAL_URL:-}}"
 
