@@ -535,6 +535,11 @@ body.sidebar-resizing {
   cursor: wait;
 }
 
+/* The button whose action is in flight stays readable. */
+.btn.is-busy:disabled {
+  opacity: 1;
+}
+
 .btn-sm {
   padding: 4px 10px;
   font-size: 13.5px;
@@ -1206,6 +1211,10 @@ details summary:hover {
 
 .decide-error:empty {
   display: none;
+}
+
+.decide-error.decide-progress {
+  color: var(--ink-2);
 }
 
 /* ---------- connections ---------- */

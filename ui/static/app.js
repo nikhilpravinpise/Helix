@@ -7,8 +7,10 @@
    2. Approvals queue and incident page: Approve/Reject buttons POST the
       decision (data-decide-kind="review" for a review, else an approval)
       to the 1.8 / 2.6 JSON endpoints with the operator name (and the intake token as
-      a Bearer header when the deployment gates decisions); the page
-      reloads to show the recorded decision.
+      a Bearer header when the deployment gates decisions). The button says
+      "Approving..." at once; with ?wait=false the server saves the decision
+      and resumes the run after answering, so the page polls the incident
+      and reloads once its status moves (or after two minutes).
    3. Team page: Copy link puts an invite's link on the clipboard. Without
       clipboard support (or if copying fails) the link field shows instead.
    4. Services form: reviewer and path-rule rows get Move up / Move down /
@@ -76,8 +78,17 @@
     if (tokenEl && tokenEl.value) {
       headers.Authorization = "Bearer " + tokenEl.value;
     }
-    btn.disabled = true;
-    fetch((kind ? "/reviews/" : "/approvals/") + encodeURIComponent(id) + "/" + action, {
+    var row = btn.closest(".decide-row");
+    var pair = row ? row.querySelectorAll("[data-decide]") : [btn];
+    var label = btn.textContent;
+    Array.prototype.forEach.call(pair, function (b) {
+      b.disabled = true;
+    });
+    btn.textContent = action === "approve" ? "Approving..." : "Rejecting...";
+    btn.classList.add("is-busy");
+    if (errEl) errEl.textContent = "";
+    var url = (kind ? "/reviews/" : "/approvals/") + encodeURIComponent(id) + "/" + action;
+    fetch(url + "?wait=false", {
       method: "POST",
       headers: headers,
       body: JSON.stringify({
@@ -87,8 +98,9 @@
     })
       .then(function (res) {
         if (res.ok) {
-          window.location.reload();
-          return null;
+          return res.json().then(function (body) {
+            waitForRun(body, errEl);
+          });
         }
         return res.json().then(function (body) {
           var detail = body && body.detail ? body.detail : "HTTP " + res.status;
@@ -96,9 +108,50 @@
         });
       })
       .catch(function (err) {
-        btn.disabled = false;
+        btn.textContent = label;
+        btn.classList.remove("is-busy");
+        Array.prototype.forEach.call(pair, function (b) {
+          b.disabled = false;
+        });
         if (errEl) errEl.textContent = String(err && err.message ? err.message : err);
       });
+  }
+
+  /* The decision is saved; the run carries on in the background. Reload
+     when the incident's status moves, or after two minutes regardless. */
+  function waitForRun(body, note) {
+    var record = body.approval || body.review || {};
+    var from = body.status;
+    if (note) {
+      note.classList.add("decide-progress");
+      note.textContent = "Saved. Helix is carrying on in the background - this page updates when it is done.";
+    }
+    if (!record.incident_id || !body.scheduled) {
+      window.location.reload();
+      return;
+    }
+    var polls = 0;
+    var timer = window.setInterval(function () {
+      polls += 1;
+      fetch("/incidents/" + encodeURIComponent(record.incident_id), {
+        headers: { Accept: "application/json" },
+      })
+        .then(function (res) {
+          return res.ok ? res.json() : null;
+        })
+        .then(function (data) {
+          if ((data && data.status && data.status !== from) || polls >= 40) {
+            window.clearInterval(timer);
+            window.location.reload();
+          }
+        })
+        .catch(function () {
+          if (polls >= 40) {
+            window.clearInterval(timer);
+            window.location.reload();
+          }
+        });
+    }, POLL_MS);
   }
 
   function initApprovals() {

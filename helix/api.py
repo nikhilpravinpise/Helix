@@ -44,7 +44,7 @@ from typing import Annotated
 from urllib.parse import parse_qsl
 
 import httpx
-from fastapi import BackgroundTasks, Depends, FastAPI, Header, HTTPException, Request
+from fastapi import BackgroundTasks, Depends, FastAPI, Header, HTTPException, Request, Response
 from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy import select
 from sqlalchemy.orm import Session
@@ -344,10 +344,13 @@ class ApprovalDecisionIn(BaseModel):
 
 
 class ApprovalDecisionOut(BaseModel):
-    """The decided row plus what the resumed run did."""
+    """The decided row plus what the resumed run did. With `?wait=false` the
+    run resumes after the response: `scheduled` is true, `resumed` false and
+    `status` is the incident's status at decision time."""
 
     approval: ApprovalOut
     resumed: bool
+    scheduled: bool = False
     status: str | None = None  # incident status after the resume
     run_status: str | None = None
     run_error: str | None = None
@@ -360,8 +363,25 @@ def _decider(request: Request, body: "ApprovalDecisionIn") -> str:
     return _signed_in(request) or body.actor
 
 
+def _schedule_resume(background: BackgroundTasks, incident_id: str) -> None:
+    """Resume after the response, until the run parks again - the dashboard
+    shows "Approving..." instead of a button frozen for the whole run."""
+    from agent.runner import run_until_parked
+
+    background.add_task(_resume_logged, run_until_parked, incident_id)
+
+
+def _status_now(incident: models.Incident) -> str:
+    return getattr(incident.status, "value", str(incident.status))
+
+
 def _decide_approval(
-    approval_id: int, approved: bool, body: ApprovalDecisionIn, session: Session, actor: str
+    approval_id: int,
+    approved: bool,
+    body: ApprovalDecisionIn,
+    session: Session,
+    actor: str,
+    background: BackgroundTasks | None = None,
 ) -> ApprovalDecisionOut:
     """Record the decision on a pending row and resume the suspended run.
 
@@ -378,6 +398,14 @@ def _decide_approval(
         raise HTTPException(status_code=409, detail=str(exc)) from exc
     incident_id = approval.incident.incident_id
     session.commit()
+    if background is not None:
+        _schedule_resume(background, incident_id)
+        return ApprovalDecisionOut(
+            approval=_approval_out(approval),
+            resumed=False,
+            scheduled=True,
+            status=_status_now(approval.incident),
+        )
 
     resumed = False
     status = run_status = run_error = None
@@ -403,26 +431,40 @@ def _decide_approval(
 @app.post("/approvals/{approval_id}/approve", response_model=ApprovalDecisionOut)
 def approve_approval(
     request: Request,
+    response: Response,
+    background: BackgroundTasks,
     approval_id: int,
     body: ApprovalDecisionIn,
     session: DbSession,
     _: Annotated[None, Depends(require_intake_token)],
+    wait: bool = True,
 ) -> ApprovalDecisionOut:
     """Approve the pending row and resume the suspended run."""
-    return _decide_approval(approval_id, True, body, session, _decider(request, body))
+    if not wait:
+        response.status_code = 202
+    return _decide_approval(
+        approval_id, True, body, session, _decider(request, body), None if wait else background
+    )
 
 
 @app.post("/approvals/{approval_id}/reject", response_model=ApprovalDecisionOut)
 def reject_approval(
     request: Request,
+    response: Response,
+    background: BackgroundTasks,
     approval_id: int,
     body: ApprovalDecisionIn,
     session: DbSession,
     _: Annotated[None, Depends(require_intake_token)],
+    wait: bool = True,
 ) -> ApprovalDecisionOut:
     """Reject the pending row and resume: the incident replans with the
     rejected fingerprint excluded."""
-    return _decide_approval(approval_id, False, body, session, _decider(request, body))
+    if not wait:
+        response.status_code = 202
+    return _decide_approval(
+        approval_id, False, body, session, _decider(request, body), None if wait else background
+    )
 
 
 def _slack_action(
@@ -508,7 +550,7 @@ def _resume_logged(run_incident, incident_id: str) -> None:  # type: ignore[no-u
         run_incident(incident_id)
     except Exception as exc:  # the decision is durable; the run is retryable
         get_logger().warning(
-            "slack decision resume failed",
+            "decision resume failed",
             incident_id=incident_id,
             error=f"{type(exc).__name__}: {exc}",
         )
@@ -760,17 +802,24 @@ def list_reviews(
 
 
 class ReviewDecisionOut(BaseModel):
-    """The decided review row plus what the resumed run did."""
+    """The decided review row plus what the resumed run did (see
+    ApprovalDecisionOut for `?wait=false`)."""
 
     review: ReviewOut
     resumed: bool
+    scheduled: bool = False
     status: str | None = None
     run_status: str | None = None
     run_error: str | None = None
 
 
 def _decide_review(
-    review_id: int, approved: bool, body: ApprovalDecisionIn, session: Session, actor: str
+    review_id: int,
+    approved: bool,
+    body: ApprovalDecisionIn,
+    session: Session,
+    actor: str,
+    background: BackgroundTasks | None = None,
 ) -> ReviewDecisionOut:
     """The review-side twin of `_decide_approval`: record the decision on
     the pending review_requests row (durable first), then best-effort
@@ -787,6 +836,14 @@ def _decide_review(
         raise HTTPException(status_code=409, detail=str(exc)) from exc
     incident_id = review.incident.incident_id
     session.commit()
+    if background is not None:
+        _schedule_resume(background, incident_id)
+        return ReviewDecisionOut(
+            review=_review_out(review),
+            resumed=False,
+            scheduled=True,
+            status=_status_now(review.incident),
+        )
 
     resumed = False
     status = run_status = run_error = None
@@ -812,27 +869,41 @@ def _decide_review(
 @app.post("/reviews/{review_id}/approve", response_model=ReviewDecisionOut)
 def approve_review(
     request: Request,
+    response: Response,
+    background: BackgroundTasks,
     review_id: int,
     body: ApprovalDecisionIn,
     session: DbSession,
     _: Annotated[None, Depends(require_intake_token)],
+    wait: bool = True,
 ) -> ReviewDecisionOut:
     """Approve the pending review request and resume: the change proceeds
     toward APPROVED -> DEPLOYING."""
-    return _decide_review(review_id, True, body, session, _decider(request, body))
+    if not wait:
+        response.status_code = 202
+    return _decide_review(
+        review_id, True, body, session, _decider(request, body), None if wait else background
+    )
 
 
 @app.post("/reviews/{review_id}/reject", response_model=ReviewDecisionOut)
 def reject_review(
     request: Request,
+    response: Response,
+    background: BackgroundTasks,
     review_id: int,
     body: ApprovalDecisionIn,
     session: DbSession,
     _: Annotated[None, Depends(require_intake_token)],
+    wait: bool = True,
 ) -> ReviewDecisionOut:
     """Reject the pending review request and resume: the change drives
     REJECTED -> FIX_REQUIRED awaiting an updated commit."""
-    return _decide_review(review_id, False, body, session, _decider(request, body))
+    if not wait:
+        response.status_code = 202
+    return _decide_review(
+        review_id, False, body, session, _decider(request, body), None if wait else background
+    )
 
 
 # Subphase 1.12 (D11): mount the server-rendered operator UI - / redirects
