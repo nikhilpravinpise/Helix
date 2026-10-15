@@ -100,6 +100,13 @@ uv run helix sync                        # deliver Slack/Jira/Notion updates
 uv run helix --help                      # everything else
 ```
 
+**Hosted demo:** https://helix-eksf.onrender.com (Render, from `render.yaml`;
+Sign in with GitHub, open to the people in `config/service_registry.yaml`). It runs the API and dashboard on recorded evidence
+with the rules arm only: no cluster, Kafka, Jenkins, Slack or LLM key. Free
+tier, so the first load after idling is slow. Deploys are manual
+(`render deploys create srv-db7noi49v7es73cn286g`). The course's cloud
+deployment is still GCP (plan.md D23).
+
 The sandbox target is a kind cluster (`helix-sandbox`) running a deliberately
 breakable `payment-api` behind ingress-nginx: `bash scripts/up.sh`, or
 Terraform in `infra/terraform/`. Optional host stacks (Elasticsearch,

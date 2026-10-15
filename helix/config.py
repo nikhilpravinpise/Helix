@@ -82,6 +82,15 @@ class Settings(BaseSettings):
     api_bind: str = "127.0.0.1"
     api_port: int = 8787
     intake_token: str | None = Field(default=None, repr=False)
+    #: Sign in with GitHub for a hosted Helix (helix/auth.py). Off until an
+    #: OAuth app's client id is set. allowed_users is a comma-separated list
+    #: of GitHub logins (default: the registry's people); public_url is the
+    #: address GitHub sends the user back to; session_secret signs cookies.
+    github_oauth_client_id: str | None = None
+    github_oauth_client_secret: str | None = Field(default=None, repr=False)
+    session_secret: str | None = Field(default=None, repr=False)
+    allowed_users: str | None = None
+    public_url: str | None = None
 
     # Coordinator + diagnosis (subphase 1.5). max_evidence_rounds bounds the
     # LLM's request-more-evidence loop so an investigation cannot run away.
