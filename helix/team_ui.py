@@ -1,10 +1,11 @@
 """Team page and invites (future_plans.md "Team and services").
 
     GET  /ui/team                              members, pending invites, invite form
-    POST /ui/team/invite                       invite a GitHub login as admin or member
+    POST /ui/team/invite                       invite a GitHub login as owner, admin or member
     POST /ui/team/invites/{id}/resend          new link and a fresh 7 days
     POST /ui/team/invites/{id}/cancel          withdraw the invite
-    POST /ui/team/people/{login}/role          make admin / make member
+    POST /ui/team/people/{login}/role          make owner / admin / member
+    POST /ui/team/people/{login}/main-owner    hand main ownership to a co-owner
     POST /ui/team/people/{login}/rename        change the display name
     POST /ui/team/people/{login}/find-slack    find them in Slack by email
     POST /ui/team/people/{login}/remove        take them off the team
@@ -12,8 +13,9 @@
     GET  /ui/team/link-slack?t=...             confirm linking your Slack (any signed-in role)
     POST /ui/team/link-slack                   bind it
 
-Everyone signed in can read the page; every POST needs an admin
-(helix/auth.py `require_admin`), except linking your own Slack account. A rule
+Everyone signed in can read the page; every POST needs an admin or an owner
+(helix/auth.py `require_admin`), except renaming yourself and linking your own
+Slack account. Who may change whom is state/team.py's rank rules. A rule
 that is broken (state/team.py TeamError) comes back as a notice in a
 short-lived cookie rather than in the URL, so a crafted link cannot put words
 in the page's mouth.
@@ -49,6 +51,7 @@ _NOTICES = {
     "role-changed": "Changed the role for {login}.",
     "renamed": "Renamed {login}.",
     "removed": "Removed {login} from the team.",
+    "main-owner": "{login} is now the main owner.",
     "invited-messaged": (
         "Invited {login}. Found them in Slack and sent them the invite. "
         "You can still copy the invite link."
@@ -116,6 +119,10 @@ def team_page(request: Request, session: DbSession, notice: str = "", login: str
     people = list(session.scalars(select(models.Person).order_by(models.Person.created_at)))
     names = {p.login: p.name or p.login for p in people}
     public = auth._public_url(request)
+    actor = auth.actor_for(request, session)
+    grantable = team.grantable_roles(actor)
+    me = actor.login if actor else None
+    main = next((p.login for p in people if p.main_owner), None)
     invites = [
         {
             "id": inv.id,
@@ -126,6 +133,7 @@ def team_page(request: Request, session: DbSession, notice: str = "", login: str
             "created_at": team._aware(inv.created_at),
             "expires": _expires_in(team._aware(inv.expires_at)),
             "link": f"{public}/invite/{inv.token}",
+            "can_manage": team.may_manage_invite(actor, inv),
         }
         for inv in team.pending_invites(session)
     ]
@@ -133,7 +141,10 @@ def team_page(request: Request, session: DbSession, notice: str = "", login: str
     if flash:
         found: tuple[str, str] | None = ("bad", unquote(flash))
     elif notice in _NOTICES:
-        found = ("ok", _NOTICES[notice].format(login=login if _LOGIN.fullmatch(login) else "them"))
+        who = login if _LOGIN.fullmatch(login) else "them"
+        # Someone on the team is named as everywhere else; an invitee by login.
+        person = session.get(models.Person, who) if who != "them" else None
+        found = ("ok", _NOTICES[notice].format(login=(person.name if person else "") or who))
     else:
         found = None
     response = templates.TemplateResponse(
@@ -141,11 +152,24 @@ def team_page(request: Request, session: DbSession, notice: str = "", login: str
         "team.html",
         {
             "active": "team",
-            "people": people,
+            "people": [
+                {
+                    "p": p,
+                    "can_act": team.may_act_on(actor, p),
+                    "can_rename": team.may_rename(actor, p),
+                    "roles": [r for r in grantable if r != p.role],
+                    "can_make_main": actor is not None
+                    and actor.login == main
+                    and p.role == "owner"
+                    and not p.main_owner,
+                }
+                for p in people
+            ],
+            "grantable": grantable,
             "invites": invites,
             "can_manage": auth.may_manage(request, session),
             "slack_reconnect": RECONNECT if slack_people.needs_reconnect(session) else None,
-            "me": getattr(request.state, "user", None),
+            "me": me,
             "notice": found,
             "incident_total": _incident_total(session),
             "pending_count": _pending_count(session),
@@ -166,6 +190,7 @@ async def invite(request: Request, session: DbSession) -> Response:
             await _posted(request, "role"),
             user or "Helix",
             await _posted(request, "email"),
+            actor=auth.actor_for(request, session),
         )
     except TeamError as error:
         return _refused(request, error)
@@ -182,7 +207,7 @@ def _match_invitee(request: Request, session, row: models.Invitation, user: str 
         row.slack_id = found.slack_id
         inviter = session.get(models.Person, user) if user else None
         who = (inviter.name if inviter and inviter.name else user) or "Helix"
-        role = "an admin" if row.role == "admin" else "a member"
+        role = {"owner": "an owner", "admin": "an admin"}.get(row.role, "a member")
         sent = slack_people.send_dm(
             session,
             found.slack_id,
@@ -200,7 +225,7 @@ def _match_invitee(request: Request, session, row: models.Invitation, user: str 
 @router.post("/ui/team/invites/{invite_id}/resend")
 def resend(request: Request, session: DbSession, invite_id: int) -> Response:
     try:
-        row = team.resend(session, invite_id)
+        row = team.resend(session, invite_id, actor=auth.actor_for(request, session))
     except TeamError as error:
         return _refused(request, error)
     return _back("resent", row.login)
@@ -210,7 +235,7 @@ def resend(request: Request, session: DbSession, invite_id: int) -> Response:
 def cancel(request: Request, session: DbSession, invite_id: int) -> Response:
     row = session.get(models.Invitation, invite_id)
     try:
-        team.cancel(session, invite_id)
+        team.cancel(session, invite_id, actor=auth.actor_for(request, session))
     except TeamError as error:
         return _refused(request, error)
     return _back("cancelled", row.login if row else "")
@@ -219,7 +244,9 @@ def cancel(request: Request, session: DbSession, invite_id: int) -> Response:
 @router.post("/ui/team/people/{login}/role")
 async def role(request: Request, session: DbSession, login: str) -> Response:
     try:
-        team.set_role(session, login, await _posted(request, "role"))
+        team.set_role(
+            session, login, await _posted(request, "role"), actor=auth.actor_for(request, session)
+        )
     except TeamError as error:
         return _refused(request, error)
     return _back("role-changed", login)
@@ -228,7 +255,9 @@ async def role(request: Request, session: DbSession, login: str) -> Response:
 @router.post("/ui/team/people/{login}/rename")
 async def rename(request: Request, session: DbSession, login: str) -> Response:
     try:
-        team.rename(session, login, await _posted(request, "name"))
+        team.rename(
+            session, login, await _posted(request, "name"), actor=auth.actor_for(request, session)
+        )
     except TeamError as error:
         return _refused(request, error)
     return _back("renamed", login)
@@ -240,8 +269,11 @@ async def find_slack(request: Request, session: DbSession, login: str) -> Respon
     try:
         if not email:
             raise TeamError("Enter an email.")
-        if session.get(models.Person, login) is None:
+        person = session.get(models.Person, login)
+        if person is None:
             raise TeamError(f"{login} is not on the team.")
+        if not team.may_rename(auth.actor_for(request, session), person):
+            raise TeamError("You cannot change this person.")
         found = slack_people.find_by_emails(session, [email])
         if found.slack_id:
             team.link_slack(session, login, found.slack_id, email)
@@ -259,10 +291,19 @@ async def find_slack(request: Request, session: DbSession, login: str) -> Respon
 @router.post("/ui/team/people/{login}/remove")
 def remove(request: Request, session: DbSession, login: str) -> Response:
     try:
-        team.remove_person(session, login)
+        team.remove_person(session, login, actor=auth.actor_for(request, session))
     except TeamError as error:
         return _refused(request, error)
     return _back("removed", login)
+
+
+@router.post("/ui/team/people/{login}/main-owner")
+def make_main_owner(request: Request, session: DbSession, login: str) -> Response:
+    try:
+        team.transfer_main_owner(session, auth.actor_for(request, session), login)
+    except TeamError as error:
+        return _refused(request, error)
+    return _back("main-owner", login)
 
 
 @router.get("/invite/{token}", response_class=HTMLResponse)

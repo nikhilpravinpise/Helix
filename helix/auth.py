@@ -11,7 +11,9 @@ stay open, and so do "/", the public landing page (a signed-in visitor
 is sent on to the dashboard), and /invite/{token}, the page an invite link
 opens.
 
-Managing the team and the connections needs an admin (`require_admin`).
+Managing services, connections and the team needs an admin or an owner
+(`require_admin`); the team page's own rules (state/team.py) decide who may
+change whom.
 
 The session is a cookie holding the GitHub login and an expiry, signed with
 HMAC-SHA256 under HELIX_SESSION_SECRET; no passwords exist anywhere. The
@@ -308,23 +310,38 @@ def _link_slack_on_sign_in(session: Session, login: str, verified: tuple[str, ..
             get_logger().warning("slack_link_on_sign_in_refused", reason=str(exc))
 
 
-def may_manage(request: Request, session: Session) -> bool:
-    """Whether the request's user may change the team and the connections
-    (people.role is admin). With sign-in off there is no user and the request
-    is trusted, as everywhere else. A user the HELIX_ALLOWED_USERS override
-    lets in without a people row is trusted too: the operator named them."""
+def actor_for(request: Request, session: Session) -> team.Actor | None:
+    """Who is acting, for the team rules. None is sign-in off: trusted with
+    full owner power, as everywhere else. A user the HELIX_ALLOWED_USERS
+    override lets in without a people row is an owner: the operator named
+    them. Anyone else is not on the team and has no actor (TeamError)."""
     user = getattr(request.state, "user", None)
     if user is None:
-        return not enabled()
-    if team.is_admin(session, user):
-        return True
-    return bool(get_settings().allowed_users) and session.get(models.Person, user) is None
+        return None if not enabled() else team.Actor("", "member")
+    person = session.get(models.Person, user)
+    if person is not None:
+        return team.Actor(user, person.role)
+    if get_settings().allowed_users:
+        return team.Actor(user, "owner")
+    return team.Actor(user, "member")
+
+
+def may_manage(request: Request, session: Session) -> bool:
+    """Whether the request's user may change services and connections and
+    use the team forms (an admin or an owner)."""
+    actor = actor_for(request, session)
+    return actor is None or actor.rank >= 2
 
 
 def require_admin(request: Request, session: DbSession) -> None:
-    """Dependency for the team and connections routers: a POST needs an admin."""
-    if request.method == "POST" and not may_manage(request, session):
-        raise HTTPException(403, "Only admins can make this change.")
+    """Dependency for the team, services and connections routers: a POST needs
+    an admin or an owner. The one exception is a member renaming themselves."""
+    if request.method != "POST" or may_manage(request, session):
+        return
+    user = getattr(request.state, "user", None)
+    if user and request.url.path == f"/ui/team/people/{user}/rename":
+        return
+    raise HTTPException(403, "Only admins can make this change.")
 
 
 AdminOnly = Depends(require_admin)

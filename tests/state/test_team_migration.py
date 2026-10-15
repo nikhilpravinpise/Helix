@@ -23,7 +23,9 @@ def test_0015_matches_the_models_and_downgrades():
         for model in (models.Person, models.Service):
             table = model.__table__.name
             cols = {c["name"] for c in inspect(conn).get_columns(table)}
-            assert cols == set(model.__table__.columns.keys())
+            # main_owner arrives in 0018 (tests/state/test_roles_migration.py)
+            extra = {"main_owner"} if model is models.Person else set()
+            assert cols == set(model.__table__.columns.keys()) - extra
         with Operations.context(MigrationContext.configure(conn)):
             mig.downgrade()
         assert not {"people", "services"} & set(inspect(conn).get_table_names())

@@ -1125,18 +1125,30 @@ class PRBotSettings(Base):
 
 class Person(Base):
     """Someone on the team, keyed by their GitHub login exactly as given.
-    `role` is `admin` (manages services, the team and connections) or
-    `member`. `slack_id` is the Slack member id to @-mention, if linked.
+    `role` is `owner` (manages everything), `admin` (manages services,
+    connections and members) or `member`. `main_owner` marks the one owner
+    nobody else can remove or demote (at most one row, by the partial unique
+    index). `slack_id` is the Slack member id to @-mention, if linked.
     """
 
     __tablename__ = "people"
-    __table_args__ = (CheckConstraint("role IN ('admin', 'member')", name="ck_people_role"),)
+    __table_args__ = (
+        CheckConstraint("role IN ('owner', 'admin', 'member')", name="ck_people_role"),
+        Index(
+            "uq_people_main_owner",
+            "main_owner",
+            unique=True,
+            postgresql_where=text("main_owner"),
+            sqlite_where=text("main_owner"),
+        ),
+    )
 
     login: Mapped[str] = mapped_column(String(128), primary_key=True)
     name: Mapped[str] = mapped_column(String, default="", server_default="")
     email: Mapped[str | None] = mapped_column(String, nullable=True)
     slack_id: Mapped[str | None] = mapped_column(String(32), nullable=True)
     role: Mapped[str] = mapped_column(String(16))
+    main_owner: Mapped[bool] = mapped_column(Boolean, default=False, server_default=text("false"))
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     last_signed_in_at: Mapped[datetime | None] = mapped_column(
         DateTime(timezone=True), nullable=True
@@ -1151,7 +1163,9 @@ class Invitation(Base):
     """
 
     __tablename__ = "invitations"
-    __table_args__ = (CheckConstraint("role IN ('admin', 'member')", name="ck_invitations_role"),)
+    __table_args__ = (
+        CheckConstraint("role IN ('owner', 'admin', 'member')", name="ck_invitations_role"),
+    )
 
     id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
     login: Mapped[str] = mapped_column(String(128))

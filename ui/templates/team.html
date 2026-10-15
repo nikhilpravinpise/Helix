@@ -15,32 +15,43 @@
 <p class="notice notice-bad" role="status">{{ slack_reconnect }}</p>
 {% endif %}
 {% if not can_manage %}
-<p class="small muted team-readonly">Only admins can change the team.</p>
+<p class="small muted team-readonly">Only owners and admins can change the team.</p>
 {% endif %}
 
 <section class="card team">
   <h2 class="provider-name">Members</h2>
-  <p class="muted provider-blurb">Admins manage the team, services and connections. Members see everything and decide the approvals and reviews they are asked about.</p>
+  <p class="muted provider-blurb">Owners manage everything, including who else is an owner or admin. Admins manage services, connections and members. Members see everything and decide the approvals and reviews they are asked about. The main owner cannot be removed or demoted.</p>
   <ul class="team-list">
-    {% for p in people %}
+    {% for row in people %}
+    {% set p = row.p %}
     <li class="team-row">
       <div class="team-who">
         <span class="team-name">{{ p.name or p.login }}</span>
         <span class="mono small muted">{{ p.login }}</span>
       </div>
       <div class="team-meta">
-        <span class="badge{% if p.role == 'admin' %} st-recovered{% endif %}">{{ p.role }}</span>
+        <span class="team-badges">
+          {% if row.can_act and row.roles %}
+          <form class="team-role" method="post" action="/ui/team/people/{{ p.login }}/role">
+            <label class="sr-only" for="role-{{ p.login }}">Role for {{ p.login }}</label>
+            <select id="role-{{ p.login }}" name="role" data-autosubmit>
+              {% for r in ["owner", "admin", "member"] if r == p.role or r in row.roles %}<option value="{{ r }}"{% if r == p.role %} selected{% endif %}>{{ r|capitalize }}</option>{% endfor %}
+            </select>
+            <button class="btn btn-sm" type="submit" data-js-hide>Change role</button>
+          </form>
+          {% else %}
+          <span class="badge{% if p.role != 'member' %} st-recovered{% endif %}">{{ p.role|capitalize }}</span>
+          {% endif %}
+          {% if p.main_owner %}<span class="badge">Main owner</span>{% endif %}
+        </span>
         <span class="team-status small muted">
           <span>{{ "Slack linked" if p.slack_id else "Not linked to Slack" }}</span>
           <span>{% if p.last_signed_in_at %}Last signed in {{ p.last_signed_in_at|age }} ago{% else %}Never signed in{% endif %}</span>
         </span>
       </div>
-      {% if can_manage %}
+      {% if row.can_act or row.can_rename %}
       <div class="team-actions">
-        <form method="post" action="/ui/team/people/{{ p.login }}/role">
-          <input type="hidden" name="role" value="{{ 'member' if p.role == 'admin' else 'admin' }}">
-          <button class="btn btn-sm" type="submit">{{ "Make member" if p.role == "admin" else "Make admin" }}</button>
-        </form>
+        {% if row.can_rename %}
         <details class="team-more">
           <summary class="btn btn-sm">Rename</summary>
           <form class="team-inline" method="post" action="/ui/team/people/{{ p.login }}/rename">
@@ -49,7 +60,8 @@
             <button class="btn btn-sm btn-primary" type="submit">Save</button>
           </form>
         </details>
-        {% if not p.slack_id %}
+        {% endif %}
+        {% if can_manage and row.can_rename and not p.slack_id %}
         <details class="team-more">
           <summary class="btn btn-sm">Find in Slack</summary>
           <form class="team-inline" method="post" action="/ui/team/people/{{ p.login }}/find-slack">
@@ -59,6 +71,16 @@
           </form>
         </details>
         {% endif %}
+        {% if row.can_make_main %}
+        <details class="team-more">
+          <summary class="btn btn-sm">Make main owner</summary>
+          <form class="team-inline" method="post" action="/ui/team/people/{{ p.login }}/main-owner">
+            <span class="small">Make {{ p.name or p.login }} the main owner? You stay an owner.</span>
+            <button class="btn btn-sm btn-primary" type="submit">Yes, make main owner</button>
+          </form>
+        </details>
+        {% endif %}
+        {% if row.can_act %}
         <details class="team-more">
           <summary class="btn btn-sm btn-reject">Remove</summary>
           <form class="team-inline" method="post" action="/ui/team/people/{{ p.login }}/remove">
@@ -66,6 +88,7 @@
             <button class="btn btn-sm btn-reject" type="submit">Yes, remove</button>
           </form>
         </details>
+        {% endif %}
       </div>
       {% endif %}
     </li>
@@ -84,10 +107,10 @@
         <span class="small muted">Invited by {{ inv.invited_by }} {{ inv.created_at|age }} ago</span>
       </div>
       <div class="team-meta">
-        <span class="badge{% if inv.role == 'admin' %} st-recovered{% endif %}">{{ inv.role }}</span>
+        <span class="badge{% if inv.role != 'member' %} st-recovered{% endif %}">{{ inv.role|capitalize }}</span>
         <span class="small muted">{{ inv.expires }}</span>
       </div>
-      {% if can_manage %}
+      {% if inv.can_manage %}
       <div class="team-actions">
         <button class="btn btn-sm" type="button" data-copy-link="{{ inv.link }}" hidden>Copy link</button>
         <form method="post" action="/ui/team/invites/{{ inv.id }}/resend"><button class="btn btn-sm" type="submit">Resend</button></form>
@@ -105,7 +128,7 @@
   <p class="muted provider-blurb">No pending invites.</p>
   {% endif %}
 
-  {% if can_manage %}
+  {% if grantable %}
   <div class="team-invite">
   <h3>Invite someone</h3>
   <form class="bot-form" method="post" action="/ui/team/invite">
@@ -116,8 +139,9 @@
     <label for="invite-role">Role</label>
     <div class="bot-field">
       <select id="invite-role" name="role">
+        {% if "owner" in grantable %}<option value="owner">Owner - manages everything, including admins and other owners</option>{% endif %}
+        {% if "admin" in grantable %}<option value="admin">Admin - also manages services, connections and members</option>{% endif %}
         <option value="member" selected>Member - sees everything and decides approvals</option>
-        <option value="admin">Admin - also manages the team, services and connections</option>
       </select>
     </div>
     <label for="invite-email">Email (optional)</label>
