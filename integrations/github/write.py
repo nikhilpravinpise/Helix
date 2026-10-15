@@ -30,6 +30,7 @@ from typing import Any
 import httpx
 
 from helix.config import get_settings
+from integrations.github.app import ConnectedToken, GitHubAppError
 from integrations.writes import (
     WriteAuthError,
     WriteError,
@@ -78,12 +79,26 @@ class GitHubWriteClient:
         client: httpx.Client | None = None,
         timeout: float = 30.0,
         base_branch: str = BASE_BRANCH,
+        draft: bool = False,
     ) -> None:
         self._repo = repo or get_settings().github_repo
-        self._token = token if token is not None else get_settings().github_token
+        self._token = token
+        self._connected = ConnectedToken()
         self._client = client
         self._timeout = timeout
         self._base_branch = base_branch
+        self._draft = draft
+
+    def _resolve_token(self) -> str | None:
+        """Explicit token, else the connected GitHub installation, else
+        HELIX_GITHUB_TOKEN (integrations/github/app.py ConnectedToken). The
+        installation token is resolved per request through its cache."""
+        if self._token is not None:
+            return self._token
+        try:
+            return self._connected.get()
+        except GitHubAppError as exc:
+            raise WriteAuthError(f"github app token: {exc}") from exc
 
     def _http(self) -> httpx.Client:
         if self._client is None:
@@ -93,11 +108,12 @@ class GitHubWriteClient:
     def _request(
         self, method: str, path: str, *, json: dict | None = None
     ) -> dict[str, Any] | list[Any] | None:
-        if not self._token:
-            raise WriteAuthError("HELIX_GITHUB_TOKEN is not set")
+        token = self._resolve_token()
+        if not token:
+            raise WriteAuthError("no GitHub connection and HELIX_GITHUB_TOKEN is not set")
         url = f"{GITHUB_API}{path}"
         headers = {
-            "Authorization": f"Bearer {self._token}",
+            "Authorization": f"Bearer {token}",
             "Accept": "application/vnd.github+json",
             "X-GitHub-Api-Version": "2022-11-28",
         }
@@ -173,16 +189,15 @@ class GitHubWriteClient:
                 payload["sha"] = existing
             self._request("PUT", f"/repos/{self._repo}/contents/{path}", json=payload)
 
-        pr = self._request(
-            "POST",
-            f"/repos/{self._repo}/pulls",
-            json={
-                "title": title,
-                "head": branch,
-                "base": self._base_branch,
-                "body": body,
-            },
-        )
+        pr_request: dict[str, Any] = {
+            "title": title,
+            "head": branch,
+            "base": self._base_branch,
+            "body": body,
+        }
+        if self._draft:
+            pr_request["draft"] = True
+        pr = self._request("POST", f"/repos/{self._repo}/pulls", json=pr_request)
         pr = pr or {}
         return {
             "op": "open_fix_pr",

@@ -56,12 +56,21 @@ class Settings(BaseSettings):
     # name resolved under fixtures/faults/).
     github_token: str | None = Field(default=None, repr=False)
     github_repo: str = "nikhilpravinpise/Helix"
+    #: The Helix GitHub App behind Connect GitHub (integrations/github/app.py).
+    #: The private key is the app's PEM; literal "\n" sequences are accepted
+    #: so it fits a one-line env var.
+    github_app_id: str | None = None
+    github_app_slug: str | None = None
+    github_app_private_key: str | None = Field(default=None, repr=False)
     jenkins_url: str = "http://localhost:8080"
     jenkins_user: str = "admin"
     jenkins_token: str = Field(default="admin-sandbox-placeholder", repr=False)
     es_url: str = "http://localhost:9200"
     kube_context: str = "kind-helix-sandbox"
     evidence_source: Literal["live", "fixtures"] = "live"
+    # None follows evidence_source (fixtures -> recording fake). "live" opens
+    # real fix PRs even when evidence is recorded; "recorded" forces the fake.
+    github_writes: Literal["recorded", "live"] | None = None
     fixture_path: str | None = None
 
     # Kafka backbone (subphase E2), infra/kafka-compose.yml. Literal
@@ -89,6 +98,10 @@ class Settings(BaseSettings):
     github_oauth_client_id: str | None = None
     github_oauth_client_secret: str | None = Field(default=None, repr=False)
     session_secret: str | None = Field(default=None, repr=False)
+    connections_key: str | None = Field(default=None, repr=False)
+    #: Off for the benchmark (benchmark/harness.py _BENCHMARK_ISOLATION) so a
+    #: stored connection never turns an offline run into a live one.
+    connections_enabled: bool = True
     allowed_users: str | None = None
     public_url: str | None = None
 
@@ -200,6 +213,10 @@ class Settings(BaseSettings):
     #: connection, so no public URL into this machine is needed.
     slack_app_token: str | None = Field(default=None, repr=False)
     slack_default_channel: str = "#helix-incidents"
+    #: Slack app credentials for "Connect Slack" (Connections page OAuth
+    #: install, integrations/slack/oauth.py). Unset disables the button.
+    slack_client_id: str | None = None
+    slack_client_secret: str | None = Field(default=None, repr=False)
     # How long an interactive Slack approval may sit undecided before the
     # same escalate-on-timeout contract 1.8's approval_timeout uses
     # applies (0 disables; falls back to approval_timeout when unset).
@@ -213,6 +230,9 @@ class Settings(BaseSettings):
     jira_email: str = "helix-bot@example.com"
     jira_api_token: str | None = Field(default=None, repr=False)
     jira_project_key: str = "HELIX"
+    # Atlassian OAuth 2.0 app, used to refresh a connected Jira account.
+    jira_oauth_client_id: str | None = None
+    jira_oauth_client_secret: str | None = Field(default=None, repr=False)
     linear_api_key: str | None = Field(default=None, repr=False)
     linear_team_id: str = ""
     trello_api_key: str | None = Field(default=None, repr=False)

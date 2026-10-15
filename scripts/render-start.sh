@@ -21,9 +21,23 @@ for var in HELIX_GITHUB_OAUTH_CLIENT_ID HELIX_GITHUB_OAUTH_CLIENT_SECRET HELIX_S
     exit 1
   fi
 done
+# The GitHub App's private key is multi-line, so Render holds it as a Secret
+# File rather than an env var.
+key_file=/etc/secrets/github-app.pem
+if [[ -z "${HELIX_GITHUB_APP_PRIVATE_KEY:-}" && -r "${key_file}" ]]; then
+  export HELIX_GITHUB_APP_PRIVATE_KEY="$(<"${key_file}")"
+fi
+
 # GitHub sends the user back here; Render provides the service's own URL.
 export HELIX_PUBLIC_URL="${HELIX_PUBLIC_URL:-${RENDER_EXTERNAL_URL:-}}"
 
 alembic -c state/migrations/alembic.ini upgrade head
+# The demo starts with recorded incidents on the dashboard. Seeding runs
+# here, before the server, so the two never share Render's 512MB; a failure
+# is logged and the (empty) demo still comes up.
+if [[ "${HELIX_ENVIRONMENT:-}" == "demo" ]]; then
+  helix seed-demo || echo "render-start: demo seeding failed, serving anyway" >&2
+fi
+
 export HELIX_API_BIND=0.0.0.0 HELIX_API_PORT="${PORT:-8787}"
 exec helix serve

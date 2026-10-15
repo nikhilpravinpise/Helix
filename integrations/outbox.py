@@ -37,6 +37,7 @@ from helix.config import get_settings
 from helix.logging import get_logger
 from integrations.work.contract import WorkItemRejected
 from state import models
+from state.connections import active_connection
 from state.machine import IncidentStatus
 from state.models import OutboxStatus
 
@@ -73,6 +74,16 @@ def _resolve_slack() -> "SlackClient | None":
     return get_slack_client()
 
 
+def _resolve_slack_for(session: Session) -> "SlackClient | None":
+    """The connected workspace's bot token wins; otherwise the .env one."""
+    connection = active_connection(session, "slack")
+    if connection is not None:
+        from integrations.slack import WebSlackClient
+
+        return WebSlackClient(connection.access_token)
+    return _resolve_slack()
+
+
 def _resolve_work() -> "WorkManagementProvider | None":
     from integrations.work import get_work_provider
 
@@ -85,6 +96,17 @@ def _resolve_work_for(kind: str) -> "WorkManagementProvider | None":
     from integrations.work import get_work_provider_for
 
     return get_work_provider_for(kind)
+
+
+def resolve_work_for_session(session: Session, kind: str) -> "WorkManagementProvider | None":
+    """A connected Jira account wins for kind "jira"; otherwise the .env path."""
+    if kind == "jira":
+        from integrations.work import connected_jira_provider
+
+        provider = connected_jira_provider(session)
+        if provider is not None:
+            return provider
+    return _resolve_work_for(kind)
 
 
 def _resolve_notion() -> "NotionClient | None":
@@ -186,7 +208,11 @@ def _send_slack(
     )
 
     settings = get_settings()
-    channel = row.payload.get("channel") or settings.slack_default_channel
+    # An explicit payload channel wins, then the connected workspace's chosen
+    # channel, then the configured default.
+    connection = active_connection(session, "slack")
+    stored_channel = connection.settings.get("channel") if connection else None
+    channel = row.payload.get("channel") or stored_channel or settings.slack_default_channel
     text = escape(row.payload.get("text") or f"{incident.incident_id} update")
     registry = load_registry()
     people = registry.people
@@ -488,7 +514,7 @@ def drain_outbox(
     # created; resolving per row gave every op a fresh, empty provider,
     # so a comment op after a transition would miss the remote, recreate
     # it, and clobber the mirror's status back to `open`.
-    slack_client = slack if slack is not None else _resolve_slack()
+    slack_client = slack if slack is not None else _resolve_slack_for(session)
     notion_client = notion if notion is not None else _resolve_notion()
     work_providers: dict[str, WorkManagementProvider] = {}
     injected_name = getattr(work, "name", "") if work is not None else ""
@@ -499,7 +525,7 @@ def drain_outbox(
             if work is not None and (not injected_name or kind == injected_name):
                 provider = work
             else:
-                provider = _resolve_work_for(kind)
+                provider = resolve_work_for_session(session, kind)
             if provider is not None:
                 work_providers[kind] = provider
         return provider

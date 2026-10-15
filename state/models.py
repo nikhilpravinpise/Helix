@@ -1074,3 +1074,49 @@ class IntegrationOutbox(Base):
     sent_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 
     incident: Mapped[Incident] = relationship(back_populates="outbox_entries")
+
+
+class Connection(Base):
+    """A provider account the team connected (future_plans.md Stage 1),
+    one row per provider (`slack`, `jira`). `access_token`/`refresh_token`
+    hold Fernet ciphertext, never the token: state/connections.py is the
+    only code that encrypts and decrypts them. `access_token` is NULL for a
+    GitHub App installation, which holds no long-lived credential (its
+    installation id is in `settings`). `settings` is the
+    provider's small non-secret config (Slack team id and channel, Jira
+    cloud id, site url and project key).
+    """
+
+    __tablename__ = "connections"
+
+    provider: Mapped[str] = mapped_column(String(16), primary_key=True)
+    account: Mapped[str] = mapped_column(String(256))
+    scopes: Mapped[list[str]] = mapped_column(_json_doc())
+    access_token: Mapped[str | None] = mapped_column(Text, nullable=True)
+    refresh_token: Mapped[str | None] = mapped_column(Text)
+    expires_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    settings: Mapped[dict[str, Any]] = mapped_column(_json_doc())
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
+    )
+
+
+class PRBotSettings(Base):
+    """The pull request bot's settings, a single row (id 1). A NULL column
+    means "use the server default" (state/pr_bot.py resolves them): real
+    PRs on/off, the repo and base branch the bot targets, whether it opens
+    drafts, and an optional daily limit on real PRs.
+    """
+
+    __tablename__ = "pr_bot_settings"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    real_prs: Mapped[bool | None] = mapped_column(Boolean, nullable=True)
+    repo: Mapped[str | None] = mapped_column(String(256), nullable=True)
+    base_branch: Mapped[str | None] = mapped_column(String(256), nullable=True)
+    draft: Mapped[bool | None] = mapped_column(Boolean, nullable=True)
+    daily_limit: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
+    )

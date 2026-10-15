@@ -435,3 +435,35 @@ class TestRollbackCommand:
         out = client.rollout_undo("payment-api", "payment-api")
         assert out["op"] == "rollout_undo"
         assert out["basis"] == "previous"
+
+
+class TestGitHubWritesOverride:
+    """HELIX_GITHUB_WRITES decouples the GitHub write transport from the
+    evidence source; Kubernetes and Jenkins writes never move."""
+
+    def test_unset_follows_evidence_source(self, monkeypatch):
+        monkeypatch.delenv("HELIX_GITHUB_WRITES", raising=False)
+        monkeypatch.setenv("HELIX_EVIDENCE_SOURCE", "fixtures")
+        from integrations.writes import get_github_write
+
+        assert isinstance(get_github_write(), FakeGitHubWrite)
+
+    def test_live_override_with_recorded_evidence_opens_real_prs(self, monkeypatch):
+        monkeypatch.setenv("HELIX_EVIDENCE_SOURCE", "fixtures")
+        monkeypatch.setenv("HELIX_GITHUB_WRITES", "live")
+        from integrations.writes import (
+            get_github_write,
+            get_jenkins_write,
+            get_kubernetes_write,
+        )
+
+        assert isinstance(get_github_write(), GitHubWriteClient)
+        assert isinstance(get_kubernetes_write(), FakeKubernetesWrite)
+        assert isinstance(get_jenkins_write(), FakeJenkinsWrite)
+
+    def test_recorded_override_forces_the_fake_on_live_evidence(self, monkeypatch):
+        monkeypatch.setenv("HELIX_EVIDENCE_SOURCE", "live")
+        monkeypatch.setenv("HELIX_GITHUB_WRITES", "recorded")
+        from integrations.writes import get_github_write
+
+        assert isinstance(get_github_write(), FakeGitHubWrite)

@@ -109,11 +109,14 @@ def verification_node(deps: "GraphDeps"):
                     )
                 else:
                     params = execution.params or {}
+                    # A PR the live client really opened is read back from
+                    # real GitHub even when evidence is recorded.
+                    live_pr = execution.origin == "live" and deps.github_readback is not None
                     ctx = VerificationContext(
                         kubernetes=deps.kubernetes,
                         elk=deps.elk,
                         jenkins=deps.jenkins,
-                        github=deps.github,
+                        github=deps.github_readback if live_pr else deps.github,
                         service=state.get("service") or execution.action,
                         namespace=_namespace(state, params),
                         origin=deps.write_origin,

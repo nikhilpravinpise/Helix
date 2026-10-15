@@ -1,0 +1,26 @@
+{# Shared decision controls (approvals queue + incident page). #}
+{% macro actor_bar(who, default_actor, token_required) %}
+<div class="card actor-bar">
+  {% if who %}
+  <span>Deciding as <b>{{ who }}</b></span>
+  <input id="actor" type="hidden" value="{{ who }}">
+  {% else %}
+  <label for="actor">Operator</label>
+  <input id="actor" type="text" value="{{ default_actor }}" maxlength="128" autocomplete="off">
+  {% endif %}
+  {% if token_required and not who %}
+  <label for="intake-token">Intake token</label>
+  <input id="intake-token" type="password" maxlength="256" autocomplete="off"
+         placeholder="HELIX_INTAKE_TOKEN">
+  {% endif %}
+</div>
+{% endmacro %}
+
+{% macro review_decide_row(id) %}
+<div class="decide-row">
+  <input id="note-review-{{ id }}" type="text" placeholder="decision note (optional)" maxlength="500">
+  <button class="btn btn-approve" data-decide="approve" data-decide-kind="review" data-approval-id="{{ id }}">Approve</button>
+  <button class="btn btn-reject" data-decide="reject" data-decide-kind="review" data-approval-id="{{ id }}">Reject</button>
+</div>
+<p class="decide-error" id="decide-error-review-{{ id }}"></p>
+{% endmacro %}

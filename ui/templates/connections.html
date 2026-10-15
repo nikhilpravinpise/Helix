@@ -1,0 +1,136 @@
+{% extends "base.html" %}
+{% block title %}Connections - Helix{% endblock %}
+{% block content %}
+<header class="pane-head">
+  <div>
+    <p class="eyebrow">connections</p>
+    <h1>Connected accounts</h1>
+  </div>
+</header>
+
+{% if notice %}
+<p class="notice notice-{{ notice[0] }}" role="status">{{ notice[1] }}</p>
+{% endif %}
+
+{% for p in providers %}
+<section class="card provider" id="{{ p.id }}">
+  <div class="provider-head">
+    <h2 class="provider-name">{{ p.name }}</h2>
+    {% if p.connected %}
+    <span class="badge st-recovered">Connected</span>
+    {% else %}
+    <span class="badge">Not connected</span>
+    {% endif %}
+  </div>
+  <p class="muted provider-blurb">{{ p.blurb }}</p>
+
+  {% if p.connected %}
+  <dl class="provider-facts">
+    {% if p.site %}<div><dt>Site</dt><dd>{% if p.site_url %}<a href="{{ p.site_url }}" rel="noopener">{{ p.site }}</a>{% else %}{{ p.site }}{% endif %}</dd></div>
+    <div><dt>Account</dt><dd>{{ p.account }}</dd></div>
+    {% else %}<div><dt>{{ p.account_label or "Workspace" }}</dt><dd>{{ p.account }}</dd></div>{% endif %}
+    {% if p.project and not (p.picker and p.picker.options) %}<div><dt>Project</dt><dd class="mono">{{ p.project }}</dd></div>{% endif %}
+    {% if p.channel and not (p.picker and p.picker.options) %}<div><dt>Channel</dt><dd class="mono">{{ p.channel }}</dd></div>{% endif %}
+    {% if p.repos %}<div><dt>Repositories</dt><dd>{% if p.repos[1] %}Could not load the repository list.{% elif p.repos[0] %}{{ p.repos[0]|length }} {{ "repository" if p.repos[0]|length == 1 else "repositories" }}: <span class="mono">{{ p.repos[0][:3]|join(", ") }}</span>{% if p.repos[0]|length > 3 %} and {{ p.repos[0]|length - 3 }} more{% endif %}{% else %}None yet - choose some on GitHub.{% endif %}</dd></div>{% endif %}
+    {% if p.scopes %}<div><dt>{{ "Permissions" if p.installation_id else "Scopes" }}</dt><dd class="mono">{{ p.scopes|join(", ") }}</dd></div>{% endif %}
+  </dl>
+  {% elif p.uses_server %}
+  <p class="small muted">Not connected here - Helix is using the server's own {{ p.name }} settings{% if p.id == "github" %} (HELIX_GITHUB_TOKEN){% endif %}.</p>
+  {% endif %}
+
+  {% if p.picker %}
+  {% set pk = p.picker %}
+  {% if pk.error == "scope" %}
+  <p class="small muted provider-why">Slack did not allow listing channels (the app needs the channels:read scope). Use Reconnect to grant it.</p>
+  {% elif pk.options %}
+  <form class="picker" method="post" action="/ui/connections/{{ p.id }}/settings">
+    <label for="pick-{{ p.id }}">{{ p.picker_label }}</label>
+    <select id="pick-{{ p.id }}" name="{{ p.picker_field }}">
+      {% if not pk.current %}<option value="" disabled selected>Choose...</option>{% endif %}
+      {% for value, label in pk.options %}<option value="{{ value }}"{% if value == pk.current %} selected{% endif %}>{{ label }}</option>{% endfor %}
+    </select>
+    <button class="btn" type="submit">Save</button>
+  </form>
+  {% endif %}
+  {% if pk.error == "load" %}
+  <p class="small muted provider-why">Could not load the {{ p.picker_label|lower }} list{% if pk.current %} - keeping {{ pk.current }}{% endif %}.</p>
+  {% endif %}
+  {% if not pk.current and pk.fallback %}
+  <p class="small muted provider-why">Until one is chosen, Helix uses {{ pk.fallback }} from the server settings.</p>
+  {% endif %}
+  {% endif %}
+
+  <div class="provider-actions">
+    {% if p.installation_id %}
+    <a class="btn" href="https://github.com/settings/installations/{{ p.installation_id }}" rel="noopener">Manage repositories</a>
+    {% else %}
+    <form method="post" action="/ui/connections/{{ p.id }}/connect">
+      <button class="btn {% if not p.connected %}btn-primary{% endif %}" type="submit"{% if not p.can_connect %} disabled aria-describedby="why-{{ p.id }}"{% endif %}>{% if p.connect_label %}{{ p.connect_label }}{% elif p.connected %}Reconnect{% else %}Connect {{ p.name }}{% endif %}</button>
+    </form>
+    {% endif %}
+    {% if p.connected and (p.id != "github" or p.installation_id) %}
+    <form method="post" action="/ui/connections/{{ p.id }}/test"><button class="btn" type="submit">Test</button></form>
+    {% endif %}
+    {% if p.connected %}
+    <form method="post" action="/ui/connections/{{ p.id }}/disconnect"><button class="btn btn-reject" type="submit">Disconnect</button></form>
+    {% endif %}
+  </div>
+  {% if p.installation_id %}<p class="small muted provider-why">Disconnect only makes Helix forget the installation. To uninstall the app, use <a href="https://github.com/settings/installations/{{ p.installation_id }}" rel="noopener">GitHub's installation settings</a>.</p>{% endif %}
+  {% if not p.can_connect %}<p class="small muted provider-why" id="why-{{ p.id }}">{{ p.reason }}</p>{% endif %}
+</section>
+{% endfor %}
+
+{% set b = pr_bot %}
+<section class="card provider" id="pr-bot">
+  <div class="provider-head">
+    <h2 class="provider-name">Pull request bot</h2>
+  </div>
+  <p class="muted provider-blurb">Opens the fix pull requests. Anything left on its server default follows the server's settings.</p>
+  <p class="small muted bot-usage">{{ b.used }}{% if b.daily_limit %} of {{ b.daily_limit }}{% endif %} real PR{{ "" if b.used == 1 and not b.daily_limit else "s" }} in the last 24 hours{% if b.daily_limit %} (daily limit){% endif %}.</p>
+  {% if b.forced_recorded %}<p class="small muted provider-why">The server forces recorded PRs (HELIX_GITHUB_WRITES=recorded), so no real PR opens whatever is chosen here.</p>{% endif %}
+
+  <form class="bot-form" method="post" action="/ui/connections/pr-bot/settings">
+    <label for="bot-real">Real PRs</label>
+    <div class="bot-field">
+      <select id="bot-real" name="real_prs">
+        <option value=""{% if not b.real_prs %} selected{% endif %}>Server default ({{ b.real_prs_default }})</option>
+        <option value="on"{% if b.real_prs == "on" %} selected{% endif %}>On - open them on GitHub</option>
+        <option value="off"{% if b.real_prs == "off" %} selected{% endif %}>Off - plan the fix, record the PR</option>
+      </select>
+    </div>
+
+    <label for="bot-repo">Repository</label>
+    <div class="bot-field">
+      <select id="bot-repo" name="repo">
+        <option value=""{% if not b.repo %} selected{% endif %}>Server default ({{ b.repo_default }})</option>
+        {% for name in b.repos %}<option value="{{ name }}"{% if name == b.repo %} selected{% endif %}>{{ name }}</option>{% endfor %}
+      </select>
+      {% if b.repos_error == "load" %}<p class="small muted">Could not load the repository list{% if b.repo %} - keeping {{ b.repo }}{% endif %}.</p>
+      {% elif b.repos_error == "token" %}<p class="small muted">Install the app on GitHub above to choose from your repositories.</p>{% endif %}
+    </div>
+
+    <label for="bot-base">Base branch</label>
+    <div class="bot-field">
+      <input id="bot-base" type="text" name="base_branch" value="{{ b.base_branch }}" placeholder="{{ b.base_default }}" autocomplete="off" spellcheck="false">
+      <p class="small muted">Blank uses the server default ({{ b.base_default }}). Must exist in the repository.</p>
+    </div>
+
+    <label for="bot-draft">Draft PRs</label>
+    <div class="bot-field">
+      <select id="bot-draft" name="draft">
+        <option value=""{% if not b.draft %} selected{% endif %}>Server default ({{ b.draft_default }})</option>
+        <option value="on"{% if b.draft == "on" %} selected{% endif %}>On - open as drafts</option>
+        <option value="off"{% if b.draft == "off" %} selected{% endif %}>Off - open ready for review</option>
+      </select>
+    </div>
+
+    <label for="bot-limit">Daily limit</label>
+    <div class="bot-field">
+      <input id="bot-limit" type="text" name="daily_limit" inputmode="numeric" value="{{ b.daily_limit or '' }}" placeholder="No limit" autocomplete="off">
+      <p class="small muted">Real PRs per rolling 24 hours, 1 to 1000. Past it, PRs are recorded instead. Blank means no limit.</p>
+    </div>
+
+    <button class="btn btn-primary" type="submit">Save</button>
+  </form>
+</section>
+{% endblock %}

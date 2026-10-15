@@ -48,6 +48,28 @@ def sqlite_engine() -> Iterator[Engine]:
     engine.dispose()
 
 
+@pytest.fixture(autouse=True)
+def no_provider_network(monkeypatch):
+    """The Connections page lists Slack channels, Jira projects and the PR
+    bot's GitHub repos for a connected card. Without a test's own fake, those calls fail fast here
+    instead of reaching the real services."""
+    import httpx
+
+    from integrations.github import oauth as github_oauth
+    from integrations.slack import oauth as slack_oauth
+    from integrations.work import jira_oauth
+
+    def offline(request: httpx.Request) -> httpx.Response:
+        raise httpx.ConnectError("offline in tests")
+
+    def client() -> httpx.Client:
+        return httpx.Client(transport=httpx.MockTransport(offline), timeout=5)
+
+    monkeypatch.setattr(slack_oauth, "_http", client)
+    monkeypatch.setattr(jira_oauth, "_http", client)
+    monkeypatch.setattr(github_oauth, "_http", client)
+
+
 @pytest.fixture
 def sqlite_sessions(sqlite_engine: Engine):
     """A session_scope-equivalent bound to the test SQLite engine."""

@@ -53,6 +53,12 @@ def build_parser() -> argparse.ArgumentParser:
 
     subparsers.add_parser("incidents", help="list incidents, newest first")
 
+    subparsers.add_parser(
+        "seed-demo",
+        help="fill an EMPTY database with recorded demo incidents (fixture scenarios "
+        "on arm A plus one change parked at review); a no-op if any incident exists",
+    )
+
     run = subparsers.add_parser(
         "run",
         help="drive an incident's workflow to its next stopping point "
@@ -949,6 +955,7 @@ def _cmd_sync(args: argparse.Namespace) -> int:
 
     from helix.config import get_settings
     from integrations.outbox import drain_outbox
+    from integrations.work import effective_work_provider
     from state.db import session_scope
 
     try:
@@ -960,14 +967,14 @@ def _cmd_sync(args: argparse.Namespace) -> int:
             # repair ops, then drain once more so the repairs land in the
             # same call. Unconfigured integrations skip cleanly.
             from integrations.notion import get_notion_client
+            from integrations.outbox import resolve_work_for_session
             from integrations.reconcile import (
                 reconcile_knowledge_pages,
                 reconcile_work_items,
             )
-            from integrations.work import get_work_provider
 
             drift: dict[str, int] = {}
-            work = get_work_provider()
+            work = resolve_work_for_session(session, effective_work_provider(session))
             # `memory` is the dev provider - its remote IS the local
             # mirror, so there is no independent store to drift from; in a
             # fresh process it would look "all missing" and wrongly
@@ -1216,6 +1223,10 @@ def main(argv: list[str] | None = None) -> int:
         return _cmd_intake(args)
     if args.command == "incidents":
         return _cmd_incidents()
+    if args.command == "seed-demo":
+        from helix.demo import main as seed_demo_main
+
+        return seed_demo_main()
     if args.command == "run":
         return _cmd_run(args)
     if args.command == "reclaim":

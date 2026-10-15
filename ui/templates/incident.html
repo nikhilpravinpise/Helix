@@ -1,12 +1,33 @@
 {% extends "base.html" %}
+{% from "_decide.html" import actor_bar, review_decide_row %}
 {% block title %}{{ i.incident_id }} - Helix{% endblock %}
 {% block content %}
+{% macro params_block(value) %}
+{% set pretty = value|jsonpp %}
+{% if pretty|length > 400 %}<details><summary>params</summary><pre class="code">{{ pretty }}</pre></details>
+{% else %}<pre class="code">{{ pretty }}</pre>{% endif %}
+{% endmacro %}
 <article data-incident-id="{{ i.incident_id }}" data-incident-status="{{ i.status }}">
-  <div class="page-head">
-    <h1 class="mono">{{ i.incident_id }}</h1>
-    <span class="badge badge-lg st-{{ i.status }}">{{ i.status }}</span>
-    {% if not terminal %}<span class="live muted" id="live-check">live - polling</span>{% endif %}
-  </div>
+  <header class="pane-head">
+    <div>
+      <p class="eyebrow">incident - {{ i.service }}</p>
+      <h1 class="mono">{{ i.incident_id }}</h1>
+    </div>
+    <div class="head-meta">
+      <span class="badge badge-lg st-{{ i.status }}">{{ i.status|label }}</span>
+      {% if not terminal %}<span class="live"><span class="pulse" aria-hidden="true"></span><span id="live-check">live - polling</span></span>{% endif %}
+    </div>
+  </header>
+
+  {% if busy %}<p class="callout">A sample is already running - showing it.</p>{% endif %}
+
+  <section class="card summary st-{{ i.status }}">
+    <dl class="summary-rows">
+      {% for row in summary.rows %}
+      <div><dt>{{ row.label }}</dt><dd>{{ row.text }}{% if row.link %} <a href="{{ row.link }}" rel="noopener">open PR</a>{% endif %}</dd></div>
+      {% endfor %}
+    </dl>
+  </section>
 
   <section class="card">
     <dl class="fields">
@@ -26,12 +47,9 @@
       <div><dt>updated</dt><dd class="mono">{{ i.updated_at|dt }}</dd></div>
       <div class="span"><dt>fingerprint</dt><dd class="mono">{{ i.fingerprint }}</dd></div>
     </dl>
-    {% if i.escalation_cause %}
-    <p class="callout"><strong>Escalated:</strong> {{ i.escalation_cause }}</p>
-    {% endif %}
   </section>
 
-  <h2 class="timeline-title">Provenance</h2>
+  <h2 class="section-title">Provenance</h2>
   <ol class="timeline">
 
     <li class="stage">
@@ -81,12 +99,16 @@
         <div class="record">
           <div class="record-head">
             <span class="mono strong">#{{ r.id }} - {{ r.reviewer }}</span>
-            <span class="badge ap-{{ r.status }}">{{ r.status }}</span>
+            <span class="badge ap-{{ r.status }}">{{ r.status|label }}</span>
             {% if r.decided_by %}<span class="muted">by {{ r.decided_by }} at <span class="mono">{{ r.decided_at|dt }}</span></span>{% endif %}
             <span class="mono muted ts">{{ r.created_at|dt }}</span>
           </div>
           <p class="record-body">{{ r.rationale }}</p>
           {% if r.note %}<p class="record-body">{{ r.note }}</p>{% endif %}
+          {% if r.status == "pending" %}
+          {{ actor_bar(request.state.user if request.state is defined else none, default_actor, token_required) }}
+          {{ review_decide_row(r.id) }}
+          {% endif %}
         </div>
         {% endfor %}
       {% else %}<p class="none">none recorded</p>{% endif %}
@@ -143,7 +165,7 @@
     <li class="stage">
       <h3><span class="stage-dot"></span>Candidates</h3>
       {% if stages.candidates %}
-      <table class="table table-tight">
+      <div class="table-wrap card flush"><table class="table table-tight">
         <thead>
           <tr><th>#</th><th class="num">att</th><th class="num">rank</th><th>action</th>
               <th>params</th><th class="num">score</th><th>risk</th><th>rationale</th><th>at</th></tr>
@@ -155,7 +177,7 @@
             <td class="num">{{ c.attempt }}</td>
             <td class="num">{{ c.rank }}</td>
             <td class="mono">{{ c.action }}</td>
-            <td class="mono small">{{ c.params|tojson }}</td>
+            <td class="mono small">{% if c.params|jsonpp|length > 400 %}{{ params_block(c.params) }}{% else %}<div class="cell-scroll">{{ c.params|tojson }}</div>{% endif %}</td>
             <td class="num">{{ "%.2f"|format(c.score) }}</td>
             <td><span class="badge risk-{{ c.risk_tier }}">{{ c.risk_tier }}</span></td>
             <td class="small">{{ c.rationale }}</td>
@@ -163,7 +185,7 @@
           </tr>
           {% endfor %}
         </tbody>
-      </table>
+      </table></div>
       {% else %}<p class="none">none recorded</p>{% endif %}
     </li>
 
@@ -179,16 +201,16 @@
           <span class="mono muted ts">{{ d.created_at|dt }}</span>
         </div>
         <dl class="fields">
-          <div><dt>policy</dt><dd><span class="badge pol-{{ d.policy_decision or 'none' }}">{{ d.policy_decision or "not recorded" }}</span></dd></div>
+          <div><dt>policy</dt><dd><span class="badge pol-{{ d.policy_decision or 'none' }}">{{ (d.policy_decision or "not recorded")|label }}</span></dd></div>
           <div><dt>approval</dt><dd>
             {% if d.approval_id %}
-              #{{ d.approval_id }} <span class="badge ap-{{ d.approval_status }}">{{ d.approval_status }}</span>
+              #{{ d.approval_id }} <span class="badge ap-{{ d.approval_status }}">{{ d.approval_status|label }}</span>
               by {{ d.decided_by }} at <span class="mono">{{ d.decided_at|dt }}</span>
             {% else %}none required{% endif %}
           </dd></div>
           {% if d.execution_id %}<div><dt>execution</dt><dd class="mono">#{{ d.execution_id }}</dd></div>{% endif %}
         </dl>
-        <pre class="code">{{ d.params|jsonpp }}</pre>
+        {{ params_block(d.params) }}
       </div>
       {% else %}<p class="none">no selection recorded</p>{% endif %}
     </li>
@@ -200,7 +222,7 @@
         <div class="record">
           <div class="record-head">
             <span class="mono strong">#{{ v.id }} - {{ v.action }}</span>
-            <span class="badge vo-{{ v.outcome }}">{{ v.outcome }}</span>
+            <span class="badge vo-{{ v.outcome }}">{{ v.outcome|label }}</span>
             <span class="muted">attempt {{ v.attempt }}</span>
             {% if v.candidate_id %}<span class="mono muted">cand #{{ v.candidate_id }}</span>{% endif %}
             <span class="mono muted ts">{{ v.created_at|dt }}</span>
@@ -221,7 +243,7 @@
         <div class="record">
           <div class="record-head">
             <span class="mono strong">#{{ a.id }} - {{ a.action }}</span>
-            <span class="badge ap-{{ a.status }}">{{ a.status }}</span>
+            <span class="badge ap-{{ a.status }}">{{ a.status|label }}</span>
             {% if a.decided_by %}<span class="muted">by {{ a.decided_by }} at <span class="mono">{{ a.decided_at|dt }}</span></span>{% endif %}
             <span class="mono muted ts">{{ a.created_at|dt }}</span>
           </div>
@@ -241,8 +263,8 @@
         <div class="record">
           <div class="record-head">
             <span class="mono strong">#{{ e.id }} - {{ e.action }}</span>
-            <span class="badge ex-{{ e.result }}">{{ e.result }}</span>
-            <span class="badge pol-{{ e.policy_decision }}">{{ e.policy_decision }}</span>
+            <span class="badge ex-{{ e.result }}">{{ e.result|label }}</span>
+            <span class="badge pol-{{ e.policy_decision }}">{{ e.policy_decision|label }}</span>
             <span class="badge origin-{{ e.origin }}">{{ e.origin }}</span>
             <span class="muted">attempt {{ e.attempt }}</span>
             {% if e.decided_by %}<span class="muted">approved by {{ e.decided_by }}</span>{% endif %}
@@ -265,7 +287,7 @@
         <div class="record">
           <div class="record-head">
             <span class="mono strong">#{{ v.id }} - {{ v.action }}</span>
-            <span class="badge vo-{{ v.outcome }}">{{ v.outcome }}</span>
+            <span class="badge vo-{{ v.outcome }}">{{ v.outcome|label }}</span>
             <span class="muted">attempt {{ v.attempt }}</span>
             {% if v.needs_compensation %}<span class="badge st-escalated">needs compensation</span>{% endif %}
           </div>
@@ -273,19 +295,19 @@
             (window {{ v.window_seconds }}s / poll {{ v.poll_seconds }}s)</p>
           <p class="record-body">{{ v.detail }}</p>
           {% if v.checks %}
-          <table class="table table-tight">
+          <div class="table-wrap card flush"><table class="table table-tight">
             <thead><tr><th>check</th><th>status</th><th>detail</th><th>evidence</th></tr></thead>
             <tbody>
               {% for c in v.checks %}
               <tr>
                 <td class="mono">{{ c.name }}</td>
-                <td><span class="badge ck-{{ c.status }}">{{ c.status }}</span></td>
+                <td><span class="badge ck-{{ c.status }}">{{ c.status|label }}</span></td>
                 <td class="small">{{ c.detail }}</td>
                 <td class="mono small">{{ c.evidence_id or "-" }}</td>
               </tr>
               {% endfor %}
             </tbody>
-          </table>
+          </table></div>
           {% endif %}
         </div>
         {% endfor %}
@@ -300,7 +322,7 @@
         <div class="record-head">
           <span class="mono strong">{{ w.external_key or w.external_id }}</span>
           <span class="badge">{{ w.provider }}</span>
-          <span class="badge">{{ w.status }}</span>
+          <span class="badge">{{ w.status|label }}</span>
           {% if w.assignee %}<span class="muted">{{ w.assignee }}</span>{% endif %}
           {% if w.external_url %}<a class="mono small" href="{{ w.external_url }}">open</a>{% endif %}
         </div>
@@ -322,20 +344,20 @@
 
   </ol>
 
-  <h2 class="timeline-title">Transitions</h2>
-  <table class="table">
+  <h2 class="section-title">Transitions</h2>
+  <div class="table-wrap card flush"><table class="table">
     <thead><tr><th>#</th><th>from</th><th>to</th><th>cause</th><th>at</th></tr></thead>
     <tbody>
       {% for t in transitions %}
       <tr>
         <td class="mono">{{ t.id }}</td>
-        <td><span class="badge">{{ t.from_status or "(new)" }}</span></td>
-        <td><span class="badge st-{{ t.to_status }}">{{ t.to_status }}</span></td>
+        <td><span class="badge">{{ (t.from_status or "(new)")|label }}</span></td>
+        <td><span class="badge st-{{ t.to_status }}">{{ t.to_status|label }}</span></td>
         <td class="small">{{ t.cause }}</td>
         <td class="mono muted small">{{ t.created_at|dt }}</td>
       </tr>
       {% endfor %}
     </tbody>
-  </table>
+  </table></div>
 </article>
 {% endblock %}
