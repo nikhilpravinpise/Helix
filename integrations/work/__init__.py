@@ -44,6 +44,7 @@ __all__ = [
     "WorkManagementProvider",
     "get_work_provider",
     "connected_jira_provider",
+    "effective_work_provider",
     "get_work_provider_for",
 ]
 
@@ -110,6 +111,23 @@ def connected_jira_provider(
         on_refresh=on_refresh,
         client=client,
     )
+
+
+def effective_work_provider(session: Session) -> str:
+    """The work provider kind to enqueue for and drain with. The default
+    `memory` yields to a connected Jira account, so connecting Jira needs no
+    .env edit; an explicitly configured provider is left as it is.
+    `active_connection` reads as None under HELIX_CONNECTIONS_ENABLED=false,
+    so the benchmark keeps its memory provider."""
+    from state.connections import active_connection
+
+    kind = get_settings().work_provider
+    if kind != "memory":
+        return kind
+    connection = active_connection(session, "jira")
+    if connection is not None and connection.settings.get("cloud_id"):
+        return "jira"
+    return kind
 
 
 def get_work_provider() -> WorkManagementProvider | None:

@@ -22,7 +22,7 @@ from typing import Any
 
 from sqlalchemy.orm import Session
 
-from helix.config import get_settings
+from integrations.work import effective_work_provider
 from state import models
 from state.machine import IncidentStatus
 
@@ -111,8 +111,7 @@ def enqueue_for_transition(
     """Commit the outbox ops `to_status` implies, in the caller's
     transaction. Pure enqueue - no external call is ever made here, so a
     provider outage cannot stall or corrupt the transition itself."""
-    settings = get_settings()
-    provider = settings.work_provider
+    provider = effective_work_provider(session)
 
     # Slack: every transition is a threaded incident update (2.2).
     _enqueue(

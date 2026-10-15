@@ -332,6 +332,11 @@ class JiraProvider:
             raise WorkItemError(f"jira issue {external_id!r} not found after write")
         return ref
 
+    def myself(self) -> dict[str, Any]:
+        """GET /myself: the cheap authenticated read behind the Connections
+        page's Test button (it also exercises token refresh)."""
+        return self._json(self._request("GET", "/rest/api/3/myself"))
+
     # -- contract ---------------------------------------------------
 
     def capabilities(self) -> ProviderCapabilities:

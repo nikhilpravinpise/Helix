@@ -955,6 +955,7 @@ def _cmd_sync(args: argparse.Namespace) -> int:
 
     from helix.config import get_settings
     from integrations.outbox import drain_outbox
+    from integrations.work import effective_work_provider
     from state.db import session_scope
 
     try:
@@ -973,7 +974,7 @@ def _cmd_sync(args: argparse.Namespace) -> int:
             )
 
             drift: dict[str, int] = {}
-            work = resolve_work_for_session(session, get_settings().work_provider)
+            work = resolve_work_for_session(session, effective_work_provider(session))
             # `memory` is the dev provider - its remote IS the local
             # mirror, so there is no independent store to drift from; in a
             # fresh process it would look "all missing" and wrongly
