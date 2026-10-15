@@ -56,6 +56,12 @@ class Settings(BaseSettings):
     # name resolved under fixtures/faults/).
     github_token: str | None = Field(default=None, repr=False)
     github_repo: str = "nikhilpravinpise/Helix"
+    #: The Helix GitHub App behind Connect GitHub (integrations/github/app.py).
+    #: The private key is the app's PEM; literal "\n" sequences are accepted
+    #: so it fits a one-line env var.
+    github_app_id: str | None = None
+    github_app_slug: str | None = None
+    github_app_private_key: str | None = Field(default=None, repr=False)
     jenkins_url: str = "http://localhost:8080"
     jenkins_user: str = "admin"
     jenkins_token: str = Field(default="admin-sandbox-placeholder", repr=False)

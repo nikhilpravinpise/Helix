@@ -30,6 +30,7 @@ from typing import Any
 import httpx
 
 from helix.config import get_settings
+from integrations.github.app import ConnectedToken, GitHubAppError
 from integrations.writes import (
     WriteAuthError,
     WriteError,
@@ -38,7 +39,6 @@ from integrations.writes import (
     WriteRefusedError,
     WriteTimeoutError,
 )
-from state import connections
 
 GITHUB_API = "https://api.github.com"
 
@@ -83,19 +83,22 @@ class GitHubWriteClient:
     ) -> None:
         self._repo = repo or get_settings().github_repo
         self._token = token
+        self._connected = ConnectedToken()
         self._client = client
         self._timeout = timeout
         self._base_branch = base_branch
         self._draft = draft
 
     def _resolve_token(self) -> str | None:
-        """Explicit token, else the connected GitHub account, else
-        HELIX_GITHUB_TOKEN. Resolved on first use and kept, so building the
-        client never touches the store and one PR uses one identity."""
-        if self._token is None:
-            record = connections.load_connection("github")
-            self._token = record.access_token if record else get_settings().github_token
-        return self._token
+        """Explicit token, else the connected GitHub installation, else
+        HELIX_GITHUB_TOKEN (integrations/github/app.py ConnectedToken). The
+        installation token is resolved per request through its cache."""
+        if self._token is not None:
+            return self._token
+        try:
+            return self._connected.get()
+        except GitHubAppError as exc:
+            raise WriteAuthError(f"github app token: {exc}") from exc
 
     def _http(self) -> httpx.Client:
         if self._client is None:

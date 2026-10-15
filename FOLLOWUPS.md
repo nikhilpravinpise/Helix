@@ -256,6 +256,10 @@ a JWT from the private key, exchange it for an installation token, and use
 that in the read and write clients, falling back to HELIX_GITHUB_TOKEN when
 the app settings are absent.
 
+Done for the PR bot and GitHub evidence (2026-10-15): the Connections page
+installs the app (HELIX_GITHUB_APP_ID, _SLUG, _PRIVATE_KEY), and both
+clients use the installation token ahead of HELIX_GITHUB_TOKEN.
+
 ## 16. Instant GitHub webhooks through an ngrok tunnel (deferred)
 
 Decided 2026-10-04: Vraj wants a tunnel, using ngrok, picked up later.

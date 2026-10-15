@@ -36,7 +36,7 @@ class ConnectionRecord:
     provider: str
     account: str
     scopes: list[str]
-    access_token: str = field(repr=False)
+    access_token: str | None = field(repr=False)
     refresh_token: str | None = field(repr=False)
     expires_at: datetime | None
     settings: dict[str, Any]
@@ -66,17 +66,18 @@ def save_connection(
     *,
     account: str,
     scopes: list[str],
-    access_token: str,
+    access_token: str | None,
     refresh_token: str | None,
     expires_at: datetime | None,
     settings: dict[str, Any],
 ) -> None:
-    """Insert or replace the provider's connection."""
+    """Insert or replace the provider's connection. `access_token` is None
+    for a connection that holds no credential (a GitHub App installation)."""
     fernet = _require_fernet()
     row = session.get(Connection, provider) or Connection(provider=provider)
     row.account = account
     row.scopes = list(scopes)
-    row.access_token = _encrypt(fernet, access_token)
+    row.access_token = _encrypt(fernet, access_token) if access_token else None
     row.refresh_token = _encrypt(fernet, refresh_token) if refresh_token else None
     row.expires_at = expires_at
     row.settings = dict(settings)
@@ -92,7 +93,7 @@ def get_connection(session: Session, provider: str) -> ConnectionRecord | None:
     if row is None or fernet is None:
         return None
     try:
-        access = fernet.decrypt(row.access_token.encode()).decode()
+        access = fernet.decrypt(row.access_token.encode()).decode() if row.access_token else None
         refresh = fernet.decrypt(row.refresh_token.encode()).decode() if row.refresh_token else None
     except InvalidToken:
         get_logger().warning("connection_undecryptable", provider=provider)

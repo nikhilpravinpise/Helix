@@ -1080,7 +1080,9 @@ class Connection(Base):
     """A provider account the team connected (future_plans.md Stage 1),
     one row per provider (`slack`, `jira`). `access_token`/`refresh_token`
     hold Fernet ciphertext, never the token: state/connections.py is the
-    only code that encrypts and decrypts them. `settings` is the
+    only code that encrypts and decrypts them. `access_token` is NULL for a
+    GitHub App installation, which holds no long-lived credential (its
+    installation id is in `settings`). `settings` is the
     provider's small non-secret config (Slack team id and channel, Jira
     cloud id, site url and project key).
     """
@@ -1090,7 +1092,7 @@ class Connection(Base):
     provider: Mapped[str] = mapped_column(String(16), primary_key=True)
     account: Mapped[str] = mapped_column(String(256))
     scopes: Mapped[list[str]] = mapped_column(_json_doc())
-    access_token: Mapped[str] = mapped_column(Text)
+    access_token: Mapped[str | None] = mapped_column(Text, nullable=True)
     refresh_token: Mapped[str | None] = mapped_column(Text)
     expires_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     settings: Mapped[dict[str, Any]] = mapped_column(_json_doc())

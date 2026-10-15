@@ -16,6 +16,7 @@ import httpx
 from helix.config import get_settings
 from integrations.evidence import (
     Evidence,
+    EvidenceAuthError,
     EvidenceError,
     EvidenceKind,
     EvidenceOrigin,
@@ -24,8 +25,8 @@ from integrations.evidence import (
     EvidenceTimeoutError,
     build_evidence,
 )
+from integrations.github.app import ConnectedToken, GitHubAppError
 from integrations.http import raise_for_status
-from state import connections
 
 API_ROOT = "https://api.github.com"
 
@@ -44,6 +45,7 @@ class GitHubEvidenceClient:
         settings = get_settings()
         self._repo = repo or settings.github_repo
         self._token = token
+        self._connected = ConnectedToken()
         if client is not None:
             self._client = client
         else:
@@ -54,13 +56,15 @@ class GitHubEvidenceClient:
             self._client = httpx.Client(base_url=API_ROOT, headers=headers, timeout=timeout)
 
     def _resolve_token(self) -> str | None:
-        """Explicit token, else the connected GitHub account, else
-        HELIX_GITHUB_TOKEN. Resolved on first use and kept, so building the
-        client never touches the store."""
-        if self._token is None:
-            record = connections.load_connection("github")
-            self._token = record.access_token if record else get_settings().github_token
-        return self._token
+        """Explicit token, else the connected GitHub installation, else
+        HELIX_GITHUB_TOKEN (integrations/github/app.py ConnectedToken). The
+        installation token is resolved per request through its cache."""
+        if self._token is not None:
+            return self._token
+        try:
+            return self._connected.get()
+        except GitHubAppError as exc:
+            raise EvidenceAuthError(f"github app token: {exc}") from exc
 
     def _get(self, path: str, **params: Any) -> httpx.Response:
         token = self._resolve_token()

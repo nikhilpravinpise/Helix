@@ -7,15 +7,25 @@ the accounts Helix talks to, without touching .env.
     POST /ui/connections/slack/disconnect     revoke (best effort) and delete
     POST /ui/connections/slack/test           auth.test with the stored token
 
-and the same four routes under /ui/connections/jira (Atlassian OAuth 2.0 3LO)
-and /ui/connections/github (the sign-in OAuth App, for the pull request bot).
-GitHub's callback is /auth/github/callback/connect instead: an OAuth App has
-one registered callback URL, and a redirect_uri may only be that path or a
-subdirectory of it. It is not an open sign-in path, so it needs a session.
+and the same four routes under /ui/connections/jira (Atlassian OAuth 2.0 3LO).
 
-The OAuth `state` is a signed cookie like the GitHub sign-in's (helix/auth.py),
-extended with the signed-in user so a callback started by someone else is
-refused. Browsers never see a token: the page shows status and account only.
+GitHub is not OAuth: Connect GitHub installs the Helix GitHub App
+(integrations/github/app.py) for the pull request bot and GitHub evidence.
+
+    POST /ui/connections/github/connect       redirect to the app's install page
+    GET  /ui/connections/github/installed     the app's Setup URL: verify state,
+                                              look the installation up as the
+                                              app, save its id (no token)
+    POST /ui/connections/github/disconnect    delete the row; uninstalling the
+                                              app itself is done on GitHub
+    POST /ui/connections/github/test          mint a token and list repos
+
+The app is registered with that Setup URL and "Redirect on update". Sign in
+with GitHub (helix/auth.py) stays a separate OAuth App.
+
+The OAuth/install `state` is a signed cookie like the GitHub sign-in's
+(helix/auth.py), extended with the signed-in user so a callback started by
+someone else is refused. Browsers never see a token: the page shows status and account only.
 POSTs are protected the way the rest of the dashboard is, by the SameSite=Lax
 session cookie. Adding a provider is one entry in `_providers` plus its routes.
 """
@@ -26,7 +36,7 @@ import secrets
 import time
 from datetime import UTC, datetime, timedelta
 from typing import Any
-from urllib.parse import parse_qs
+from urllib.parse import parse_qs, quote, urlencode
 
 import httpx
 from fastapi import APIRouter, Request
@@ -35,7 +45,9 @@ from fastapi.responses import HTMLResponse, RedirectResponse, Response
 from helix import auth
 from helix.config import get_settings
 from helix.ui import DbSession, _incident_total, _pending_count, templates
+from integrations.github import app as github_app
 from integrations.github import oauth as github_oauth
+from integrations.github.app import GitHubAppError
 from integrations.github.oauth import GitHubOAuthError
 from integrations.slack import SlackError, oauth
 from integrations.work import connected_jira_provider, jira_oauth
@@ -92,21 +104,24 @@ _NOTICES = {
     "jira-test-failed": ("bad", "Jira rejected the connection ({detail})."),
     "jira-not-connected": ("bad", "Jira is not connected."),
     "github-connected": ("ok", "Connected GitHub."),
-    "github-denied": ("bad", "GitHub connection cancelled - nothing was saved."),
     "github-failed": (
         "bad",
-        "GitHub did not complete the connection ({detail}). Nothing was saved.",
+        "GitHub did not complete the installation ({detail}). Nothing was saved.",
     ),
     "github-unconfigured": ("bad", "GitHub cannot be connected until the server is configured."),
-    "github-disconnected": ("ok", "Disconnected GitHub."),
-    "github-test-ok": ("ok", "GitHub accepted the connection."),
-    "github-test-failed": ("bad", "GitHub rejected the connection ({detail})."),
+    "github-disconnected": (
+        "ok",
+        "Disconnected GitHub. The app stays installed until you uninstall it at "
+        "github.com/settings/installations.",
+    ),
+    "github-test-ok": ("ok", "GitHub accepted the installation."),
+    "github-test-failed": ("bad", "GitHub rejected the installation ({detail})."),
     "github-not-connected": ("bad", "GitHub is not connected."),
     "pr-bot-saved": ("ok", "Saved the pull request bot settings."),
     "pr-bot-invalid": ("bad", "That setting is not valid, so nothing was changed."),
     "pr-bot-repo-refused": (
         "bad",
-        "That is not a repository the GitHub account can push to, so nothing was changed.",
+        "That is not a repository Helix can push to, so nothing was changed.",
     ),
     "pr-bot-repo-unavailable": (
         "bad",
@@ -157,17 +172,30 @@ def _jira_missing() -> str | None:
 
 
 def _github_missing() -> str | None:
-    """Why Connect GitHub cannot start, or None when it can."""
+    """Why Install on GitHub cannot start, or None when it can."""
     settings = get_settings()
     for value, name in (
         (settings.connections_key, "HELIX_CONNECTIONS_KEY"),
-        (settings.github_oauth_client_id, "HELIX_GITHUB_OAUTH_CLIENT_ID"),
-        (settings.github_oauth_client_secret, "HELIX_GITHUB_OAUTH_CLIENT_SECRET"),
+        (settings.github_app_id, "HELIX_GITHUB_APP_ID"),
+        (settings.github_app_slug, "HELIX_GITHUB_APP_SLUG"),
+        (settings.github_app_private_key, "HELIX_GITHUB_APP_PRIVATE_KEY"),
         (settings.session_secret, "HELIX_SESSION_SECRET"),
     ):
         if not value:
-            return f"Set {name} on the server to enable Connect."
+            return f"Set {name} on the server to enable Install on GitHub."
     return None
+
+
+def _installation_id(stored) -> str | None:
+    return stored.settings.get("installation_id") if stored else None
+
+
+def _github_repos(stored) -> tuple[list[str], str | None]:
+    """The repos the installation can reach, plus None or "load"."""
+    try:
+        return github_app.list_installation_repos(_installation_id(stored)), None
+    except GitHubAppError:
+        return [], "load"
 
 
 def _slack_channels(stored) -> tuple[list[tuple[str, str]], str | None]:
@@ -259,28 +287,42 @@ def _providers(session) -> list[dict[str, Any]]:
         {
             "id": "github",
             "name": "GitHub",
-            "blurb": "Fix pull requests are opened as the connected GitHub account (repo scope).",
+            "blurb": "Fix pull requests are opened by the Helix GitHub App, "
+            "on the repositories you install it on.",
             "connected": github is not None,
             "account": github.account if github else None,
-            "account_label": "Login",
+            "account_label": "Account",
+            "installation_id": _installation_id(github),
+            "repos": _github_repos(github) if _installation_id(github) else None,
             "scopes": github.scopes if github else [],
             "uses_server": github is None and bool(settings.github_token),
             "can_connect": github_missing is None,
             "reason": github_missing,
+            "connect_label": "Install on GitHub",
         },
     ]
 
 
 def _github_token(session) -> str | None:
-    """The token the PR bot's pickers use: the connected account, else the
-    server's HELIX_GITHUB_TOKEN."""
+    """The token the PR bot's branch check uses: the connected installation's,
+    else the stored token, else the server's HELIX_GITHUB_TOKEN. None when an
+    installation's token cannot be minted."""
     stored = connections.get_connection(session, "github")
-    return stored.access_token if stored else get_settings().github_token
+    if _installation_id(stored):
+        try:
+            return github_app.installation_token(_installation_id(stored))
+        except GitHubAppError:
+            return None
+    return stored.access_token if stored and stored.access_token else get_settings().github_token
 
 
 def _pr_bot_repos(session) -> tuple[list[str], str | None]:
-    """The repos the token can push to, plus None or why they are missing:
-    "token" (no GitHub token at all) or "load"."""
+    """The repos the bot can push to, plus None or why they are missing:
+    "token" (no GitHub access at all) or "load". An installation lists its own
+    repositories; otherwise the token's pushable repos."""
+    stored = connections.get_connection(session, "github")
+    if _installation_id(stored):
+        return _github_repos(stored)
     token = _github_token(session)
     if not token:
         return [], "token"
@@ -361,13 +403,7 @@ def _user(request: Request) -> str | None:
 
 
 def _callback_url(request: Request, provider: str) -> str:
-    # GitHub is the odd one: see the module docstring.
-    path = (
-        "/auth/github/callback/connect"
-        if provider == "github"
-        else f"/ui/connections/{provider}/callback"
-    )
-    return f"{auth._public_url(request)}{path}"
+    return f"{auth._public_url(request)}/ui/connections/{provider}/callback"
 
 
 def _start_connect(request: Request, provider: str, authorize_url: Any) -> RedirectResponse:
@@ -721,63 +757,73 @@ def jira_test(session: DbSession) -> Response:
 def github_connect(request: Request) -> Response:
     if _github_missing():
         return _back("github-unconfigured")
-    client_id = get_settings().github_oauth_client_id or ""
+    slug = get_settings().github_app_slug or ""
     return _start_connect(
         request,
         "github",
-        lambda redirect_uri, state: github_oauth.authorize_url(client_id, redirect_uri, state),
+        lambda redirect_uri, state: (
+            f"https://github.com/apps/{quote(slug, safe='')}/installations/new?"
+            + urlencode({"state": state})
+        ),
     )
 
 
-@router.get("/auth/github/callback/connect")
-def github_callback(
-    request: Request, session: DbSession, code: str = "", state: str = "", error: str = ""
+@router.get("/ui/connections/github/installed")
+def github_installed(
+    request: Request,
+    session: DbSession,
+    installation_id: str = "",
+    setup_action: str = "",
+    state: str = "",
 ) -> Response:
-    if not _state_ok(request, "github", state):
+    """The app's Setup URL. GitHub passes back the `state` Install on GitHub
+    sent. The one exception is changing repositories on github.com, which
+    redirects here with no state: that is accepted only to refresh the
+    installation already connected."""
+    stored = connections.get_connection(session, "github")
+    refresh = (
+        not state
+        and setup_action == "update"
+        and stored is not None
+        and installation_id == _installation_id(stored)
+    )
+    if not refresh and not _state_ok(request, "github", state):
         return _render(
             request,
             session,
             notice=(
                 "bad",
-                "That GitHub connection did not start from this page, so it was refused.",
+                "That GitHub installation did not start from this page, so it was refused.",
             ),
             status_code=400,
         )
-    if error or not code:
-        response = _back("github-denied" if error == "access_denied" else "github-failed", error)
-    elif _github_missing():
+    if _github_missing():
         response = _back("github-unconfigured")
     else:
-        response = _finish_github(request, session, code)
+        response = _finish_github(session, installation_id)
     response.delete_cookie(STATE_COOKIE)
     return response
 
 
-def _finish_github(request: Request, session, code: str) -> RedirectResponse:
-    settings = get_settings()
+def _finish_github(session, installation_id: str) -> RedirectResponse:
+    """Look the installation up as the app - which only succeeds for an
+    installation of this app, so a forged id is refused - and save it."""
     try:
-        granted = github_oauth.exchange_code(
-            settings.github_oauth_client_id or "",
-            settings.github_oauth_client_secret or "",
-            code,
-            _callback_url(request, "github"),
-        )
-        token = granted["access_token"]
-        login = github_oauth.login(token)
-    except GitHubOAuthError as exc:
+        found = github_app.get_installation(installation_id)
+    except GitHubAppError as exc:
         return _back("github-failed", str(exc))
-    except (KeyError, TypeError):
-        return _back("github-failed", "malformed_response")
+    account = found["account"]
+    permissions = found.get("permissions")
     try:
         connections.save_connection(
             session,
             "github",
-            account=login,
-            scopes=[s for s in str(granted.get("scope", "")).split(",") if s],
-            access_token=token,
+            account=str(account["login"]),
+            scopes=sorted(f"{name}:{level}" for name, level in (permissions or {}).items()),
+            access_token=None,
             refresh_token=None,
             expires_at=None,
-            settings={},
+            settings={"installation_id": installation_id, "account_type": account.get("type")},
         )
     except connections.ConnectionsKeyMissing:
         return _back("github-unconfigured")
@@ -787,18 +833,7 @@ def _finish_github(request: Request, session, code: str) -> RedirectResponse:
 
 @router.post("/ui/connections/github/disconnect")
 def github_disconnect(session: DbSession) -> Response:
-    stored = connections.get_connection(session, "github")
-    settings = get_settings()
-    if (
-        stored is not None
-        and settings.github_oauth_client_id
-        and settings.github_oauth_client_secret
-    ):
-        github_oauth.revoke(
-            settings.github_oauth_client_id,
-            settings.github_oauth_client_secret,
-            stored.access_token,
-        )
+    """Forget the installation. Uninstalling the app is GitHub's to do."""
     connections.delete_connection(session, "github")
     session.commit()
     return _back("github-disconnected")
@@ -807,11 +842,11 @@ def github_disconnect(session: DbSession) -> Response:
 @router.post("/ui/connections/github/test")
 def github_test(session: DbSession) -> Response:
     stored = connections.get_connection(session, "github")
-    if stored is None:
+    if not _installation_id(stored):
         return _back("github-not-connected")
     try:
-        github_oauth.login(stored.access_token)
-    except GitHubOAuthError as exc:
+        github_app.list_installation_repos(_installation_id(stored))
+    except GitHubAppError as exc:
         return _back("github-test-failed", str(exc))
     return _back("github-test-ok")
 

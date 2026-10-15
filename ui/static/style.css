@@ -1192,7 +1192,8 @@ details summary:hover {
   overflow-wrap: anywhere;
 }
 
-.provider-facts dd.mono {
+.provider-facts dd.mono,
+.provider-facts dd .mono {
   font-size: 13px;
 }
 

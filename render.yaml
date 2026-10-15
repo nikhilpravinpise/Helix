@@ -30,7 +30,7 @@ services:
         generateValue: true
       # Connections page (helix/connections_ui.py): stored OAuth tokens are
       # encrypted under this key. Slack and Atlassian app credentials are
-      # entered in Render's dashboard; GitHub reuses the sign-in OAuth app.
+      # entered in Render's dashboard.
       - key: HELIX_CONNECTIONS_KEY
         generateValue: true
       - key: HELIX_SLACK_CLIENT_ID
@@ -39,6 +39,14 @@ services:
         sync: false
       # Verifies Slack button clicks posted to /slack/interactions.
       - key: HELIX_SLACK_SIGNING_SECRET
+        sync: false
+      # The Helix GitHub App behind Connect GitHub (installation, no OAuth);
+      # the private key is the app's PEM, "\n" sequences allowed.
+      - key: HELIX_GITHUB_APP_ID
+        sync: false
+      - key: HELIX_GITHUB_APP_SLUG
+        sync: false
+      - key: HELIX_GITHUB_APP_PRIVATE_KEY
         sync: false
       - key: HELIX_JIRA_OAUTH_CLIENT_ID
         sync: false

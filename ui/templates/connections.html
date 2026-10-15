@@ -31,10 +31,11 @@
     {% else %}<div><dt>{{ p.account_label or "Workspace" }}</dt><dd>{{ p.account }}</dd></div>{% endif %}
     {% if p.project and not (p.picker and p.picker.options) %}<div><dt>Project</dt><dd class="mono">{{ p.project }}</dd></div>{% endif %}
     {% if p.channel and not (p.picker and p.picker.options) %}<div><dt>Channel</dt><dd class="mono">{{ p.channel }}</dd></div>{% endif %}
-    {% if p.scopes %}<div><dt>Scopes</dt><dd class="mono">{{ p.scopes|join(", ") }}</dd></div>{% endif %}
+    {% if p.repos %}<div><dt>Repositories</dt><dd>{% if p.repos[1] %}Could not load the repository list.{% elif p.repos[0] %}{{ p.repos[0]|length }} {{ "repository" if p.repos[0]|length == 1 else "repositories" }}: <span class="mono">{{ p.repos[0][:3]|join(", ") }}</span>{% if p.repos[0]|length > 3 %} and {{ p.repos[0]|length - 3 }} more{% endif %}{% else %}None yet - choose some on GitHub.{% endif %}</dd></div>{% endif %}
+    {% if p.scopes %}<div><dt>{{ "Permissions" if p.installation_id else "Scopes" }}</dt><dd class="mono">{{ p.scopes|join(", ") }}</dd></div>{% endif %}
   </dl>
   {% elif p.uses_server %}
-  <p class="small muted">Not connected here - Helix is using the server's own {{ p.name }} settings.</p>
+  <p class="small muted">Not connected here - Helix is using the server's own {{ p.name }} settings{% if p.id == "github" %} (HELIX_GITHUB_TOKEN){% endif %}.</p>
   {% endif %}
 
   {% if p.picker %}
@@ -60,14 +61,21 @@
   {% endif %}
 
   <div class="provider-actions">
+    {% if p.installation_id %}
+    <a class="btn" href="https://github.com/settings/installations/{{ p.installation_id }}" rel="noopener">Manage repositories</a>
+    {% else %}
     <form method="post" action="/ui/connections/{{ p.id }}/connect">
-      <button class="btn {% if not p.connected %}btn-primary{% endif %}" type="submit"{% if not p.can_connect %} disabled aria-describedby="why-{{ p.id }}"{% endif %}>{% if p.connected %}Reconnect{% else %}Connect {{ p.name }}{% endif %}</button>
+      <button class="btn {% if not p.connected %}btn-primary{% endif %}" type="submit"{% if not p.can_connect %} disabled aria-describedby="why-{{ p.id }}"{% endif %}>{% if p.connect_label %}{{ p.connect_label }}{% elif p.connected %}Reconnect{% else %}Connect {{ p.name }}{% endif %}</button>
     </form>
-    {% if p.connected %}
+    {% endif %}
+    {% if p.connected and (p.id != "github" or p.installation_id) %}
     <form method="post" action="/ui/connections/{{ p.id }}/test"><button class="btn" type="submit">Test</button></form>
+    {% endif %}
+    {% if p.connected %}
     <form method="post" action="/ui/connections/{{ p.id }}/disconnect"><button class="btn btn-reject" type="submit">Disconnect</button></form>
     {% endif %}
   </div>
+  {% if p.installation_id %}<p class="small muted provider-why">Disconnect only makes Helix forget the installation. To uninstall the app, use <a href="https://github.com/settings/installations/{{ p.installation_id }}" rel="noopener">GitHub's installation settings</a>.</p>{% endif %}
   {% if not p.can_connect %}<p class="small muted provider-why" id="why-{{ p.id }}">{{ p.reason }}</p>{% endif %}
 </section>
 {% endfor %}
@@ -98,7 +106,7 @@
         {% for name in b.repos %}<option value="{{ name }}"{% if name == b.repo %} selected{% endif %}>{{ name }}</option>{% endfor %}
       </select>
       {% if b.repos_error == "load" %}<p class="small muted">Could not load the repository list{% if b.repo %} - keeping {{ b.repo }}{% endif %}.</p>
-      {% elif b.repos_error == "token" %}<p class="small muted">Connect GitHub above to choose from your repositories.</p>{% endif %}
+      {% elif b.repos_error == "token" %}<p class="small muted">Install the app on GitHub above to choose from your repositories.</p>{% endif %}
     </div>
 
     <label for="bot-base">Base branch</label>
