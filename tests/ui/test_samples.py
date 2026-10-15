@@ -144,7 +144,7 @@ def test_not_available_on_live_evidence(client, sqlite_engine, monkeypatch, driv
     monkeypatch.setenv("HELIX_EVIDENCE_SOURCE", "live")
     assert client.post("/ui/samples", follow_redirects=False).status_code == 404
     assert _count(sqlite_engine) == 0
-    assert "Send a test incident" not in client.get("/ui/").text
+    assert "Send a test incident" not in client.get("/ui/incidents").text
 
 
 def test_not_available_by_default(client, monkeypatch, drives):
@@ -152,7 +152,7 @@ def test_not_available_by_default(client, monkeypatch, drives):
 
 
 def test_button_renders_on_recorded_evidence(client, demo_env, drives):
-    page = client.get("/ui/").text
+    page = client.get("/ui/incidents").text
     assert "Send a test incident" in page
     assert 'action="/ui/samples"' in page
     assert "helix intake --file" not in page
@@ -161,7 +161,7 @@ def test_button_renders_on_recorded_evidence(client, demo_env, drives):
 def test_button_renders_with_incidents_too(client, sqlite_engine, demo_env, drives):
     client.post("/ui/samples", follow_redirects=False)
     _wait_idle()
-    page = client.get("/ui/").text
+    page = client.get("/ui/incidents").text
     assert page.count('action="/ui/samples"') == 1
 
 

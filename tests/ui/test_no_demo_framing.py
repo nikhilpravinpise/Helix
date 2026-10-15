@@ -64,7 +64,7 @@ def test_no_page_says_demo(client, sqlite_engine, monkeypatch, label):
 
 def test_test_incident_button_on_recorded_evidence(client, monkeypatch):
     monkeypatch.setenv("HELIX_EVIDENCE_SOURCE", "fixtures")
-    page = client.get("/ui/").text
+    page = client.get("/ui/incidents").text
     assert "Send a test incident" in page
     assert "Run a sample incident" not in page
     assert 'action="/ui/samples"' in page
@@ -84,7 +84,7 @@ def test_test_incident_post_works_on_recorded_evidence(client, monkeypatch):
 
 def test_test_incident_hidden_on_live_evidence(client, monkeypatch):
     monkeypatch.setenv("HELIX_EVIDENCE_SOURCE", "live")
-    page = client.get("/ui/").text
+    page = client.get("/ui/incidents").text
     assert "Send a test incident" not in page
     assert "helix intake --file" in page
     assert client.post("/ui/samples", follow_redirects=False).status_code == 404

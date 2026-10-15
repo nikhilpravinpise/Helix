@@ -70,14 +70,14 @@ def _suspend_on_gate(sqlite_sessions, store) -> tuple[str, object]:
 
 class TestIncidentListPage:
     def test_empty_state(self, client):
-        response = client.get("/ui/")
+        response = client.get("/ui/incidents")
         assert response.status_code == 200
         assert "No incidents yet" in response.text
         assert "helix intake" in response.text
 
     def test_renders_incident_rows(self, client, sqlite_sessions):
         incident_id = _make_incident(sqlite_sessions, K8S_SIGNAL)
-        response = client.get("/ui/")
+        response = client.get("/ui/incidents")
         assert response.status_code == 200
         assert response.headers["content-type"].startswith("text/html")
         body = response.text
@@ -264,7 +264,7 @@ def test_ui_against_real_postgres(pg):
     with TestClient(app) as test_client:
         incident_id = test_client.post("/intake/kubernetes", json=signal).json()["incident_id"]
 
-        listing = test_client.get("/ui/")
+        listing = test_client.get("/ui/incidents")
         assert listing.status_code == 200
         assert incident_id in listing.text
 

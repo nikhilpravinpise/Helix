@@ -3,8 +3,10 @@ FastAPI app as the JSON API - no node toolchain, no build step.
 
 Pages (the JSON API keeps its own routes, unchanged):
 
-    GET /                      redirect to the incident list
-    GET /ui/                   incident list (status, severity, age)
+    GET /                      landing page when signed out, else the dashboard
+    GET /ui/                   Home: what needs you, open incidents, 30 day
+                               stats, recent activity, connected tools
+    GET /ui/incidents          incident list (status, severity, age)
     GET /ui/incidents/{id}     incident header + full provenance timeline
                                (trigger -> evidence -> hypothesis ->
                                candidates -> decision -> validation ->
@@ -34,7 +36,7 @@ and the JS sends it as a Bearer header.
 
 import json
 from collections.abc import Iterator
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Annotated, Any
 
@@ -45,10 +47,12 @@ from fastapi.templating import Jinja2Templates
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
+from agent.ops.registry import load_registry
 from helix import demo
 from helix.config import get_settings
-from state import models
+from state import connections, models
 from state.db import session_scope
+from state.deciders import approval_deciders, approval_refusal, review_refusal
 from state.machine import TERMINAL_STATUSES, IncidentStatus
 from state.provenance import assemble_provenance
 
@@ -265,7 +269,7 @@ def _pending_count(session: Session) -> int:
 @router.get("/", response_class=HTMLResponse)
 def index(request: Request) -> Response:
     """Root is the public landing page for a signed-out visitor when sign-in
-    is on; everyone else lands on the incident list - the UI lives under
+    is on; everyone else lands on the dashboard - the UI lives under
     /ui/ so the JSON API keeps its /incidents and /approvals paths unchanged."""
     from helix import auth  # auth imports this module's templates
 
@@ -279,7 +283,224 @@ def _samples_enabled() -> bool:
     return get_settings().evidence_source == "fixtures"
 
 
+HOME_OPEN_LIMIT = 6
+HOME_ACTIVITY_LIMIT = 8
+HOME_PENDING_LIMIT = 50
+HOME_WINDOW = timedelta(days=30)
+HOME_TOOLS = (("slack", "Slack"), ("jira", "Jira"), ("github", "GitHub"))
+
+
+def _utc(value: datetime) -> datetime:
+    """A naive datetime (SQLite) read as UTC."""
+    return value.replace(tzinfo=UTC) if value.tzinfo is None else value.astimezone(UTC)
+
+
+def _display_name(login: str) -> str:
+    """The registry's display name for a login, else the login itself."""
+    person = load_registry().person(login)
+    return (person.name if person else "") or login
+
+
+def _median(values: list[float]) -> float | None:
+    if not values:
+        return None
+    ordered = sorted(values)
+    mid = len(ordered) // 2
+    return ordered[mid] if len(ordered) % 2 else (ordered[mid - 1] + ordered[mid]) / 2
+
+
+def _duration(seconds: float) -> str:
+    """'42s', '5m', '1h 12m', '2d 3h' - the two largest units that apply."""
+    seconds = max(0, int(seconds))
+    if seconds < 60:
+        return f"{seconds}s"
+    if seconds < 3600:
+        return f"{seconds // 60}m"
+    if seconds < 86400:
+        hours, minutes = divmod(seconds // 60, 60)
+        return f"{hours}h {minutes}m" if minutes else f"{hours}h"
+    days, hours = divmod(seconds // 3600, 24)
+    return f"{days}d {hours}h" if hours else f"{days}d"
+
+
+def _home_stats(session: Session, now: datetime) -> dict[str, Any]:
+    """Incidents created in the last 30 days: how many opened, recovered and
+    escalated, the share of the ones that finished that recovered, and the
+    median time from creation to the transition into recovered."""
+    since = now - HOME_WINDOW
+    rows = session.execute(
+        select(models.Incident.id, models.Incident.status, models.Incident.created_at).where(
+            models.Incident.created_at >= since
+        )
+    ).all()
+    recovered_at = dict(
+        session.execute(
+            select(models.Transition.incident_id, func.min(models.Transition.created_at))
+            .join(models.Incident, models.Incident.id == models.Transition.incident_id)
+            .where(
+                models.Incident.created_at >= since,
+                models.Transition.to_status == IncidentStatus.RECOVERED,
+            )
+            .group_by(models.Transition.incident_id)
+        ).all()
+    )
+    recovered = sum(1 for r in rows if r.status == IncidentStatus.RECOVERED)
+    finished = sum(1 for r in rows if r.status in TERMINAL_STATUSES)
+    taken = [
+        (_utc(recovered_at[r.id]) - _utc(r.created_at)).total_seconds()
+        for r in rows
+        if r.id in recovered_at
+    ]
+    median = _median(taken)
+    return {
+        "opened": len(rows),
+        "recovered": recovered,
+        "escalated": sum(1 for r in rows if r.status == IncidentStatus.ESCALATED),
+        "recovered_pct": round(100 * recovered / finished) if finished else None,
+        "median_recover": _duration(median) if median is not None else "-",
+    }
+
+
+def _needs_you(session: Session, user: str | None) -> tuple[list[dict], list[dict]]:
+    """Pending approvals and reviews, split into (mine, waiting on someone
+    else) by the real decider rules in state.deciders. With nobody signed in
+    nothing is mine."""
+    pending = models.ApprovalStatus.PENDING
+    items: list[dict[str, Any]] = []
+    for a in session.scalars(
+        select(models.Approval)
+        .where(models.Approval.status == pending)
+        .order_by(models.Approval.created_at, models.Approval.id)
+        .limit(HOME_PENDING_LIMIT)
+    ):
+        owners = approval_deciders(a.incident)
+        items.append(
+            {
+                "kind": "Approval",
+                "incident_id": a.incident.incident_id,
+                "what": a.action,
+                "created_at": a.created_at,
+                "href": f"/ui/approvals#approval-{a.id}",
+                "waiting_on": ", ".join(_display_name(o) for o in owners) or "no registered owner",
+                "mine": bool(user) and approval_refusal(a.incident, user) is None,
+            }
+        )
+    for r in session.scalars(
+        select(models.ReviewRequest)
+        .where(models.ReviewRequest.status == pending)
+        .order_by(models.ReviewRequest.created_at, models.ReviewRequest.id)
+        .limit(HOME_PENDING_LIMIT)
+    ):
+        items.append(
+            {
+                "kind": "Review",
+                "incident_id": r.incident.incident_id,
+                "what": f"Change to {r.incident.service}",
+                "created_at": r.created_at,
+                "href": f"/ui/approvals#review-{r.id}",
+                "waiting_on": _display_name(r.reviewer),
+                "mine": bool(user) and review_refusal(r, user) is None,
+            }
+        )
+    items.sort(key=lambda i: _utc(i["created_at"]))
+    return [i for i in items if i["mine"]], [i for i in items if not i["mine"]]
+
+
+def _open_incidents(session: Session) -> list[dict[str, Any]]:
+    """The newest non-terminal incidents with what each is waiting on, in
+    the words of the incident page's summary card."""
+    rows = session.scalars(
+        select(models.Incident)
+        .where(models.Incident.status.not_in(TERMINAL_STATUSES))
+        .order_by(models.Incident.created_at.desc(), models.Incident.id.desc())
+        .limit(HOME_OPEN_LIMIT)
+    ).all()
+    out = []
+    for i in rows:
+        record = assemble_provenance(session, i.incident_id)
+        waiting = None
+        if record is not None:
+            waiting = (_did(record["incident"], record["stages"]) or {}).get("text")
+            waiting = waiting or _outcome(record["incident"], record["stages"])
+        out.append(
+            {
+                "incident_id": i.incident_id,
+                "service": i.service,
+                "status": i.status.value,
+                "waiting": waiting,
+                "created_at": i.created_at,
+            }
+        )
+    return out
+
+
+def _recent_activity(session: Session) -> list[dict[str, Any]]:
+    """The latest status changes across all incidents, newest first."""
+    rows = session.execute(
+        select(models.Transition, models.Incident.incident_id)
+        .join(models.Incident, models.Incident.id == models.Transition.incident_id)
+        .order_by(models.Transition.created_at.desc(), models.Transition.id.desc())
+        .limit(HOME_ACTIVITY_LIMIT)
+    ).all()
+    return [
+        {
+            "incident_id": incident_id,
+            "from_status": t.from_status.value if t.from_status else None,
+            "to_status": t.to_status.value,
+            "cause": t.cause,
+            "created_at": t.created_at,
+        }
+        for t, incident_id in rows
+    ]
+
+
+def _tools(session: Session) -> list[dict[str, Any]]:
+    """Connected state of each tool Helix works through."""
+    out = []
+    for provider, name in HOME_TOOLS:
+        record = connections.active_connection(session, provider)
+        out.append(
+            {
+                "id": provider,
+                "name": name,
+                "connected": record is not None,
+                "account": record.account if record else None,
+            }
+        )
+    return out
+
+
 @router.get("/ui/", response_class=HTMLResponse)
+def home(request: Request, session: DbSession) -> HTMLResponse:
+    """The dashboard: what needs you, what is going on, is Helix working."""
+    now = datetime.now(UTC)
+    user = getattr(request.state, "user", None)
+    mine, waiting = _needs_you(session, user)
+    tools = _tools(session)
+    total = _incident_total(session)
+    return templates.TemplateResponse(
+        request,
+        "home.html",
+        {
+            "active": "home",
+            "incident_total": total,
+            "pending_count": _pending_count(session),
+            "user": user,
+            "name": _display_name(user) if user else None,
+            "today": now.strftime("%A, %d %B %Y"),
+            "samples_enabled": _samples_enabled(),
+            "mine": mine,
+            "waiting": waiting,
+            "open_incidents": _open_incidents(session),
+            "stats": _home_stats(session, now),
+            "activity": _recent_activity(session),
+            "tools": tools,
+            "fresh": total == 0 and not any(t["connected"] for t in tools),
+        },
+    )
+
+
+@router.get("/ui/incidents", response_class=HTMLResponse)
 def incident_list(request: Request, session: DbSession) -> HTMLResponse:
     """All incidents, newest first - the operator's entry point."""
     incidents = session.scalars(

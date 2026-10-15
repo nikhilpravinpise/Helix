@@ -8,7 +8,10 @@
       <p class="tagline">Watches engineering systems, fixes what breaks, proves it worked.</p>
     </div>
     <nav class="nav" aria-label="Main">
-      <a class="nav-item" href="/ui/"{% if active == "incidents" %} aria-current="page"{% endif %}>
+      <a class="nav-item" href="/ui/"{% if active == "home" %} aria-current="page"{% endif %}>
+        <span class="nav-label">Home</span>
+      </a>
+      <a class="nav-item" href="/ui/incidents"{% if active == "incidents" %} aria-current="page"{% endif %}>
         <span class="nav-label">Incidents</span>
         {%- if incident_total is defined %}<span class="count">{{ incident_total }}</span>{% endif -%}
       </a>

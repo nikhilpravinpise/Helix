@@ -1,0 +1,155 @@
+{% extends "base.html" %}
+{% block title %}Home - Helix{% endblock %}
+{% macro send_test(class_name="btn btn-primary") %}
+<form method="post" action="/ui/samples"><button class="{{ class_name }}" type="submit">Send a test incident</button></form>
+{% endmacro %}
+{% macro pending_list(items, with_waiting_on) %}
+<div class="card flush">
+  <ul class="home-list">
+    {% for p in items %}
+    <li class="home-row">
+      <span class="badge">{{ p.kind|lower }}</span>
+      <div class="home-main">
+        <a class="strong" href="{{ p.href }}">{{ p.what }}</a>
+        <span class="muted small"><a class="mono" href="/ui/incidents/{{ p.incident_id }}">{{ p.incident_id }}</a>
+          {%- if with_waiting_on %} - waiting on {{ p.waiting_on }}{% endif %}</span>
+      </div>
+      <span class="mono muted small" title="{{ p.created_at|dt }}">waiting {{ p.created_at|age }}</span>
+      {% if not with_waiting_on %}<a class="btn" href="{{ p.href }}">Decide</a>{% endif %}
+    </li>
+    {% endfor %}
+  </ul>
+</div>
+{% endmacro %}
+{% block content %}
+<div data-page="home">
+<header class="pane-head">
+  <div>
+    <p class="eyebrow">{{ today }}</p>
+    <h1>{% if name %}Welcome back, {{ name }}{% else %}Welcome{% endif %}</h1>
+  </div>
+  {% if samples_enabled and not fresh %}{{ send_test() }}{% endif %}
+</header>
+
+{% if fresh %}
+<section class="canvas canvas-fill home-start" data-section="getting-started">
+  <div class="empty preview">
+    <p class="eyebrow">a fresh workspace</p>
+    <p class="empty-title">Nothing is connected yet.</p>
+    <p class="muted">Connect Slack, Jira and GitHub so Helix can post, file and open pull requests. Incidents will show up here as they happen.</p>
+    <p><a class="btn btn-primary" href="/ui/connections">Open Connections</a></p>
+    {% if samples_enabled %}
+    <p class="muted small">or see Helix work an incident end to end first.</p>
+    {{ send_test("btn") }}
+    {% endif %}
+  </div>
+</section>
+{% endif %}
+
+{% if user or not waiting %}
+<section data-section="needs-you">
+  <h2 class="section-title">Needs you</h2>
+  {% if mine %}
+  {{ pending_list(mine, false) }}
+  {% else %}
+  <div class="card home-calm"><p class="muted">Nothing needs you right now.</p></div>
+  {% endif %}
+</section>
+{% endif %}
+
+{% if waiting %}
+<section data-section="waiting-on">
+  <h2 class="section-title">Waiting on someone</h2>
+  {{ pending_list(waiting, true) }}
+</section>
+{% endif %}
+
+<section data-section="open-incidents">
+  <h2 class="section-title">Open incidents</h2>
+  {% if open_incidents %}
+  <div class="card flush">
+    <ul class="home-list">
+      {% for i in open_incidents %}
+      <li class="home-row">
+        <span class="badge st-{{ i.status }}">{{ i.status|label }}</span>
+        <div class="home-main">
+          <a class="mono strong" href="/ui/incidents/{{ i.incident_id }}">{{ i.incident_id }}</a>
+          <span class="muted small">{{ i.service }}{% if i.waiting %} - {{ i.waiting }}{% endif %}</span>
+        </div>
+        <span class="mono muted small" title="{{ i.created_at|dt }}">{{ i.created_at|age }}</span>
+      </li>
+      {% endfor %}
+    </ul>
+  </div>
+  <p class="home-more"><a href="/ui/incidents">View all incidents</a></p>
+  {% else %}
+  <div class="card home-calm"><p class="muted">No open incidents. <a href="/ui/incidents">View all incidents</a></p></div>
+  {% endif %}
+</section>
+
+<section data-section="stats">
+  <h2 class="section-title">Last 30 days</h2>
+  <div class="stats">
+    <div class="stat" data-stat="opened">
+      <span class="stat-value">{{ stats.opened }}</span>
+      <span class="stat-label">opened</span>
+    </div>
+    <div class="stat stat-green" data-stat="recovered">
+      <span class="stat-value">{{ stats.recovered }}</span>
+      <span class="stat-label">recovered</span>
+      <span class="stat-note">{% if stats.recovered_pct is not none %}{{ stats.recovered_pct }}% of resolved{% else %}none resolved yet{% endif %}</span>
+    </div>
+    <div class="stat stat-danger" data-stat="escalated">
+      <span class="stat-value">{{ stats.escalated }}</span>
+      <span class="stat-label">escalated</span>
+    </div>
+    <div class="stat stat-accent" data-stat="median-recover">
+      <span class="stat-value">{{ stats.median_recover }}</span>
+      <span class="stat-label">median time to recover</span>
+    </div>
+  </div>
+</section>
+
+<div class="home-split">
+  <section data-section="activity">
+    <h2 class="section-title">Recent activity</h2>
+    {% if activity %}
+    <div class="card flush">
+      <ul class="home-list">
+        {% for a in activity %}
+        <li class="home-row home-activity">
+          <div class="home-main">
+            <span><a class="mono strong" href="/ui/incidents/{{ a.incident_id }}">{{ a.incident_id }}</a>
+              <span class="muted small">{% if a.from_status %}{{ a.from_status|label }} &rarr; {% endif %}</span><span class="small strong">{{ a.to_status|label }}</span></span>
+            <span class="muted small">{{ a.cause }}</span>
+          </div>
+          <span class="mono muted small" title="{{ a.created_at|dt }}">{{ a.created_at|age }}</span>
+        </li>
+        {% endfor %}
+      </ul>
+    </div>
+    {% else %}
+    <div class="card home-calm"><p class="muted">No activity yet.</p></div>
+    {% endif %}
+  </section>
+
+  <section data-section="tools">
+    <h2 class="section-title">Tools</h2>
+    <div class="card flush">
+      <ul class="home-list">
+        {% for t in tools %}
+        <li class="home-row" data-tool="{{ t.id }}">
+          <span class="home-dot{% if t.connected %} on{% endif %}" aria-hidden="true"></span>
+          <div class="home-main">
+            <a class="strong" href="/ui/connections">{{ t.name }}</a>
+            <span class="muted small">{% if t.connected %}Connected{% if t.account %} - {{ t.account }}{% endif %}{% else %}Not connected{% endif %}</span>
+            {# A later slice adds a deep link to the connected channel or project here. #}
+          </div>
+        </li>
+        {% endfor %}
+      </ul>
+    </div>
+  </section>
+</div>
+</div>
+{% endblock %}
