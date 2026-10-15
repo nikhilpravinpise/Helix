@@ -474,11 +474,14 @@ Found while turning the hosted service into a product (future_plans.md
 - **Names vs logins.** Home says "waiting on Nikhil" (registry display
   name) while the summary card says "review pending with
   nikhilpravinpise" (login). Pick one rule - display name with the login
-  as a tooltip - and apply it everywhere a person is named.
+  as a tooltip - and apply it everywhere a person is named. **Done
+  (ea18333):** display name everywhere, login as the tooltip.
 - **Slow decisions look frozen.** On Render's free CPU, Approve/Reject
   takes ~40s because the decision resumes the run inside the request,
   and the button only greys out. Show "Approving..." with a note, or
-  resume in the background and let the page poll.
+  resume in the background and let the page poll. **Done (936b8e1):**
+  the dashboard sends ?wait=false, gets a 202 at once, shows
+  "Approving..." and reloads when the incident moves on.
 - **Old Slack rows link to the configured channel.** Incidents posted
   before 95f381d have no stored channel id, so their thread link falls
   back to the currently configured channel, which may not be where the
