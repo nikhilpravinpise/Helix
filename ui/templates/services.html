@@ -47,7 +47,7 @@
     {% endif %}
   </div>
   <dl class="svc-facts">
-    <dt>Owners</dt>
+    <dt>Approvers</dt>
     <dd>
       {% for o in s.owners %}<span class="chip">{{ who(o) }}{% if o == s.default_owner %} (default){% endif %}</span>{% endfor %}
       {% if s.default_owner and s.default_owner not in s.owners %}<span class="chip">{{ who(s.default_owner) }} (default)</span>{% endif %}

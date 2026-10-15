@@ -375,7 +375,7 @@ def remove_person(session: Session, login: str, actor: Actor | None = None) -> N
     using = _services_using(session, login)
     if using:
         raise TeamError(
-            f"{person.name or login} still owns or reviews {_and_list(using)}. "
+            f"{person.name or login} still approves or reviews {_and_list(using)}. "
             "Change that on the Services page first."
         )
     session.delete(person)

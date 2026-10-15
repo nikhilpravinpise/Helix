@@ -166,6 +166,13 @@ class TestNeedsYou:
         assert 'data-section="needs-you"' not in body
         assert incident_id in section(body, "waiting-on")
 
+    def test_a_service_with_no_approvers_says_so(self, client, sqlite_sessions, store, monkeypatch):
+        incident_id, _ = _suspend_on_gate(sqlite_sessions, store)
+        monkeypatch.setattr(ui, "approval_deciders", lambda incident: [])
+        waiting = section(client.get("/ui/").text, "waiting-on")
+        assert incident_id in waiting and "waiting on no approver" in waiting
+        assert "registered owner" not in waiting
+
 
 class TestOpenIncidents:
     def test_excludes_terminal_and_caps(self, client, sqlite_engine):

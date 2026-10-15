@@ -209,7 +209,7 @@ def test_remove_is_refused_while_a_service_uses_the_person(session, fields):
     with pytest.raises(TeamError) as err:
         team.remove_person(session, "nikhil")
     assert str(err.value) == (
-        "Nikhil still owns or reviews payment-api. Change that on the Services page first."
+        "Nikhil still approves or reviews payment-api. Change that on the Services page first."
     )
     assert session.get(Person, "nikhil") is not None
 

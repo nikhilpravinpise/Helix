@@ -86,4 +86,4 @@ def test_the_summary_names_the_triage_owner():
         },
     }
     why = next(r for r in ui._summary(record)["rows"] if r["label"] == "Why")["text"]
-    assert why == "Owner Alice Smith. from the registry"
+    assert why == "Assigned to Alice Smith. from the registry"

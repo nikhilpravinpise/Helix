@@ -132,7 +132,7 @@ def test_removal_is_still_refused_while_the_person_is_on_a_service(session):
 
     session.add(Service(name="payment-api", owners=["mem"]))
     session.flush()
-    with pytest.raises(TeamError, match="still owns or reviews payment-api"):
+    with pytest.raises(TeamError, match="still approves or reviews payment-api"):
         team.remove_person(session, "mem", actor=team.acting(session, "co"))
 
 
