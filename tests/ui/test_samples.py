@@ -90,7 +90,11 @@ def test_sample_incident_page_polls_while_running(client, demo_env, drives):
     assert 'data-incident-status="' in page.text
 
 
-def test_second_post_while_running_is_busy(client, sqlite_engine, demo_env, drives):
+def test_second_post_while_running_is_busy(client, sqlite_engine, demo_env, drives, monkeypatch):
+    # The stubbed drive never finishes an incident, so a repeat scenario
+    # would (correctly) dedupe onto the open one; pick distinct scenarios.
+    picks = iter(demo.SAMPLE_SCENARIOS)
+    monkeypatch.setattr(demo.random, "choice", lambda _seq: next(picks))
     drives.release.clear()
     first = client.post("/ui/samples", follow_redirects=False)
     second = client.post("/ui/samples", follow_redirects=False)
