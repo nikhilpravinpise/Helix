@@ -52,7 +52,7 @@ def test_skipped_scenario_is_a_seed_error(sqlite_url, monkeypatch):
     outcomes = [{"scenario": name, "skipped": None} for name in demo.DEMO_SCENARIOS]
     outcomes[2]["skipped"] = "intake failed"
     monkeypatch.setattr(demo.harness, "run_benchmark", lambda cfg: {"outcomes": outcomes})
-    monkeypatch.setattr(demo, "_park_review", _boom)
+    monkeypatch.setattr(demo, "_park_reviews", _boom)
 
     with pytest.raises(demo.SeedError, match=outcomes[2]["scenario"]):
         demo.seed_demo(sqlite_url)
@@ -81,4 +81,11 @@ def test_park_failure_is_a_seed_error(sqlite_url, monkeypatch):
     )
 
     with pytest.raises(demo.SeedError, match="event ingest failed"):
-        demo._park_review(sqlite_url)
+        demo._park_review(sqlite_url, "VrajVed", 101)
+
+
+def test_parked_authors_are_the_live_registry_reviewers():
+    from agent.ops.registry import load_registry
+
+    registry = load_registry(demo.LIVE_REGISTRY)
+    assert set(demo.PARKED_AUTHORS) == set(registry.services["payment-api"].default_reviewers)

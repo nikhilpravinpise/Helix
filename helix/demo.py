@@ -3,16 +3,18 @@
 A fresh Render deploy has an empty dashboard and no way for a visitor to
 raise an incident (no cluster, no Jenkins, no intake token to hand out).
 `seed_demo` fills it once: the fixture scenarios run through the benchmark
-harness on arm A - the same code path an operator drives - and one change
-incident is parked at `review_pending`, so the dashboard has a pending
-review to decide. It is a no-op on a database that already holds any
-incident, so it never touches real data and is safe on every boot.
+harness on arm A - the same code path an operator drives - and two change
+incidents are parked at `review_pending` (one per live reviewer, see
+PARKED_AUTHORS), so the dashboard has pending reviews to decide. It is a
+no-op on a database that already holds any incident, so it never touches
+real data and is safe on every boot.
 
 `start_sample` is the visitor-facing half: it raises one signal-flow
 incident from the same recordings and drives it live in a background
 thread, one at a time (the free host has no memory for two runs).
 """
 
+import copy
 import os
 import random
 import sys
@@ -48,6 +50,15 @@ DEMO_SCENARIOS = (
 PARKED_SCENARIO = "org-known-owner-change"
 PARKED_FIXTURE = "ci/docker-build-failure"
 
+#: The PR authors of the parked reviews: the live registry's logins, the only
+#: people who can sign in to the demo. Review excludes the author, so each
+#: review lands on the other login and each visitor has one to decide.
+PARKED_AUTHORS = ("nikhilpravinpise", "VrajVed")
+
+#: The live team (config/service_registry.yaml), not the benchmark cast the
+#: harness pins: the parked reviews must name people who can sign in.
+LIVE_REGISTRY = harness.REPO_ROOT / "config" / "service_registry.yaml"
+
 
 #: The signal-flow scenarios a visitor's "Run a sample incident" picks from.
 SAMPLE_SCENARIOS = (
@@ -80,18 +91,32 @@ def _incident_count(database_url: str) -> int:
         engine.dispose()
 
 
-def _park_review(database_url: str) -> str:
-    """Ingest the change scenario's PR and run it to `review_pending`
-    (triage, owner, review request) without the scripted reviewer deciding
-    - the visitor does that from the dashboard. Returns the incident id."""
-    scenario = harness.catalog.load_scenarios()[PARKED_SCENARIO]
+def _park_review(database_url: str, author: str, number: int) -> str:
+    """Ingest the change scenario's PR, authored by `author`, and run it to
+    `review_pending` (triage, owner, review request) without the scripted
+    reviewer deciding - the visitor does that from the dashboard. The PR
+    number, branch and sha are made distinct per author: triage escalates a
+    second open change on the same service and branch as a duplicate.
+    Returns the incident id."""
+    scenario = copy.deepcopy(harness.catalog.load_scenarios()[PARKED_SCENARIO])
+    event = scenario["events"][0]
+    event["actor"] = author
+    meta = event["metadata"]
+    meta["pr"] = number
+    meta["branch"] = f"{meta['branch']}-{author}"
+    meta["sha"] = f"{number:04x}" + meta["sha"][4:]
     results, error = harness._ingest_declared_events(scenario, database_url)
     if error:
         raise SeedError(f"{PARKED_SCENARIO}: {error}")
     incident_id = results[-1]["incident_id"]
     env = harness._isolated_env()
     env.update(harness.FIXTURE_RUN_ENV)
-    env.update(HELIX_ARM="A", HELIX_DATABASE_URL=database_url, HELIX_FIXTURE_PATH=PARKED_FIXTURE)
+    env.update(
+        HELIX_ARM="A",
+        HELIX_DATABASE_URL=database_url,
+        HELIX_FIXTURE_PATH=PARKED_FIXTURE,
+        HELIX_SERVICE_REGISTRY=str(LIVE_REGISTRY),
+    )
     # Triage and review-request are separate stopping points: two runs.
     for _hop in range(2):
         proc = harness._helix(["run", incident_id], env)
@@ -101,6 +126,14 @@ def _park_review(database_url: str) -> str:
     if status != IncidentStatus.REVIEW_PENDING.value:
         raise SeedError(f"{PARKED_SCENARIO}: expected review_pending, ended at {status}")
     return incident_id
+
+
+def _park_reviews(database_url: str) -> list[str]:
+    """Park one review per PARKED_AUTHORS entry; returns the incident ids."""
+    return [
+        _park_review(database_url, author, 101 + index)
+        for index, author in enumerate(PARKED_AUTHORS)
+    ]
 
 
 def seed_demo(database_url: str | None = None) -> int:
@@ -124,8 +157,8 @@ def seed_demo(database_url: str | None = None) -> int:
     failed = [o["scenario"] for o in report["outcomes"] if o["skipped"]]
     if failed or len(report["outcomes"]) != len(DEMO_SCENARIOS):
         raise SeedError(f"scenarios did not run: {', '.join(failed) or 'catalog mismatch'}")
-    _park_review(url)
-    return len(DEMO_SCENARIOS) + 1
+    _park_reviews(url)
+    return len(DEMO_SCENARIOS) + len(PARKED_AUTHORS)
 
 
 def _drive_sample(incident_id: str, scenario: dict, database_url: str) -> None:
