@@ -37,6 +37,28 @@
   <p class="small muted">Not connected here - Helix is using the server's own {{ p.name }} settings.</p>
   {% endif %}
 
+  {% if p.picker %}
+  {% set pk = p.picker %}
+  {% if pk.error == "scope" %}
+  <p class="small muted provider-why">Slack did not allow listing channels (the app needs the channels:read scope). Use Reconnect to grant it.</p>
+  {% elif pk.options %}
+  <form class="picker" method="post" action="/ui/connections/{{ p.id }}/settings">
+    <label for="pick-{{ p.id }}">{{ p.picker_label }}</label>
+    <select id="pick-{{ p.id }}" name="{{ p.picker_field }}">
+      {% if not pk.current %}<option value="" disabled selected>Choose...</option>{% endif %}
+      {% for value, label in pk.options %}<option value="{{ value }}"{% if value == pk.current %} selected{% endif %}>{{ label }}</option>{% endfor %}
+    </select>
+    <button class="btn" type="submit">Save</button>
+  </form>
+  {% endif %}
+  {% if pk.error == "load" %}
+  <p class="small muted provider-why">Could not load the {{ p.picker_label|lower }} list{% if pk.current %} - keeping {{ pk.current }}{% endif %}.</p>
+  {% endif %}
+  {% if not pk.current and pk.fallback %}
+  <p class="small muted provider-why">Until one is chosen, Helix uses {{ pk.fallback }} from the server settings.</p>
+  {% endif %}
+  {% endif %}
+
   <div class="provider-actions">
     <form method="post" action="/ui/connections/{{ p.id }}/connect">
       <button class="btn {% if not p.connected %}btn-primary{% endif %}" type="submit"{% if not p.can_connect %} disabled aria-describedby="why-{{ p.id }}"{% endif %}>{% if p.connected %}Reconnect{% else %}Connect {{ p.name }}{% endif %}</button>

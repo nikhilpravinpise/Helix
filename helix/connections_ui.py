@@ -26,7 +26,9 @@ import secrets
 import time
 from datetime import UTC, datetime, timedelta
 from typing import Any
+from urllib.parse import parse_qs
 
+import httpx
 from fastapi import APIRouter, Request
 from fastapi.responses import HTMLResponse, RedirectResponse, Response
 
@@ -58,6 +60,24 @@ _NOTICES = {
     "slack-test-ok": ("ok", "Slack accepted the connection."),
     "slack-test-failed": ("bad", "Slack rejected the connection ({detail})."),
     "slack-not-connected": ("bad", "Slack is not connected."),
+    "slack-channel-saved": ("ok", "Saved the Slack channel."),
+    "slack-channel-refused": (
+        "bad",
+        "That is not one of the workspace's public channels, so nothing was changed.",
+    ),
+    "slack-channel-unavailable": (
+        "bad",
+        "Could not load Slack's channel list, so nothing was changed.",
+    ),
+    "jira-project-saved": ("ok", "Saved the Jira project."),
+    "jira-project-refused": (
+        "bad",
+        "That is not one of the site's projects, so nothing was changed.",
+    ),
+    "jira-project-unavailable": (
+        "bad",
+        "Could not load Jira's project list, so nothing was changed.",
+    ),
     "jira-connected": ("ok", "Connected Jira."),
     "jira-denied": ("bad", "Jira connection cancelled - nothing was saved."),
     "jira-failed": (
@@ -126,6 +146,36 @@ def _github_missing() -> str | None:
     return None
 
 
+def _slack_channels(stored) -> tuple[list[tuple[str, str]], str | None]:
+    """The workspace's public channels as (id, "#name") options, plus None or
+    why they are missing: "scope" (reconnect for channels:read) or "load"."""
+    try:
+        found = oauth.list_channels(stored.access_token)
+    except SlackError as exc:
+        return [], "scope" if str(exc) == "missing_scope" else "load"
+    return [(c["id"], f"#{c['name']}") for c in found], None
+
+
+def _jira_projects(session) -> tuple[list[tuple[str, str]], str | None]:
+    """The site's projects as (key, "KEY - Name") options, plus None or "load"."""
+    provider = connected_jira_provider(session, client=jira_oauth._http())
+    if provider is None:
+        return [], "load"
+    try:
+        found = provider.list_projects()
+    except (WorkItemError, httpx.HTTPError, KeyError, TypeError):
+        return [], "load"
+    return [(p["key"], f"{p['key']} - {p['name']}") for p in found], None
+
+
+def _picker(options, error, current, fallback) -> dict[str, Any]:
+    """Select data for a card: the current value stays selectable even when
+    the list is missing or does not contain it."""
+    if current and current not in [value for value, _ in options]:
+        options = [(current, current), *options]
+    return {"options": options, "error": error, "current": current, "fallback": fallback}
+
+
 def _providers(session) -> list[dict[str, Any]]:
     """One entry per provider card, in display order."""
     settings = get_settings()
@@ -144,6 +194,15 @@ def _providers(session) -> list[dict[str, Any]]:
             "account": slack.account if slack else None,
             "scopes": slack.scopes if slack else [],
             "channel": slack.settings.get("channel") if slack else None,
+            "picker": _picker(
+                *_slack_channels(slack),
+                slack.settings.get("channel"),
+                settings.slack_default_channel,
+            )
+            if slack
+            else None,
+            "picker_field": "channel",
+            "picker_label": "Channel",
             "uses_server": slack is None and bool(settings.slack_bot_token),
             "can_connect": missing is None,
             "reason": missing,
@@ -159,6 +218,15 @@ def _providers(session) -> list[dict[str, Any]]:
             else None,
             "site_url": jira.settings.get("site_url") if jira else None,
             "project": jira.settings.get("project_key") if jira else None,
+            "picker": _picker(
+                *_jira_projects(session),
+                jira.settings.get("project_key"),
+                settings.jira_project_key,
+            )
+            if jira
+            else None,
+            "picker_field": "project_key",
+            "picker_label": "Project",
             "scopes": jira.scopes if jira else [],
             "uses_server": jira is None and bool(settings.jira_api_token),
             "can_connect": jira_missing is None,
@@ -366,6 +434,47 @@ def slack_test(session: DbSession) -> Response:
     except SlackError as exc:
         return _back("slack-test-failed", str(exc))
     return _back("slack-test-ok")
+
+
+async def _posted(request: Request, field: str) -> str:
+    """One field of a urlencoded POST body ("" when absent)."""
+    form = parse_qs((await request.body()).decode(errors="replace"), keep_blank_values=True)
+    return (form.get(field) or [""])[0]
+
+
+@router.post("/ui/connections/slack/settings")
+async def slack_settings(request: Request, session: DbSession) -> Response:
+    """Save the channel. The value must be one of the channels Slack lists
+    right now; free input is never stored."""
+    channel = await _posted(request, "channel")
+    stored = connections.get_connection(session, "slack")
+    if stored is None:
+        return _back("slack-not-connected")
+    options, error = _slack_channels(stored)
+    if error:
+        return _back("slack-channel-unavailable")
+    if channel not in [value for value, _ in options]:
+        return _back("slack-channel-refused")
+    connections.update_settings(session, "slack", {"channel": channel})
+    session.commit()
+    return _back("slack-channel-saved")
+
+
+@router.post("/ui/connections/jira/settings")
+async def jira_settings(request: Request, session: DbSession) -> Response:
+    """Save the project key. The value must be one of the projects Jira lists
+    right now; free input is never stored."""
+    key = await _posted(request, "project_key")
+    if connections.get_connection(session, "jira") is None:
+        return _back("jira-not-connected")
+    options, error = _jira_projects(session)
+    if error:
+        return _back("jira-project-unavailable")
+    if key not in [value for value, _ in options]:
+        return _back("jira-project-refused")
+    connections.update_settings(session, "jira", {"project_key": key})
+    session.commit()
+    return _back("jira-project-saved")
 
 
 @router.post("/ui/connections/jira/connect")

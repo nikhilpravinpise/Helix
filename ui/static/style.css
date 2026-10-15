@@ -547,8 +547,21 @@ input[type='password'] {
   min-width: 180px;
 }
 
+select {
+  background: var(--inset);
+  color: var(--ink);
+  border: 0;
+  box-shadow: var(--ring-strong);
+  border-radius: var(--r-control);
+  padding: 7px 12px;
+  font-size: 15px;
+  min-width: 180px;
+  max-width: 100%;
+}
+
 input[type='text']:focus,
-input[type='password']:focus {
+input[type='password']:focus,
+select:focus {
   outline: none;
   box-shadow: 0 0 0 1px var(--accent), 0 0 0 4px var(--accent-tint);
 }
@@ -1187,6 +1200,19 @@ details summary:hover {
   margin-top: 12px;
 }
 
+.picker {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  margin-top: 16px;
+}
+
+.picker label {
+  color: var(--ink-3);
+  font-size: 13px;
+}
+
 .provider-actions {
   display: flex;
   flex-wrap: wrap;
@@ -1372,6 +1398,15 @@ details summary:hover {
   .btn,
   .btn-block {
     min-height: 42px;
+  }
+  select {
+    min-height: 42px;
+    min-width: 0;
+    flex: 1 1 100%;
+    font-size: 16px;
+  }
+  .picker .btn {
+    flex: 1 1 100%;
   }
   input[type='text'],
   input[type='password'] {

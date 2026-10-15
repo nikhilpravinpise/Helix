@@ -337,6 +337,30 @@ class JiraProvider:
         page's Test button (it also exercises token refresh)."""
         return self._json(self._request("GET", "/rest/api/3/myself"))
 
+    def list_projects(self, limit: int = 1000) -> list[dict[str, str]]:
+        """GET /project/search, paged: the projects the account can see as
+        {"key", "name"}, up to `limit` (backs the Connections page picker)."""
+        projects: list[dict[str, str]] = []
+        start = 0
+        while len(projects) < limit:
+            data = self._json(
+                self._request(
+                    "GET",
+                    "/rest/api/3/project/search",
+                    params={"startAt": start, "maxResults": 50},
+                )
+            )
+            values = data.get("values") or []
+            projects.extend(
+                {"key": str(p["key"]), "name": str(p.get("name") or p["key"])}
+                for p in values
+                if p.get("key")
+            )
+            if data.get("isLast", True) or not values:
+                break
+            start += len(values)
+        return projects[:limit]
+
     # -- contract ---------------------------------------------------
 
     def capabilities(self) -> ProviderCapabilities:

@@ -32,11 +32,22 @@ def authorize_url(client_id: str, redirect_uri: str, state: str) -> str:
     return f"{AUTHORIZE_URL}?{query}"
 
 
-def _call(method: str, *, data: dict[str, str] | None = None, token: str | None = None) -> dict:
+def _call(
+    method: str,
+    *,
+    data: dict[str, str] | None = None,
+    token: str | None = None,
+    timeout: float | None = None,
+) -> dict:
     headers = {"Authorization": f"Bearer {token}"} if token else {}
     try:
         with _http() as client:
-            response = client.post(f"{API_ROOT}/{method}", data=data or {}, headers=headers)
+            response = client.post(
+                f"{API_ROOT}/{method}",
+                data=data or {},
+                headers=headers,
+                **({"timeout": timeout} if timeout else {}),
+            )
     except httpx.HTTPError as exc:
         raise SlackError("transport_error") from exc
     if response.status_code >= 400:
@@ -74,3 +85,23 @@ def revoke(token: str) -> None:
         _call("auth.revoke", token=token)
     except SlackError:
         pass
+
+
+def list_channels(token: str, *, limit: int = 1000, timeout: float = 5.0) -> list[dict[str, str]]:
+    """conversations.list: the workspace's public, non-archived channels as
+    {"id", "name"}, following the cursor up to `limit` channels. A bot token
+    without channels:read fails with `missing_scope`."""
+    channels: list[dict[str, str]] = []
+    cursor = ""
+    while len(channels) < limit:
+        data = {"types": "public_channel", "exclude_archived": "true", "limit": "200"}
+        if cursor:
+            data["cursor"] = cursor
+        body = _call("conversations.list", data=data, token=token, timeout=timeout)
+        for channel in body.get("channels") or []:
+            if channel.get("id") and channel.get("name"):
+                channels.append({"id": str(channel["id"]), "name": str(channel["name"])})
+        cursor = str((body.get("response_metadata") or {}).get("next_cursor") or "")
+        if not cursor:
+            break
+    return channels[:limit]

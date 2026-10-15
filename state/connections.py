@@ -140,6 +140,17 @@ def update_tokens(
     return True
 
 
+def update_settings(session: Session, provider: str, changes: dict[str, Any]) -> bool:
+    """Merge `changes` into the provider's settings, leaving tokens, account
+    and scopes alone. False if the provider is not connected."""
+    row = session.get(Connection, provider)
+    if row is None:
+        return False
+    row.settings = {**row.settings, **changes}
+    session.flush()
+    return True
+
+
 def active_connection(session: Session, provider: str) -> ConnectionRecord | None:
     """The connection an integration should use right now: None when
     connections are disabled (HELIX_CONNECTIONS_ENABLED=false, the benchmark's
