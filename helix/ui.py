@@ -96,6 +96,126 @@ def _jsonpp(value: Any) -> str:
     return json.dumps(value, indent=2, sort_keys=True, default=str)
 
 
+def _label(value: Any) -> str:
+    """Enum value -> display text: 'review_pending' -> 'review pending'."""
+    return str(value).replace("_", " ")
+
+
+def _what_broke(incident: dict[str, Any], stages: dict[str, Any]) -> str | None:
+    """The trigger in plain English; change incidents read the change."""
+    if incident.get("kind") == "change":
+        triage = stages.get("triage") or []
+        service = triage[-1]["affected_service"] if triage else incident["service"]
+        pr = incident.get("linked_pr")
+        return f"Change to {service}" + (f" (PR {str(pr).lstrip('#')})" if pr else "")
+    if not stages.get("trigger"):
+        return None
+    signal = stages["trigger"][0]
+    sig = signal.get("signature") or {}
+    service = incident["service"]
+    if signal["source"] == "jenkins" and sig.get("job"):
+        stage = f" at stage {sig['stage']}" if sig.get("stage") else ""
+        return f"Jenkins job {sig['job']} failed{stage}"
+    if signal["source"] == "kubernetes":
+        reason = sig.get("waiting_reason") or sig.get("terminated_reason") or sig.get("reason")
+        if reason:
+            target = (
+                f" on {sig['kind']} {sig['name']}" if sig.get("kind") and sig.get("name") else ""
+            )
+            return f"Kubernetes reported {service} as {reason}{target}"
+        if sig.get("symptom"):
+            return f"Kubernetes reported {service}: {_label(sig['symptom'])}"
+    detail = ", ".join(f"{k} {v}" for k, v in sig.items() if isinstance(v, str | int))
+    return f"{signal['source']} signal on {service}" + (f" ({detail})" if detail else "")
+
+
+def _why(incident: dict[str, Any], stages: dict[str, Any]) -> str | None:
+    """The latest diagnosis; change incidents show the triage verdict."""
+    if incident.get("kind") == "change":
+        triage = stages.get("triage") or []
+        if not triage:
+            return None
+        t = triage[-1]
+        rationale = t["rationale"]
+        if t["owner"] and t["owner"] in rationale:
+            return rationale[:1].upper() + rationale[1:]
+        return f"Owner {t['owner'] or 'unresolved'}. {rationale}"
+    hypotheses = stages.get("hypothesis") or []
+    if not hypotheses:
+        return None
+    h = hypotheses[-1]
+    return f"{h['claim']} (confidence {h['confidence']:.2f})"
+
+
+def _did(incident: dict[str, Any], stages: dict[str, Any]) -> dict[str, Any] | None:
+    """The latest real execution, or why nothing ran."""
+    executions = stages.get("execution") or []
+    primary = [e for e in executions if not e.get("compensates_id")]
+    if primary:
+        e = primary[-1]
+        text = f"{e['action']}: {e['result']}"
+        detail = (e.get("detail") or "").removeprefix(f"{e['action']} ")
+        if detail:
+            text += f" - {detail}"
+        out = e.get("output") or {}
+        if out.get("branch"):
+            text += f" (branch {out['branch']})"
+        if e.get("decided_by"):
+            text += f" - approved by {e['decided_by']}"
+        if len(primary) < len(executions):
+            text += " - undone after verification failed"
+        row: dict[str, Any] = {"text": text}
+        url = out.get("pr_url")
+        if isinstance(url, str) and url.startswith(("http://", "https://")):
+            row["link"] = url
+        return row
+    status = incident["status"]
+    pending = [a for a in stages.get("approval") or [] if a["status"] == "pending"]
+    reviews = [r for r in stages.get("reviews") or [] if r["status"] == "pending"]
+    if status == "awaiting_approval" or pending:
+        action = f" of {pending[-1]['action']}" if pending else ""
+        return {"text": f"Nothing executed - waiting for approval{action}"}
+    if status == "review_pending" or reviews:
+        who = f" with {reviews[-1]['reviewer']}" if reviews else ""
+        return {"text": f"Nothing executed - review pending{who}"}
+    if status == "escalated":
+        return {"text": "Nothing executed - escalated to a human"}
+    if stages.get("trigger") and status not in ("received",):
+        return {"text": "Nothing executed yet"}
+    return None
+
+
+def _outcome(incident: dict[str, Any], stages: dict[str, Any]) -> str:
+    """Incident status plus the latest verification verdict or the cause."""
+    text = _label(incident["status"]).capitalize()
+    if incident.get("escalation_cause"):
+        # The cause leads ("Escalated: ...") - the card is where it is shown.
+        text += f": {incident['escalation_cause']}"
+    verifications = stages.get("verification") or []
+    if verifications:
+        v = verifications[-1]
+        text += f" - verification {v['outcome']}"
+        if v.get("detail"):
+            text += f": {v['detail']}"
+    return text
+
+
+def _summary(record: dict[str, Any]) -> dict[str, Any]:
+    """The incident page's headline card: four plain-English rows built
+    from the provenance record. A row whose stage has no record is left
+    out; the outcome always exists."""
+    incident, stages = record["incident"], record["stages"]
+    did = _did(incident, stages)
+    rows: list[dict[str, Any]] = [
+        {"label": "What broke", "text": _what_broke(incident, stages)},
+        {"label": "Why", "text": _why(incident, stages)},
+        {"label": "What Helix did", **(did or {"text": None})},
+        {"label": "Outcome", "text": _outcome(incident, stages)},
+    ]
+    return {"status": incident["status"], "rows": [r for r in rows if r["text"]]}
+
+
+templates.env.filters["label"] = _label
 templates.env.filters["dt"] = _fmt_dt
 templates.env.filters["age"] = _age
 templates.env.filters["jsonpp"] = _jsonpp
@@ -229,6 +349,7 @@ def incident_detail(
             "pending_count": _pending_count(session),
             "i": incident,
             "stages": record["stages"],
+            "summary": _summary(record),
             "transitions": record["transitions"],
             "terminal": incident["status"] in TERMINAL_STATUSES,
             "busy": busy,

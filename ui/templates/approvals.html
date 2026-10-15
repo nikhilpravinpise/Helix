@@ -33,7 +33,7 @@
       <span class="mono strong">#{{ a.id }} - {{ a.action }}</span>
       <a class="mono" href="/ui/incidents/{{ a.incident_id }}">{{ a.incident_id }}</a>
       {% if a.risk_tier %}<span class="badge risk-{{ a.risk_tier }}">{{ a.risk_tier }} risk</span>{% endif %}
-      <span class="badge">{{ a.incident_status }}</span>
+      <span class="badge">{{ a.incident_status|label }}</span>
       <span class="mono muted ts" title="{{ a.created_at|dt }}">waiting {{ a.created_at|age }}</span>
     </div>
     <pre class="code">{{ a.params|jsonpp }}</pre>
@@ -69,7 +69,7 @@
       <td class="mono">{{ a.id }}</td>
       <td><a class="mono" href="/ui/incidents/{{ a.incident_id }}">{{ a.incident_id }}</a></td>
       <td class="mono">{{ a.action }}</td>
-      <td><span class="badge ap-{{ a.status }}">{{ a.status }}</span></td>
+      <td><span class="badge ap-{{ a.status }}">{{ a.status|label }}</span></td>
       <td>{{ a.decided_by or "-" }}</td>
       <td class="mono muted">{{ a.decided_at|dt }}</td>
       <td class="small">{{ a.note or "" }}</td>

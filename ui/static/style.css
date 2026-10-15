@@ -862,14 +862,52 @@ tr.selected td:first-child {
   box-shadow: inset 3px 0 0 var(--accent);
 }
 
-.callout-danger {
-  background: var(--danger-tint);
-  box-shadow: inset 3px 0 0 var(--danger);
-}
-
 .card > .callout:first-child,
 article > .callout {
   margin: 0 0 16px;
+}
+
+/* Summary: the page's headline card - four labelled plain-English rows,
+   framed by the incident status tone (the st-* class sets --tone). */
+.summary {
+  padding: 18px 20px 18px 24px;
+  box-shadow: inset 4px 0 0 var(--tone, var(--ink-3)), var(--lift);
+}
+
+.summary-rows {
+  display: grid;
+  grid-template-columns: 9.5rem minmax(0, 1fr);
+  gap: 12px 20px;
+  margin: 0;
+}
+
+.summary-rows > div {
+  display: contents;
+}
+
+.summary-rows dt {
+  padding-top: 5px;
+  font-family: var(--mono);
+  font-size: 12.5px;
+  color: var(--ink-3);
+}
+
+.summary-rows dd {
+  margin: 0;
+  font-size: 16px;
+  color: var(--ink);
+  overflow-wrap: anywhere;
+}
+
+@media (max-width: 640px) {
+  .summary-rows {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 2px;
+  }
+
+  .summary-rows dd {
+    margin-bottom: 10px;
+  }
 }
 
 /* Provenance: a vertical rail, one dot per stage. Filled when the stage

@@ -53,7 +53,7 @@
           <td>{{ i.service }}</td>
           <td class="muted">{{ i.environment }}</td>
           <td><span class="badge sev-{{ i.severity }}">{{ i.severity }}</span></td>
-          <td><span class="badge st-{{ i.status }}">{{ i.status }}</span></td>
+          <td><span class="badge st-{{ i.status }}">{{ i.status|label }}</span></td>
           <td class="num mono">{{ i.signal_count }}</td>
           <td class="num mono">{{ i.attempt_count }}</td>
           <td class="num mono muted" title="{{ i.created_at|dt }}">{{ i.created_at|age }}</td>
