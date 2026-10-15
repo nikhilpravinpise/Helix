@@ -7,7 +7,7 @@
     <h1>Incident dashboard</h1>
   </div>
   {% if samples_enabled %}
-  <form method="post" action="/ui/samples"><button class="btn btn-primary" type="submit">Run a sample incident</button></form>
+  <form method="post" action="/ui/samples"><button class="btn btn-primary" type="submit">Send a test incident</button></form>
   {% endif %}
 </header>
 
@@ -69,8 +69,8 @@
     <p class="eyebrow">no incidents</p>
     <p class="empty-title">No incidents yet.</p>
     {% if samples_enabled %}
-    <p class="muted">Raise a recorded failure and watch Helix work it.</p>
-    <form method="post" action="/ui/samples"><button class="btn btn-primary" type="submit">Run a sample incident</button></form>
+    <p class="muted">Send a test incident to see Helix work it end to end, through your connected tools.</p>
+    <form method="post" action="/ui/samples"><button class="btn btn-primary" type="submit">Send a test incident</button></form>
     {% else %}
     <p class="muted">Failure signals arrive via <code>helix intake --file signal.json</code>
     or <code>POST /intake/kubernetes</code> / <code>POST /intake/jenkins</code>.</p>

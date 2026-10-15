@@ -55,7 +55,7 @@ def build_parser() -> argparse.ArgumentParser:
 
     subparsers.add_parser(
         "seed-demo",
-        help="fill an EMPTY database with recorded demo incidents (fixture scenarios "
+        help="fill an EMPTY database with recorded example incidents (fixture scenarios "
         "on arm A plus one change parked at review); a no-op if any incident exists",
     )
 

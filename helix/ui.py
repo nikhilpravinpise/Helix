@@ -13,7 +13,7 @@ Pages (the JSON API keeps its own routes, unchanged):
                                renders a 404 page
     GET  /ui/connections       connect Slack and other accounts
                                (helix/connections_ui.py)
-    POST /ui/samples           demo only: raise a random recorded sample
+    POST /ui/samples           recorded evidence only: send a test incident
                                incident, drive it live in the background and
                                redirect to its page (one at a time; a start
                                during a run redirects to the running one)
@@ -225,7 +225,6 @@ templates.env.filters["label"] = _label
 templates.env.filters["dt"] = _fmt_dt
 templates.env.filters["age"] = _age
 templates.env.filters["jsonpp"] = _jsonpp
-templates.env.globals["is_demo"] = lambda: get_settings().environment == "demo"
 
 
 def get_db_session() -> Iterator[Session]:
@@ -271,9 +270,8 @@ def index() -> RedirectResponse:
 
 
 def _samples_enabled() -> bool:
-    """Run-a-sample exists only on the hosted fixture demo."""
-    settings = get_settings()
-    return settings.environment == "demo" and settings.evidence_source == "fixtures"
+    """The test incident needs recorded evidence to raise a failure from."""
+    return get_settings().evidence_source == "fixtures"
 
 
 @router.get("/ui/", response_class=HTMLResponse)
@@ -319,7 +317,7 @@ def incident_list(request: Request, session: DbSession) -> HTMLResponse:
 
 @router.post("/ui/samples")
 def start_sample(session: DbSession) -> RedirectResponse:
-    """Demo only: start a sample incident, or point at the one running."""
+    """Start a test incident, or point at the one running."""
     if not _samples_enabled():
         raise HTTPException(status_code=404)
     incident_id, already_running = demo.start_sample(session)

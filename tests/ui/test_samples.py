@@ -1,4 +1,4 @@
-"""Run-a-sample on the hosted demo (helix/demo.py start_sample, POST /ui/samples).
+"""Send-a-test-incident on recorded evidence (helix/demo.py start_sample, POST /ui/samples).
 
 The background drive (`harness._drive`, which shells out to `helix run`) is
 stubbed, so these pin the route, the single-flight lock and the gating - not
@@ -25,7 +25,6 @@ def _settings(monkeypatch):
 
 @pytest.fixture
 def demo_env(monkeypatch):
-    monkeypatch.setenv("HELIX_ENVIRONMENT", "demo")
     monkeypatch.setenv("HELIX_EVIDENCE_SOURCE", "fixtures")
 
 
@@ -104,8 +103,10 @@ def test_second_post_while_running_is_busy(client, sqlite_engine, demo_env, driv
         assert _count(sqlite_engine) == 1
         assert len(drives.calls) <= 1
         busy_page = client.get(second.headers["location"])
-        assert "A sample is already running - showing it." in busy_page.text
-        assert "A sample is already running" not in client.get(first.headers["location"]).text
+        assert "A test incident is already running - showing it." in busy_page.text
+        assert (
+            "A test incident is already running" not in client.get(first.headers["location"]).text
+        )
     finally:
         drives.release.set()
     _wait_idle()
@@ -139,20 +140,20 @@ def test_lock_released_when_intake_fails(client, demo_env, monkeypatch):
     assert demo._running_incident is None
 
 
-def test_not_available_outside_demo(client, sqlite_engine, drives):
+def test_not_available_on_live_evidence(client, sqlite_engine, monkeypatch, drives):
+    monkeypatch.setenv("HELIX_EVIDENCE_SOURCE", "live")
     assert client.post("/ui/samples", follow_redirects=False).status_code == 404
     assert _count(sqlite_engine) == 0
-    assert "Run a sample incident" not in client.get("/ui/").text
+    assert "Send a test incident" not in client.get("/ui/").text
 
 
-def test_not_available_on_live_evidence(client, monkeypatch, drives):
-    monkeypatch.setenv("HELIX_ENVIRONMENT", "demo")
+def test_not_available_by_default(client, monkeypatch, drives):
     assert client.post("/ui/samples", follow_redirects=False).status_code == 404
 
 
-def test_button_renders_in_demo(client, demo_env, drives):
+def test_button_renders_on_recorded_evidence(client, demo_env, drives):
     page = client.get("/ui/").text
-    assert "Run a sample incident" in page
+    assert "Send a test incident" in page
     assert 'action="/ui/samples"' in page
     assert "helix intake --file" not in page
 

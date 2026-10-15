@@ -1,17 +1,15 @@
-"""Seed a hosted demo's empty database with recorded incidents.
+"""Seed an empty database with recorded example incidents (a developer tool).
 
-A fresh Render deploy has an empty dashboard and no way for a visitor to
-raise an incident (no cluster, no Jenkins, no intake token to hand out).
-`seed_demo` fills it once: the fixture scenarios run through the benchmark
-harness on arm A - the same code path an operator drives - and two change
-incidents are parked at `review_pending` (one per live reviewer, see
-PARKED_AUTHORS), so the dashboard has pending reviews to decide. It is a
-no-op on a database that already holds any incident, so it never touches
-real data and is safe on every boot.
+`seed_demo` fills a fresh database for local development: the fixture
+scenarios run through the benchmark harness on arm A - the same code path an
+operator drives - and two change incidents are parked at `review_pending`
+(one per live reviewer, see PARKED_AUTHORS), so the dashboard has pending
+reviews to decide. It is a no-op on a database that already holds any
+incident, so it never touches real data.
 
-`start_sample` is the visitor-facing half: it raises one signal-flow
-incident from the same recordings and drives it live in a background
-thread, one at a time (the free host has no memory for two runs).
+`start_sample` backs the dashboard's "Send a test incident" button: it
+raises one signal-flow incident from the same recordings and drives it live
+in a background thread, one at a time (the free host has no memory for two runs).
 """
 
 import copy
