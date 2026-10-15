@@ -117,7 +117,12 @@ def _admin_count(session: Session) -> int:
 
 
 def invite(
-    session: Session, login: str, role: str, invited_by: str, email: str | None = None
+    session: Session,
+    login: str,
+    role: str,
+    invited_by: str,
+    email: str | None = None,
+    slack_id: str | None = None,
 ) -> Invitation:
     login = login.strip()
     if not _GITHUB_LOGIN.fullmatch(login):
@@ -136,6 +141,7 @@ def invite(
         login=login,
         role=role,
         email=(email or "").strip() or None,
+        slack_id=slack_id,
         invited_by=invited_by,
         token=secrets.token_urlsafe(32),
         created_at=now,
@@ -175,7 +181,8 @@ def cancel(session: Session, invite_id: int) -> None:
 
 def accept_on_sign_in(session: Session, login: str, name: str | None) -> Person | None:
     """Sign in with a GitHub login that has a pending invite (any case):
-    create the person with the invite's role and email, and mark it accepted.
+    create the person with the invite's role, email and Slack id, and mark it
+    accepted.
     None when there is no pending invite for the login."""
     lowered = login.lower()
     row = next((r for r in pending_invites(session) if r.login.lower() == lowered), None)
@@ -183,7 +190,11 @@ def accept_on_sign_in(session: Session, login: str, name: str | None) -> Person 
         return None
     row.accepted_at = datetime.now(UTC)
     person = session.get(Person, login) or Person(
-        login=login, name=(name or "").strip() or login, email=row.email, role=row.role
+        login=login,
+        name=(name or "").strip() or login,
+        email=row.email,
+        slack_id=row.slack_id,
+        role=row.role,
     )
     session.add(person)
     session.flush()
@@ -208,6 +219,20 @@ def set_role(session: Session, login: str, role: str) -> None:
     if person.role == "admin" and role != "admin" and _admin_count(session) <= 1:
         raise TeamError(_LAST_ADMIN)
     person.role = role
+    session.flush()
+
+
+def link_slack(session: Session, login: str, slack_id: str, email: str | None = None) -> None:
+    """Bind a Slack member id to a person, and fill their email if empty. One
+    Slack account belongs to one person: an id already linked to someone else
+    is refused."""
+    person = _person(session, login)
+    other = session.scalar(select(Person).where(Person.slack_id == slack_id, Person.login != login))
+    if other is not None:
+        raise TeamError(f"That Slack account is already linked to {other.name or other.login}.")
+    person.slack_id = slack_id
+    if email and not person.email:
+        person.email = email
     session.flush()
 
 

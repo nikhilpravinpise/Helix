@@ -1,0 +1,26 @@
+{% extends "base.html" %}
+{% block title %}Link Slack - Helix{% endblock %}
+{% block content %}
+<header class="pane-head">
+  <div>
+    <p class="eyebrow">team</p>
+    <h1>Link your Slack account</h1>
+  </div>
+</header>
+
+<section class="card team">
+  {% if state == "confirm" %}
+  <p>Link Slack user {{ slack_name }} to your Helix account {{ login }}?</p>
+  <p class="muted provider-blurb">After this, Helix knows your Slack buttons are yours and can @-mention you.</p>
+  <form class="team-link-form" method="post" action="/ui/team/link-slack">
+    <input type="hidden" name="t" value="{{ token }}">
+    <button class="btn btn-primary" type="submit">Link my Slack account</button>
+  </form>
+  {% elif state == "done" %}
+  <p class="notice notice-ok" role="status">Linked Slack user {{ slack_name }} to your Helix account {{ login }}.</p>
+  <p><a class="btn btn-sm" href="/ui/team">Back to the team</a></p>
+  {% else %}
+  <p class="notice notice-bad" role="status">{{ message }}</p>
+  {% endif %}
+</section>
+{% endblock %}

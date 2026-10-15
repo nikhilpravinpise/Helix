@@ -17,8 +17,10 @@ from integrations.slack.client import SlackError
 AUTHORIZE_URL = "https://slack.com/oauth/v2/authorize"
 API_ROOT = "https://slack.com/api"
 # channels:read feeds the channel picker; chat:write.public lets the bot post
-# to public channels it has not joined.
-SCOPES = "chat:write,chat:write.public,channels:read"
+# to public channels it has not joined. users:read and users:read.email let
+# Helix find a teammate's Slack member id from their email (users.lookupByEmail
+# needs both), so it can @-mention them and DM their invite.
+SCOPES = "chat:write,chat:write.public,channels:read,users:read,users:read.email"
 
 
 def _http() -> httpx.Client:
@@ -105,3 +107,21 @@ def list_channels(token: str, *, limit: int = 1000, timeout: float = 5.0) -> lis
         if not cursor:
             break
     return channels[:limit]
+
+
+def lookup_user_by_email(token: str, email: str) -> str | None:
+    """users.lookupByEmail: the Slack member id for `email`, or None when the
+    workspace has nobody with it. A token without users:read.email fails with
+    `missing_scope` (the connection needs reconnecting)."""
+    try:
+        body = _call("users.lookupByEmail", data={"email": email}, token=token, timeout=5.0)
+    except SlackError as exc:
+        if str(exc) == "users_not_found":
+            return None
+        raise
+    return str((body.get("user") or {}).get("id") or "") or None
+
+
+def send_dm(token: str, user_id: str, text: str) -> None:
+    """chat.postMessage to a member id, which opens the bot's DM with them."""
+    _call("chat.postMessage", data={"channel": user_id, "text": text}, token=token, timeout=5.0)

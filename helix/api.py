@@ -37,6 +37,7 @@ REJECTED -> FIX_REQUIRED, approval drives REVIEW_PENDING -> APPROVED.
 
 import hmac
 import json
+import time
 from collections.abc import Iterator
 from datetime import datetime
 from typing import Annotated
@@ -553,17 +554,22 @@ async def slack_interactions(
     return handle_slack_interaction(payload, session, background)
 
 
-def _slack_handle(user: dict) -> str:
-    """The registry handle of the Slack user who clicked: the person whose
-    `people.<handle>.slack` is their member id. Someone not linked keeps
-    their Slack name, which the decision rules then refuse with a reason."""
+def _slack_person(member: str | None) -> str | None:
+    """The registry handle whose `people.<handle>.slack` is this Slack member
+    id, or None when nobody is linked to it."""
     from agent.ops.registry import load_registry
 
-    member = user.get("id")
     for handle, person in load_registry().people.items():
         if member and person.slack == member:
             return handle
-    return user.get("username") or user.get("name") or member or "slack"
+    return None
+
+
+def _slack_handle(user: dict) -> str:
+    """The registry handle of the Slack user who clicked. Someone not linked
+    keeps their Slack name, which the decision rules then refuse with a reason."""
+    member = user.get("id")
+    return _slack_person(member) or user.get("username") or user.get("name") or member or "slack"
 
 
 def handle_slack_interaction(payload: dict, session: Session, background: BackgroundTasks) -> dict:
@@ -608,7 +614,62 @@ def handle_slack_interaction(payload: dict, session: Session, background: Backgr
         # timed out) must say so to the person who clicked, or it looks
         # like nothing happened. Only they see it; the card is unchanged.
         background.add_task(_tell_clicker, str(payload["response_url"]), refusals[0])
+    if payload.get("response_url") and user.get("id") and _slack_person(user["id"]) is None:
+        # Helix cannot tell who this is: offer a private, signed link that
+        # binds their Slack account to their Helix account once they open it
+        # while signed in (helix/team_ui.py link-slack).
+        link = _slack_link_url(payload, user)
+        if link:
+            background.add_task(
+                _send_ephemeral,
+                str(payload["response_url"]),
+                f"Helix doesn't know which teammate you are yet. Link your Slack account: {link}",
+            )
     return {"ok": True, "decisions": decisions}
+
+
+#: How long a Slack self-link stays valid.
+_LINK_MINUTES = 15
+
+
+def _slack_link_url(payload: dict, user: dict) -> str | None:
+    """The signed self-link for an unlinked Slack member; None (logged) when
+    Helix has no public URL or session secret to sign one with."""
+    from helix import auth
+
+    base = (get_settings().public_url or "").rstrip("/")
+    try:
+        token = auth._sign(
+            {
+                # Session cookies share the signing key; the purpose keeps a
+                # link token from standing in for any other signed value.
+                "purpose": "slack-link",
+                "slack_id": user["id"],
+                "slack_name": user.get("username") or user.get("name") or user["id"],
+                "team": (payload.get("team") or {}).get("id") or user.get("team_id") or "",
+                "exp": time.time() + _LINK_MINUTES * 60,
+            }
+        )
+    except RuntimeError:
+        base = ""
+    if not base:
+        get_logger().warning(
+            "slack self-link unavailable: set HELIX_PUBLIC_URL and the session secret"
+        )
+        return None
+    return f"{base}{auth.LINK_SLACK_PATH}?t={token}"
+
+
+def _send_ephemeral(response_url: str, text: str) -> None:
+    """A private note to the person who clicked; a failure is only logged."""
+    try:
+        httpx.post(
+            response_url,
+            json={"response_type": "ephemeral", "replace_original": False, "text": text},
+            timeout=10.0,
+        ).raise_for_status()
+    except httpx.HTTPError as exc:
+        get_logger().warning("slack link note failed", error=str(exc))
 
 
 def _tell_clicker(response_url: str, text: str) -> None:

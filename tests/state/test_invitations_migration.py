@@ -21,7 +21,8 @@ def test_0016_matches_the_model_and_downgrades():
         with Operations.context(MigrationContext.configure(conn)):
             mig.upgrade()
         cols = {c["name"] for c in inspect(conn).get_columns("invitations")}
-        assert cols == set(models.Invitation.__table__.columns.keys())
+        # slack_id arrives in 0017 (tests/state/test_team_slack_ids.py)
+        assert cols == set(models.Invitation.__table__.columns.keys()) - {"slack_id"}
         with Operations.context(MigrationContext.configure(conn)):
             mig.downgrade()
         assert "invitations" not in inspect(conn).get_table_names()

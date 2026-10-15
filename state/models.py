@@ -1157,6 +1157,7 @@ class Invitation(Base):
     login: Mapped[str] = mapped_column(String(128))
     role: Mapped[str] = mapped_column(String(16))
     email: Mapped[str | None] = mapped_column(String, nullable=True)
+    slack_id: Mapped[str | None] = mapped_column(String(32), nullable=True)
     invited_by: Mapped[str] = mapped_column(String(128))
     token: Mapped[str] = mapped_column(String(64), unique=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())

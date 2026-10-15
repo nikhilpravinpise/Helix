@@ -1362,7 +1362,7 @@ details summary:hover {
 .team-row {
   display: grid;
   /* A fixed actions column keeps the middle column aligned across rows. */
-  grid-template-columns: minmax(0, 1fr) minmax(0, 1.3fr) 17rem;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) 25rem;
   align-items: center;
   gap: 8px 16px;
   padding: 12px 0;
@@ -1387,10 +1387,20 @@ details summary:hover {
 
 .team-meta {
   display: grid;
-  grid-template-columns: 5rem 9rem minmax(0, 1fr);
+  grid-template-columns: 5rem minmax(0, 1fr);
   align-items: center;
   justify-items: start;
   gap: 4px 12px;
+}
+
+.team-status {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.team-link-form {
+  margin-top: 16px;
 }
 
 .team-actions {
@@ -1635,9 +1645,6 @@ details summary:hover {
   }
   .team-row {
     grid-template-columns: minmax(0, 1fr);
-  }
-  .team-meta {
-    grid-template-columns: auto auto minmax(0, 1fr);
   }
   .team-actions {
     justify-content: flex-start;

@@ -11,6 +11,9 @@
 {% if notice %}
 <p class="notice notice-{{ notice[0] }}" role="status">{{ notice[1] }}</p>
 {% endif %}
+{% if can_manage and slack_reconnect %}
+<p class="notice notice-bad" role="status">{{ slack_reconnect }}</p>
+{% endif %}
 {% if not can_manage %}
 <p class="small muted team-readonly">Only admins can change the team.</p>
 {% endif %}
@@ -27,8 +30,10 @@
       </div>
       <div class="team-meta">
         <span class="badge{% if p.role == 'admin' %} st-recovered{% endif %}">{{ p.role }}</span>
-        <span class="small muted">{{ "Slack linked" if p.slack_id else "Not linked to Slack" }}</span>
-        <span class="small muted">{% if p.last_signed_in_at %}Last signed in {{ p.last_signed_in_at|age }} ago{% else %}Never signed in{% endif %}</span>
+        <span class="team-status small muted">
+          <span>{{ "Slack linked" if p.slack_id else "Not linked to Slack" }}</span>
+          <span>{% if p.last_signed_in_at %}Last signed in {{ p.last_signed_in_at|age }} ago{% else %}Never signed in{% endif %}</span>
+        </span>
       </div>
       {% if can_manage %}
       <div class="team-actions">
@@ -44,6 +49,16 @@
             <button class="btn btn-sm btn-primary" type="submit">Save</button>
           </form>
         </details>
+        {% if not p.slack_id %}
+        <details class="team-more">
+          <summary class="btn btn-sm">Find in Slack</summary>
+          <form class="team-inline" method="post" action="/ui/team/people/{{ p.login }}/find-slack">
+            <label class="sr-only" for="slack-{{ p.login }}">Email for {{ p.login }}</label>
+            <input id="slack-{{ p.login }}" type="text" name="email" value="{{ p.email or '' }}" inputmode="email" placeholder="name@company.com" autocomplete="off" spellcheck="false">
+            <button class="btn btn-sm btn-primary" type="submit">Find</button>
+          </form>
+        </details>
+        {% endif %}
         <details class="team-more">
           <summary class="btn btn-sm btn-reject">Remove</summary>
           <form class="team-inline" method="post" action="/ui/team/people/{{ p.login }}/remove">
