@@ -1,0 +1,49 @@
+{% extends "base.html" %}
+{% block title %}Connections - Helix{% endblock %}
+{% block content %}
+<header class="pane-head">
+  <div>
+    <p class="eyebrow">connections</p>
+    <h1>Connected accounts</h1>
+  </div>
+</header>
+
+{% if notice %}
+<p class="notice notice-{{ notice[0] }}" role="status">{{ notice[1] }}</p>
+{% endif %}
+
+{% for p in providers %}
+<section class="card provider" id="{{ p.id }}">
+  <div class="provider-head">
+    <h2 class="provider-name">{{ p.name }}</h2>
+    {% if p.connected %}
+    <span class="badge st-recovered">Connected</span>
+    {% else %}
+    <span class="badge">Not connected</span>
+    {% endif %}
+  </div>
+  <p class="muted provider-blurb">{{ p.blurb }}</p>
+
+  {% if p.connected %}
+  <dl class="provider-facts">
+    <div><dt>Workspace</dt><dd>{{ p.account }}</dd></div>
+    {% if p.channel %}<div><dt>Channel</dt><dd class="mono">{{ p.channel }}</dd></div>{% endif %}
+    {% if p.scopes %}<div><dt>Scopes</dt><dd class="mono">{{ p.scopes|join(", ") }}</dd></div>{% endif %}
+  </dl>
+  {% elif p.uses_server %}
+  <p class="small muted">Not connected here - Helix is using the server's own {{ p.name }} settings.</p>
+  {% endif %}
+
+  <div class="provider-actions">
+    <form method="post" action="/ui/connections/{{ p.id }}/connect">
+      <button class="btn {% if not p.connected %}btn-primary{% endif %}" type="submit"{% if not p.can_connect %} disabled aria-describedby="why-{{ p.id }}"{% endif %}>{% if p.connected %}Reconnect{% else %}Connect {{ p.name }}{% endif %}</button>
+    </form>
+    {% if p.connected %}
+    <form method="post" action="/ui/connections/{{ p.id }}/test"><button class="btn" type="submit">Test</button></form>
+    <form method="post" action="/ui/connections/{{ p.id }}/disconnect"><button class="btn btn-reject" type="submit">Disconnect</button></form>
+    {% endif %}
+  </div>
+  {% if not p.can_connect %}<p class="small muted provider-why" id="why-{{ p.id }}">{{ p.reason }}</p>{% endif %}
+</section>
+{% endfor %}
+{% endblock %}

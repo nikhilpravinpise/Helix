@@ -207,6 +207,10 @@ class Settings(BaseSettings):
     #: connection, so no public URL into this machine is needed.
     slack_app_token: str | None = Field(default=None, repr=False)
     slack_default_channel: str = "#helix-incidents"
+    #: Slack app credentials for "Connect Slack" (Connections page OAuth
+    #: install, integrations/slack/oauth.py). Unset disables the button.
+    slack_client_id: str | None = None
+    slack_client_secret: str | None = Field(default=None, repr=False)
     # How long an interactive Slack approval may sit undecided before the
     # same escalate-on-timeout contract 1.8's approval_timeout uses
     # applies (0 disables; falls back to approval_timeout when unset).

@@ -16,6 +16,9 @@
         <span class="nav-label">Approvals &amp; reviews</span>
         {%- if pending_count %}<span class="count count-hot">{{ pending_count }}</span>{% endif -%}
       </a>
+      <a class="nav-item" href="/ui/connections"{% if active == "connections" %} aria-current="page"{% endif %}>
+        <span class="nav-label">Connections</span>
+      </a>
     </nav>
     <div class="side-foot">
       {% if is_demo() %}<p class="demo-note">Demo - recorded evidence</p>{% endif %}

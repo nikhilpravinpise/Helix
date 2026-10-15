@@ -11,6 +11,8 @@ Pages (the JSON API keeps its own routes, unchanged):
                                approval -> execution -> verification),
                                assembled by state.provenance; unknown id
                                renders a 404 page
+    GET  /ui/connections       connect Slack and other accounts
+                               (helix/connections_ui.py)
     POST /ui/samples           demo only: raise a random recorded sample
                                incident, drive it live in the background and
                                redirect to its page (one at a time; a start
@@ -458,3 +460,6 @@ def register_ui(app: FastAPI) -> None:
     exposes the UI and the JSON API from one process."""
     app.mount("/static", StaticFiles(directory=str(UI_DIR / "static")), name="static")
     app.include_router(router)
+    from helix import connections_ui  # imports this module, so only here
+
+    app.include_router(connections_ui.router)
