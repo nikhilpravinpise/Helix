@@ -2,8 +2,8 @@
 
 Active only when a GitHub OAuth app is configured
 (HELIX_GITHUB_OAUTH_CLIENT_ID / _SECRET). Then every page needs a signed-in
-GitHub user on the allow-list (HELIX_ALLOWED_USERS, default: the people in
-the service registry): pages send a signed-out visitor to /login, API
+GitHub user on the allow-list (HELIX_ALLOWED_USERS, default: the
+people table): pages send a signed-out visitor to /login, API
 routes answer 401. Machine clients keep using the intake token as a Bearer
 header. /healthz, /slack/interactions (Slack-signed) and the sign-in routes
 stay open, and so does "/", the public landing page (a signed-in visitor
@@ -53,7 +53,7 @@ def enabled() -> bool:
 
 
 def allowed_users() -> set[str]:
-    """HELIX_ALLOWED_USERS when set, else everyone the registry names."""
+    """HELIX_ALLOWED_USERS when set, else everyone in the people table."""
     configured = get_settings().allowed_users
     if configured:
         return {name.strip() for name in configured.split(",") if name.strip()}

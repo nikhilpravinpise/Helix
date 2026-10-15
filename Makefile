@@ -24,6 +24,7 @@ db-down:
 
 db-migrate:
 	uv run alembic -c state/migrations/alembic.ini upgrade head
+	uv run helix team import
 
 # Subphase E2 Kafka backbone. Brings up the broker and declares its
 # topics; not needed for any Phase 1 workflow.

@@ -87,9 +87,9 @@ def test_park_failure_is_a_seed_error(sqlite_url, monkeypatch):
 
 
 def test_parked_authors_are_the_live_registry_reviewers():
-    from agent.ops.registry import load_registry
+    from agent.ops.registry import REPO_ROOT, load_registry
 
-    registry = load_registry(demo.LIVE_REGISTRY)
+    registry = load_registry(REPO_ROOT / "config" / "service_registry.yaml")
     assert set(demo.PARKED_AUTHORS) == set(registry.services["payment-api"].default_reviewers)
 
 
@@ -164,7 +164,8 @@ def test_parked_review_stays_offline_and_off_the_connections(sqlite_url, monkeyp
     assert env["HELIX_WORK_PROVIDER"] == "memory"
     assert env["HELIX_SLACK_BOT_TOKEN"] == ""
     assert env["HELIX_GITHUB_WRITES"] == "recorded"
-    assert env["HELIX_SERVICE_REGISTRY"] == str(demo.LIVE_REGISTRY)
+    # Blank: the people and services tables, not a registry file.
+    assert env["HELIX_SERVICE_REGISTRY"] == ""
 
 
 def test_the_benchmark_harness_env_stays_isolated():

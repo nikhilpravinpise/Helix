@@ -1,7 +1,10 @@
 """Service registry and ownership resolution (subphase 2.1/2.5).
 
-`load_registry()` reads `config/service_registry.yaml` - the
-"provider-neutral... service registry primitives" 2.1 calls for. Every
+`load_registry()` builds the "provider-neutral... service registry
+primitives" 2.1 calls for. It reads the people and services tables (the
+team and Services pages edit them); when HELIX_SERVICE_REGISTRY names a
+file it reads that instead, which is how the benchmark and tests keep
+their fixed cast. Every
 Phase 2 agent that needs to answer "who owns this" (Triage 2.5, Review
 2.6) resolves through `resolve_owner()` rather than each inventing its own
 lookup, so the three declared signal sources (code ownership, commit
@@ -96,22 +99,58 @@ class ServiceRegistry:
         return {entry.namespace or name for name, entry in self.services.items()}
 
 
-def _configured_path() -> Path:
-    """HELIX_SERVICE_REGISTRY, resolved from the repo root when relative."""
+def _configured_path() -> Path | None:
+    """HELIX_SERVICE_REGISTRY, resolved from the repo root when relative;
+    None when unset, which means the database."""
     from helix.config import get_settings
 
+    if not get_settings().service_registry:
+        return None
     configured = Path(get_settings().service_registry)
     return configured if configured.is_absolute() else REPO_ROOT / configured
 
 
+def _registry_from_database() -> ServiceRegistry:
+    """The registry the people and services tables hold. Read only; a
+    database error propagates rather than becoming an empty registry, which
+    would silently refuse every approval."""
+    from sqlalchemy import select
+
+    from state.db import session_scope
+    from state.models import Person as PersonRow
+    from state.models import Service as ServiceRow
+
+    with session_scope() as session:
+        services = {
+            row.name: ServiceEntry(
+                team=row.team,
+                repo=row.repo,
+                default_owner=row.default_owner,
+                owners=list(row.owners or []),
+                default_reviewers=list(row.default_reviewers or []),
+                path_owners=[PathOwnerRule.model_validate(r) for r in row.path_owners or []],
+                depends_on=list(row.depends_on or []),
+                namespace=row.namespace,
+            )
+            for row in session.scalars(select(ServiceRow))
+        }
+        people = {
+            row.login: Person(name=row.name, slack=row.slack_id)
+            for row in session.scalars(select(PersonRow))
+        }
+    return ServiceRegistry(services=services, people=people)
+
+
 def load_registry(path: Path | None = None) -> ServiceRegistry:
-    """Load and validate the configured registry (HELIX_SERVICE_REGISTRY,
-    default `config/service_registry.yaml`), or `path`.
+    """Load and validate the registry: `path` if given, else the file named
+    by HELIX_SERVICE_REGISTRY, else the people and services tables.
 
     A missing file is not an error - it means no services are registered
     yet, and every resolution falls through to "unknown" honestly rather
     than the loader inventing a default."""
     target = path or _configured_path()
+    if target is None:
+        return _registry_from_database()
     if not target.is_file():
         return ServiceRegistry(services={})
     raw = yaml.safe_load(target.read_text(encoding="utf-8")) or {}

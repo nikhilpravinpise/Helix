@@ -187,11 +187,12 @@ class Settings(BaseSettings):
     # until deliberately turned on; graph_enabled=true with no reachable
     # Neo4j instance is handled by the same "advisory, never fails a
     # workflow" contract retrieval already follows (E6).
-    #: Which service registry to read (owners, reviewers, people). Relative
-    #: paths resolve from the repo root. The benchmark and tests point this at
-    #: benchmark/service_registry.yaml, a fixed cast their expectations are
-    #: written against, so the live file can describe the real team.
-    service_registry: str = "config/service_registry.yaml"
+    #: A service registry file to read instead of the database (owners,
+    #: reviewers, people). Unset (or blank) reads the people and services
+    #: tables. Relative paths resolve from the repo root. The benchmark and
+    #: tests point this at benchmark/service_registry.yaml, a fixed cast their
+    #: expectations are written against, so the live team can differ.
+    service_registry: str | None = None
     #: OPT-1: the advisory table mlops/train.py writes, shown in
     #: `helix provenance` only. Relative paths resolve from the repo root.
     advisory_path: str = "mlops/models/advisory.json"

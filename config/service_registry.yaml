@@ -1,10 +1,11 @@
 # Service registry: who owns and reviews each service, and how to reach
 # them. This is the LIVE team. Owners and reviewers are GitHub logins, which
-# is what Review's self-review exclusion compares with a PR's author. The
-# benchmark and tests read benchmark/service_registry.yaml instead (a fixed
-# cast their expectations name), so edit this file freely.
+# is what Review's self-review exclusion compares with a PR's author.
 #
-# Select another file with HELIX_SERVICE_REGISTRY.
+# This file is only the source of the one-time import (`helix team import`)
+# into the people and services tables; the running app reads the database,
+# so editing this file changes nothing once the team exists. The benchmark
+# and tests read benchmark/service_registry.yaml instead (HELIX_SERVICE_REGISTRY).
 #
 # path_owners follow git CODEOWNERS order: the LAST matching pattern wins, so
 # list broad rules first and specific ones after. fnmatch's `*` matches `/`.

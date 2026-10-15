@@ -183,11 +183,13 @@ or the Slack buttons on the review request.
 
 ### Who Helix is, and who may decide
 
-`config/service_registry.yaml` names the live team: each service's owners,
-reviewers, path owners and Kubernetes namespace (default: the service
-name), and each person's display name and Slack member id
-(`people.<handle>.slack`, from Slack: profile, three dots, Copy member ID).
-Owners and reviewers are GitHub logins.
+The database names the live team (the people and services tables): each
+service's owners, reviewers, path owners and Kubernetes namespace
+(default: the service name), and each person's display name and Slack
+member id. `make db-migrate` (and Render's start script) fills an empty
+team once from `config/service_registry.yaml` with `helix team import`.
+Owners and reviewers are GitHub logins. HELIX_SERVICE_REGISTRY names a
+file to read instead, which the benchmark and tests use.
 
 Only an owner of a service may approve its actions, only the requested
 reviewer may decide a review, and a change's author decides neither. So:

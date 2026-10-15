@@ -101,7 +101,7 @@ uv run helix --help                      # everything else
 ```
 
 **Hosted:** https://helix-eksf.onrender.com (Render, from `render.yaml`;
-Sign in with GitHub, open to the people in `config/service_registry.yaml`).
+Sign in with GitHub, open to the people in the team).
 It runs the API and dashboard on recorded evidence with the rules arm only:
 no cluster, Kafka, Jenkins or LLM key. Slack, Jira and GitHub are connected
 from the Connections page, and "Send a test incident" checks them end to end.
@@ -120,10 +120,11 @@ memory, so start only what a task needs. Full bring-up:
 
 - **`.env`**: credentials and settings, all `HELIX_*`. `.env.example` lists
   every variable. Integrations left unset are skipped, never crashed on.
-- **`config/service_registry.yaml`**: the live team. For each service: its
-  owners, reviewers, path owners (CODEOWNERS-style), dependencies and
-  Kubernetes namespace; and for each person, a display name and Slack
-  member id. Select another file with `HELIX_SERVICE_REGISTRY`.
+- **The live team** lives in the database (people and services tables):
+  for each service its owners, reviewers, path owners (CODEOWNERS-style),
+  dependencies and Kubernetes namespace; for each person a display name and
+  Slack member id. `config/service_registry.yaml` only seeds it, once, via
+  `helix team import`. Set `HELIX_SERVICE_REGISTRY` to read a file instead.
 - **`benchmark/service_registry.yaml`**: the fixed cast (alice, bob, carol)
   the benchmark and tests use, kept apart from the live team.
 
