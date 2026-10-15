@@ -39,7 +39,7 @@ from pathlib import Path
 from typing import Annotated, Any
 
 from fastapi import APIRouter, Depends, FastAPI, HTTPException, Request
-from fastapi.responses import HTMLResponse, RedirectResponse
+from fastapi.responses import HTMLResponse, RedirectResponse, Response
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from sqlalchemy import func, select
@@ -263,9 +263,14 @@ def _pending_count(session: Session) -> int:
 
 
 @router.get("/", response_class=HTMLResponse)
-def index() -> RedirectResponse:
-    """Root lands on the incident list - the UI lives under /ui/ so the
-    JSON API keeps its /incidents and /approvals paths unchanged."""
+def index(request: Request) -> Response:
+    """Root is the public landing page for a signed-out visitor when sign-in
+    is on; everyone else lands on the incident list - the UI lives under
+    /ui/ so the JSON API keeps its /incidents and /approvals paths unchanged."""
+    from helix import auth  # auth imports this module's templates
+
+    if auth.shows_landing(request):
+        return templates.TemplateResponse(request, "landing.html", {})
     return RedirectResponse("/ui/", status_code=307)
 
 
