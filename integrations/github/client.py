@@ -25,6 +25,7 @@ from integrations.evidence import (
     build_evidence,
 )
 from integrations.http import raise_for_status
+from state import connections
 
 API_ROOT = "https://api.github.com"
 
@@ -42,7 +43,7 @@ class GitHubEvidenceClient:
     ) -> None:
         settings = get_settings()
         self._repo = repo or settings.github_repo
-        self._token = token if token is not None else settings.github_token
+        self._token = token
         if client is not None:
             self._client = client
         else:
@@ -50,14 +51,24 @@ class GitHubEvidenceClient:
                 "Accept": "application/vnd.github+json",
                 "X-GitHub-Api-Version": "2022-11-28",
             }
-            if self._token:
-                headers["Authorization"] = f"Bearer {self._token}"
             self._client = httpx.Client(base_url=API_ROOT, headers=headers, timeout=timeout)
 
+    def _resolve_token(self) -> str | None:
+        """Explicit token, else the connected GitHub account, else
+        HELIX_GITHUB_TOKEN. Resolved on first use and kept, so building the
+        client never touches the store."""
+        if self._token is None:
+            record = connections.load_connection("github")
+            self._token = record.access_token if record else get_settings().github_token
+        return self._token
+
     def _get(self, path: str, **params: Any) -> httpx.Response:
+        token = self._resolve_token()
         try:
             response = self._client.get(
-                path, params={k: v for k, v in params.items() if v is not None}
+                path,
+                params={k: v for k, v in params.items() if v is not None},
+                headers={"Authorization": f"Bearer {token}"} if token else None,
             )
         except httpx.TimeoutException as exc:
             raise EvidenceTimeoutError(f"github timed out: {exc}") from exc

@@ -38,6 +38,7 @@ from integrations.writes import (
     WriteRefusedError,
     WriteTimeoutError,
 )
+from state import connections
 
 GITHUB_API = "https://api.github.com"
 
@@ -80,10 +81,19 @@ class GitHubWriteClient:
         base_branch: str = BASE_BRANCH,
     ) -> None:
         self._repo = repo or get_settings().github_repo
-        self._token = token if token is not None else get_settings().github_token
+        self._token = token
         self._client = client
         self._timeout = timeout
         self._base_branch = base_branch
+
+    def _resolve_token(self) -> str | None:
+        """Explicit token, else the connected GitHub account, else
+        HELIX_GITHUB_TOKEN. Resolved on first use and kept, so building the
+        client never touches the store and one PR uses one identity."""
+        if self._token is None:
+            record = connections.load_connection("github")
+            self._token = record.access_token if record else get_settings().github_token
+        return self._token
 
     def _http(self) -> httpx.Client:
         if self._client is None:
@@ -93,11 +103,12 @@ class GitHubWriteClient:
     def _request(
         self, method: str, path: str, *, json: dict | None = None
     ) -> dict[str, Any] | list[Any] | None:
-        if not self._token:
-            raise WriteAuthError("HELIX_GITHUB_TOKEN is not set")
+        token = self._resolve_token()
+        if not token:
+            raise WriteAuthError("no GitHub connection and HELIX_GITHUB_TOKEN is not set")
         url = f"{GITHUB_API}{path}"
         headers = {
-            "Authorization": f"Bearer {self._token}",
+            "Authorization": f"Bearer {token}",
             "Accept": "application/vnd.github+json",
             "X-GitHub-Api-Version": "2022-11-28",
         }

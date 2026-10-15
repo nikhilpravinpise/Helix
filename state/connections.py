@@ -155,3 +155,20 @@ def active_connection(session: Session, provider: str) -> ConnectionRecord | Non
     except Exception as exc:
         get_logger().warning("connection_unreadable", provider=provider, error=str(exc))
         return None
+
+
+def load_connection(provider: str) -> ConnectionRecord | None:
+    """active_connection for callers with no session of their own (the PR
+    bot's clients are built without one): a short session on
+    HELIX_DATABASE_URL. Any failure reads as not connected, with a warning,
+    so delivery that works from .env keeps working."""
+    if not get_settings().connections_enabled:
+        return None
+    from state.db import session_scope
+
+    try:
+        with session_scope() as session:
+            return active_connection(session, provider)
+    except Exception as exc:
+        get_logger().warning("connection_unreadable", provider=provider, error=str(exc))
+        return None

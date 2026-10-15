@@ -7,7 +7,11 @@ the accounts Helix talks to, without touching .env.
     POST /ui/connections/slack/disconnect     revoke (best effort) and delete
     POST /ui/connections/slack/test           auth.test with the stored token
 
-and the same four routes under /ui/connections/jira (Atlassian OAuth 2.0 3LO).
+and the same four routes under /ui/connections/jira (Atlassian OAuth 2.0 3LO)
+and /ui/connections/github (the sign-in OAuth App, for the pull request bot).
+GitHub's callback is /auth/github/callback/connect instead: an OAuth App has
+one registered callback URL, and a redirect_uri may only be that path or a
+subdirectory of it. It is not an open sign-in path, so it needs a session.
 
 The OAuth `state` is a signed cookie like the GitHub sign-in's (helix/auth.py),
 extended with the signed-in user so a callback started by someone else is
@@ -29,6 +33,8 @@ from fastapi.responses import HTMLResponse, RedirectResponse, Response
 from helix import auth
 from helix.config import get_settings
 from helix.ui import DbSession, _incident_total, _pending_count, templates
+from integrations.github import oauth as github_oauth
+from integrations.github.oauth import GitHubOAuthError
 from integrations.slack import SlackError, oauth
 from integrations.work import connected_jira_provider, jira_oauth
 from integrations.work.contract import WorkItemError
@@ -64,6 +70,17 @@ _NOTICES = {
     "jira-test-ok": ("ok", "Jira accepted the connection."),
     "jira-test-failed": ("bad", "Jira rejected the connection ({detail})."),
     "jira-not-connected": ("bad", "Jira is not connected."),
+    "github-connected": ("ok", "Connected GitHub."),
+    "github-denied": ("bad", "GitHub connection cancelled - nothing was saved."),
+    "github-failed": (
+        "bad",
+        "GitHub did not complete the connection ({detail}). Nothing was saved.",
+    ),
+    "github-unconfigured": ("bad", "GitHub cannot be connected until the server is configured."),
+    "github-disconnected": ("ok", "Disconnected GitHub."),
+    "github-test-ok": ("ok", "GitHub accepted the connection."),
+    "github-test-failed": ("bad", "GitHub rejected the connection ({detail})."),
+    "github-not-connected": ("bad", "GitHub is not connected."),
 }
 
 
@@ -95,6 +112,20 @@ def _jira_missing() -> str | None:
     return None
 
 
+def _github_missing() -> str | None:
+    """Why Connect GitHub cannot start, or None when it can."""
+    settings = get_settings()
+    for value, name in (
+        (settings.connections_key, "HELIX_CONNECTIONS_KEY"),
+        (settings.github_oauth_client_id, "HELIX_GITHUB_OAUTH_CLIENT_ID"),
+        (settings.github_oauth_client_secret, "HELIX_GITHUB_OAUTH_CLIENT_SECRET"),
+        (settings.session_secret, "HELIX_SESSION_SECRET"),
+    ):
+        if not value:
+            return f"Set {name} on the server to enable Connect."
+    return None
+
+
 def _providers(session) -> list[dict[str, Any]]:
     """One entry per provider card, in display order."""
     settings = get_settings()
@@ -102,6 +133,8 @@ def _providers(session) -> list[dict[str, Any]]:
     missing = _slack_missing()
     jira = connections.get_connection(session, "jira")
     jira_missing = _jira_missing()
+    github = connections.get_connection(session, "github")
+    github_missing = _github_missing()
     return [
         {
             "id": "slack",
@@ -130,6 +163,18 @@ def _providers(session) -> list[dict[str, Any]]:
             "uses_server": jira is None and bool(settings.jira_api_token),
             "can_connect": jira_missing is None,
             "reason": jira_missing,
+        },
+        {
+            "id": "github",
+            "name": "GitHub",
+            "blurb": "Fix pull requests are opened as the connected GitHub account (repo scope).",
+            "connected": github is not None,
+            "account": github.account if github else None,
+            "account_label": "Login",
+            "scopes": github.scopes if github else [],
+            "uses_server": github is None and bool(settings.github_token),
+            "can_connect": github_missing is None,
+            "reason": github_missing,
         },
     ]
 
@@ -172,11 +217,21 @@ def _user(request: Request) -> str | None:
     return getattr(request.state, "user", None)
 
 
+def _callback_url(request: Request, provider: str) -> str:
+    # GitHub is the odd one: see the module docstring.
+    path = (
+        "/auth/github/callback/connect"
+        if provider == "github"
+        else f"/ui/connections/{provider}/callback"
+    )
+    return f"{auth._public_url(request)}{path}"
+
+
 def _start_connect(request: Request, provider: str, authorize_url: Any) -> RedirectResponse:
     """Redirect to the provider's consent page with a fresh signed state."""
     state = secrets.token_urlsafe(24)
     response = RedirectResponse(
-        authorize_url(f"{auth._public_url(request)}/ui/connections/{provider}/callback", state),
+        authorize_url(_callback_url(request, provider), state),
         status_code=303,
     )
     response.set_cookie(
@@ -254,7 +309,7 @@ def _finish_slack(request: Request, session, code: str) -> RedirectResponse:
             settings.slack_client_id or "",
             settings.slack_client_secret or "",
             code,
-            f"{auth._public_url(request)}/ui/connections/slack/callback",
+            _callback_url(request, "slack"),
         )
         team = granted["team"]
         token = granted["access_token"]
@@ -356,7 +411,7 @@ def _finish_jira(request: Request, session, code: str) -> RedirectResponse:
             settings.jira_oauth_client_id or "",
             settings.jira_oauth_client_secret or "",
             code,
-            f"{auth._public_url(request)}/ui/connections/jira/callback",
+            _callback_url(request, "jira"),
         )
         token = granted["access_token"]
         sites = jira_oauth.accessible_resources(token)
@@ -421,6 +476,105 @@ def jira_test(session: DbSession) -> Response:
     except WorkItemError as exc:
         return _back("jira-test-failed", _failure_code(str(exc)))
     return _back("jira-test-ok")
+
+
+@router.post("/ui/connections/github/connect")
+def github_connect(request: Request) -> Response:
+    if _github_missing():
+        return _back("github-unconfigured")
+    client_id = get_settings().github_oauth_client_id or ""
+    return _start_connect(
+        request,
+        "github",
+        lambda redirect_uri, state: github_oauth.authorize_url(client_id, redirect_uri, state),
+    )
+
+
+@router.get("/auth/github/callback/connect")
+def github_callback(
+    request: Request, session: DbSession, code: str = "", state: str = "", error: str = ""
+) -> Response:
+    if not _state_ok(request, "github", state):
+        return _render(
+            request,
+            session,
+            notice=(
+                "bad",
+                "That GitHub connection did not start from this page, so it was refused.",
+            ),
+            status_code=400,
+        )
+    if error or not code:
+        response = _back("github-denied" if error == "access_denied" else "github-failed", error)
+    elif _github_missing():
+        response = _back("github-unconfigured")
+    else:
+        response = _finish_github(request, session, code)
+    response.delete_cookie(STATE_COOKIE)
+    return response
+
+
+def _finish_github(request: Request, session, code: str) -> RedirectResponse:
+    settings = get_settings()
+    try:
+        granted = github_oauth.exchange_code(
+            settings.github_oauth_client_id or "",
+            settings.github_oauth_client_secret or "",
+            code,
+            _callback_url(request, "github"),
+        )
+        token = granted["access_token"]
+        login = github_oauth.login(token)
+    except GitHubOAuthError as exc:
+        return _back("github-failed", str(exc))
+    except (KeyError, TypeError):
+        return _back("github-failed", "malformed_response")
+    try:
+        connections.save_connection(
+            session,
+            "github",
+            account=login,
+            scopes=[s for s in str(granted.get("scope", "")).split(",") if s],
+            access_token=token,
+            refresh_token=None,
+            expires_at=None,
+            settings={},
+        )
+    except connections.ConnectionsKeyMissing:
+        return _back("github-unconfigured")
+    session.commit()
+    return _back("github-connected")
+
+
+@router.post("/ui/connections/github/disconnect")
+def github_disconnect(session: DbSession) -> Response:
+    stored = connections.get_connection(session, "github")
+    settings = get_settings()
+    if (
+        stored is not None
+        and settings.github_oauth_client_id
+        and settings.github_oauth_client_secret
+    ):
+        github_oauth.revoke(
+            settings.github_oauth_client_id,
+            settings.github_oauth_client_secret,
+            stored.access_token,
+        )
+    connections.delete_connection(session, "github")
+    session.commit()
+    return _back("github-disconnected")
+
+
+@router.post("/ui/connections/github/test")
+def github_test(session: DbSession) -> Response:
+    stored = connections.get_connection(session, "github")
+    if stored is None:
+        return _back("github-not-connected")
+    try:
+        github_oauth.login(stored.access_token)
+    except GitHubOAuthError as exc:
+        return _back("github-test-failed", str(exc))
+    return _back("github-test-ok")
 
 
 def _failure_code(message: str) -> str:
