@@ -8,6 +8,11 @@ construction site the outbox drain knows, so agents and the drain never
 name a vendor - which is the 2.3 exit criterion made structural.
 """
 
+from datetime import datetime
+
+import httpx
+from sqlalchemy.orm import Session
+
 from helix.config import get_settings
 from integrations.work.contract import (
     NEUTRAL_PRIORITIES,
@@ -38,6 +43,7 @@ __all__ = [
     "WorkItemSpec",
     "WorkManagementProvider",
     "get_work_provider",
+    "connected_jira_provider",
     "get_work_provider_for",
 ]
 
@@ -65,6 +71,45 @@ def get_work_provider_for(kind: str) -> WorkManagementProvider | None:
             settings.trello_api_key, settings.trello_api_token, settings.trello_board_id
         )
     return None
+
+
+def connected_jira_provider(
+    session: Session, *, client: httpx.Client | None = None
+) -> JiraProvider | None:
+    """A Jira provider over the stored OAuth connection, or None when none
+    is usable (no connection, connections disabled, or no cloud id).
+
+    Rotated tokens are saved in their own short transaction on the same
+    database: the drain's session may be mid-transaction and roll back,
+    but the old refresh token is already invalid, so the new pair must
+    survive that."""
+    from state.connections import active_connection, update_tokens
+    from state.db import session_scope
+
+    connection = active_connection(session, "jira")
+    cloud_id = (connection.settings.get("cloud_id") if connection else None) or None
+    site_url = (connection.settings.get("site_url") if connection else None) or None
+    if connection is None or not cloud_id or not site_url:
+        return None
+    engine = session.get_bind().engine
+
+    def on_refresh(access_token: str, refresh_token: str, expires_at: datetime) -> None:
+        with session_scope(engine) as own:
+            update_tokens(own, "jira", access_token, refresh_token, expires_at)
+
+    settings = get_settings()
+    return JiraProvider.from_oauth(
+        cloud_id=cloud_id,
+        site_url=site_url,
+        project_key=connection.settings.get("project_key") or settings.jira_project_key,
+        access_token=connection.access_token,
+        refresh_token=connection.refresh_token,
+        expires_at=connection.expires_at,
+        client_id=settings.jira_oauth_client_id,
+        client_secret=settings.jira_oauth_client_secret,
+        on_refresh=on_refresh,
+        client=client,
+    )
 
 
 def get_work_provider() -> WorkManagementProvider | None:

@@ -966,14 +966,14 @@ def _cmd_sync(args: argparse.Namespace) -> int:
             # repair ops, then drain once more so the repairs land in the
             # same call. Unconfigured integrations skip cleanly.
             from integrations.notion import get_notion_client
+            from integrations.outbox import resolve_work_for_session
             from integrations.reconcile import (
                 reconcile_knowledge_pages,
                 reconcile_work_items,
             )
-            from integrations.work import get_work_provider
 
             drift: dict[str, int] = {}
-            work = get_work_provider()
+            work = resolve_work_for_session(session, get_settings().work_provider)
             # `memory` is the dev provider - its remote IS the local
             # mirror, so there is no independent store to drift from; in a
             # fresh process it would look "all missing" and wrongly

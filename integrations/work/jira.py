@@ -1,6 +1,8 @@
 """Jira implementation of the work-management contract (subphase 2.3).
 
-Jira REST v3 over httpx, basic auth (email + API token). The duplicate-
+Jira REST v3 over httpx, basic auth (email + API token) or, for a
+connected account, an OAuth 2.0 (3LO) bearer token against the Atlassian
+API gateway. The duplicate-
 prevention key (the 2.3 exit criterion's "exactly one issue per
 incident") is a `helix-incident-<id>` label applied at create time:
 `find_by_incident` is the JQL `labels = "helix-incident-<id>"` lookup
@@ -28,6 +30,9 @@ vocabulary the outbox drain records, mirroring EvidenceError on the
 evidence read side.
 """
 
+from collections.abc import Callable
+from dataclasses import dataclass
+from datetime import UTC, datetime, timedelta
 from typing import Any
 
 import httpx
@@ -92,6 +97,31 @@ _JIRA_LINK_TYPES = {"relates": "Relates", "duplicates": "Duplicate", "blocks": "
 #: The fields find_by_incident asks /search/jql for - exactly what _ref reads.
 _SEARCH_FIELDS = "summary,status,assignee,priority,labels"
 
+_API_GATEWAY = "https://api.atlassian.com/ex/jira"
+_TOKEN_URL = "https://auth.atlassian.com/oauth/token"
+#: Refresh this long before expiry so a request never races the cutoff.
+_REFRESH_MARGIN = timedelta(seconds=60)
+
+_RECONNECT = "reconnect Jira from the Connections page"
+
+#: Persists a rotated token pair: (access_token, refresh_token, expires_at).
+OnRefresh = Callable[[str, str, datetime], None]
+
+
+@dataclass
+class _OAuth:
+    """The mutable bearer state of a connected Jira account. Atlassian
+    rotates the refresh token on every refresh, so the pair must be
+    handed to `on_refresh` the moment it changes."""
+
+    access_token: str
+    refresh_token: str | None
+    expires_at: datetime | None
+    client_id: str | None
+    client_secret: str | None
+    on_refresh: OnRefresh | None
+
+
 _CLOSED_STATUS_NAMES = frozenset(_NEUTRAL_TO_JIRA["closed"][0])
 _BLOCKED_STATUS_NAMES = frozenset(_NEUTRAL_TO_JIRA["blocked"][0])
 
@@ -139,12 +169,52 @@ class JiraProvider:
     ) -> None:
         self._base_url = base_url.rstrip("/")
         self._auth = (email, api_token)
+        self._site_url = self._base_url
+        self._oauth: _OAuth | None = None
         self._project_key = project_key
         self._client = client or httpx.Client(auth=self._auth, timeout=timeout)
 
+    @classmethod
+    def from_oauth(
+        cls,
+        *,
+        cloud_id: str,
+        site_url: str,
+        project_key: str,
+        access_token: str,
+        refresh_token: str | None,
+        expires_at: datetime | None,
+        client_id: str | None,
+        client_secret: str | None,
+        on_refresh: OnRefresh | None = None,
+        client: httpx.Client | None = None,
+        timeout: float = 30.0,
+    ) -> "JiraProvider":
+        """A provider for a connected Atlassian account: requests go
+        through api.atlassian.com with the bearer token, issue links
+        still point at the human-facing `site_url`."""
+        provider = cls(
+            f"{_API_GATEWAY}/{cloud_id}",
+            "",
+            "",
+            project_key,
+            client=client or httpx.Client(timeout=timeout),
+            timeout=timeout,
+        )
+        provider._auth = None
+        provider._site_url = site_url.rstrip("/")
+        provider._oauth = _OAuth(
+            access_token, refresh_token, expires_at, client_id, client_secret, on_refresh
+        )
+        return provider
+
     # -- plumbing: one exception vocabulary -------------------------
 
-    def _raw(self, method: str, path: str, **kwargs: Any) -> httpx.Response:
+    def _send(self, method: str, path: str, **kwargs: Any) -> httpx.Response:
+        if self._oauth is not None:
+            headers = dict(kwargs.pop("headers", None) or {})
+            headers["Authorization"] = f"Bearer {self._oauth.access_token}"
+            kwargs["headers"] = headers
         try:
             return self._client.request(
                 method, f"{self._base_url}{path}", auth=self._auth, **kwargs
@@ -153,6 +223,70 @@ class JiraProvider:
             raise WorkItemError(f"jira timed out: {exc}") from exc
         except httpx.TransportError as exc:
             raise WorkItemError(f"jira transport error: {exc}") from exc
+
+    def _raw(self, method: str, path: str, **kwargs: Any) -> httpx.Response:
+        oauth = self._oauth
+        if oauth is None:
+            return self._send(method, path, **kwargs)
+        if oauth.expires_at is not None:
+            expires_at = oauth.expires_at
+            if expires_at.tzinfo is None:
+                expires_at = expires_at.replace(tzinfo=UTC)
+            if expires_at - datetime.now(UTC) <= _REFRESH_MARGIN:
+                self._refresh()
+        response = self._send(method, path, **kwargs)
+        if response.status_code == 401:
+            # The token may have been revoked or expired early: refresh
+            # once and retry once. A second 401 surfaces as an auth error.
+            self._refresh()
+            response = self._send(method, path, **kwargs)
+        return response
+
+    def _refresh(self) -> None:
+        oauth = self._oauth
+        assert oauth is not None
+        if not (oauth.refresh_token and oauth.client_id and oauth.client_secret):
+            raise WorkItemError(
+                "jira access token expired and cannot be refreshed "
+                f"(missing refresh token or OAuth client settings); {_RECONNECT}"
+            )
+        try:
+            response = self._client.post(
+                _TOKEN_URL,
+                json={
+                    "grant_type": "refresh_token",
+                    "client_id": oauth.client_id,
+                    "client_secret": oauth.client_secret,
+                    "refresh_token": oauth.refresh_token,
+                },
+                auth=None,
+            )
+        except httpx.TransportError as exc:
+            raise WorkItemError(f"jira token refresh failed: {exc}") from exc
+        if response.status_code >= 500:
+            raise WorkItemError(f"jira token refresh failed: HTTP {response.status_code}")
+        try:
+            data = response.json()
+        except ValueError:
+            data = {}
+        access = data.get("access_token") if isinstance(data, dict) else None
+        if response.status_code >= 400 or not access:
+            error = data.get("error", "") if isinstance(data, dict) else ""
+            raise WorkItemError(
+                f"jira refresh was rejected ({error or f'HTTP {response.status_code}'}); "
+                f"{_RECONNECT}"
+            )
+        refresh = str(data.get("refresh_token") or oauth.refresh_token)
+        expires_at = datetime.now(UTC) + timedelta(seconds=int(data.get("expires_in") or 3600))
+        # Persist before use: the old refresh token is already dead.
+        if oauth.on_refresh is not None:
+            try:
+                oauth.on_refresh(str(access), refresh, expires_at)
+            except Exception as exc:
+                raise WorkItemError(f"jira tokens refreshed but could not be saved: {exc}") from exc
+        oauth.access_token = str(access)
+        oauth.refresh_token = refresh
+        oauth.expires_at = expires_at
 
     @staticmethod
     def _check(response: httpx.Response) -> None:
@@ -183,7 +317,7 @@ class JiraProvider:
         return WorkItemRef(
             external_id=str(issue.get("id") or key or ""),
             external_key=key,
-            external_url=f"{self._base_url}/browse/{key}" if key else None,
+            external_url=f"{self._site_url}/browse/{key}" if key else None,
             status=_neutral_status(fields.get("status") or {}),
             assignee=assignee.get("displayName") or assignee.get("name"),
             priority=_JIRA_PRIORITY_BACK.get(str(priority).lower()) if priority else None,
@@ -226,7 +360,7 @@ class JiraProvider:
         return WorkItemRef(
             external_id=str(data.get("id") or key or ""),
             external_key=key,
-            external_url=f"{self._base_url}/browse/{key}" if key else None,
+            external_url=f"{self._site_url}/browse/{key}" if key else None,
             status="open",
             assignee=spec.assignee,
             priority=spec.priority,

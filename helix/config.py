@@ -220,6 +220,9 @@ class Settings(BaseSettings):
     jira_email: str = "helix-bot@example.com"
     jira_api_token: str | None = Field(default=None, repr=False)
     jira_project_key: str = "HELIX"
+    # Atlassian OAuth 2.0 app, used to refresh a connected Jira account.
+    jira_oauth_client_id: str | None = None
+    jira_oauth_client_secret: str | None = Field(default=None, repr=False)
     linear_api_key: str | None = Field(default=None, repr=False)
     linear_team_id: str = ""
     trello_api_key: str | None = Field(default=None, repr=False)

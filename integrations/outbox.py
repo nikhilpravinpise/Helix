@@ -98,6 +98,17 @@ def _resolve_work_for(kind: str) -> "WorkManagementProvider | None":
     return get_work_provider_for(kind)
 
 
+def resolve_work_for_session(session: Session, kind: str) -> "WorkManagementProvider | None":
+    """A connected Jira account wins for kind "jira"; otherwise the .env path."""
+    if kind == "jira":
+        from integrations.work import connected_jira_provider
+
+        provider = connected_jira_provider(session)
+        if provider is not None:
+            return provider
+    return _resolve_work_for(kind)
+
+
 def _resolve_notion() -> "NotionClient | None":
     from integrations.notion import get_notion_client
 
@@ -514,7 +525,7 @@ def drain_outbox(
             if work is not None and (not injected_name or kind == injected_name):
                 provider = work
             else:
-                provider = _resolve_work_for(kind)
+                provider = resolve_work_for_session(session, kind)
             if provider is not None:
                 work_providers[kind] = provider
         return provider
