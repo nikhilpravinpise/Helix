@@ -2,7 +2,7 @@
 {% macro actor_bar(who, default_actor, token_required) %}
 <div class="card actor-bar">
   {% if who %}
-  <span>Deciding as <b>{{ who }}</b></span>
+  <span>Deciding as <b>{{ who|person }}</b></span>
   <input id="actor" type="hidden" value="{{ who }}">
   {% else %}
   <label for="actor">Operator</label>

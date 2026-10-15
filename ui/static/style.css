@@ -901,6 +901,11 @@ input::placeholder {
   text-decoration: none;
 }
 
+/* An incident id reads as one token; never break it across lines. */
+.table td a.mono {
+  white-space: nowrap;
+}
+
 tr.selected {
   background: color-mix(in oklab, var(--green) 7%, transparent);
 }
