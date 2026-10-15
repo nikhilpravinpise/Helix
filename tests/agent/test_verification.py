@@ -1389,3 +1389,128 @@ class TestCoordinatorVerifyingRouting:
         )
         assert decision.to_status == IncidentStatus.ESCALATED
         assert not decision.replan
+
+
+class TestLiveGitHubWriteWithRecordedEvidence:
+    """HELIX_GITHUB_WRITES=live on a recorded-evidence deployment (the
+    hosted demo): the fix PR is really opened, the executions row says
+    origin live, and the PR is read back from real GitHub - while every
+    other leg stays recorded."""
+
+    PARAMS = {
+        "branch": "helix/INC-1",
+        "title": "helix: restore payment-api deployment",
+        "files": [
+            {
+                "path": "sandbox/payment-api/k8s/04-deployment.yaml",
+                "content": (
+                    "apiVersion: apps/v1\nkind: Deployment\nmetadata:\n  name: payment-api\n"
+                ),
+            }
+        ],
+    }
+
+    def _live_deps(self, sessions, store, *, readback_state="open", readback_status=200):
+        import dataclasses
+
+        import httpx
+
+        from integrations.github.client import GitHubEvidenceClient
+        from integrations.github.write import GitHubWriteClient
+
+        seen: list[tuple[str, str]] = []
+
+        def handler(req: httpx.Request) -> httpx.Response:
+            seen.append((req.method, req.url.path))
+            path = req.url.path
+            if path.endswith("/git/ref/heads/main"):
+                return httpx.Response(200, json={"object": {"sha": "basesha"}})
+            if path.endswith("/git/refs"):
+                return httpx.Response(201, json={})
+            if "/contents/" in path:
+                if req.method == "GET":
+                    return httpx.Response(404, json={})
+                return httpx.Response(201, json={"commit": {"sha": "c1"}})
+            if path.endswith("/pulls") and req.method == "POST":
+                return httpx.Response(201, json={"number": 7, "html_url": "https://gh/pr/7"})
+            if path.endswith("/pulls/7"):
+                if readback_status != 200:
+                    return httpx.Response(readback_status, json={"message": "Not Found"})
+                return httpx.Response(
+                    200,
+                    json={
+                        "number": 7,
+                        "state": readback_state,
+                        "title": "fix",
+                        "head": {"ref": "helix/INC-1", "sha": "c1"},
+                        "base": {"ref": "main"},
+                        "merged": False,
+                    },
+                )
+            return httpx.Response(500, json={})
+
+        def http() -> httpx.Client:
+            return httpx.Client(
+                base_url="https://api.github.com", transport=httpx.MockTransport(handler)
+            )
+
+        deps, caps = _verify_deps(
+            sessions, _llm([_plan("open_fix_pr", self.PARAMS, "pr")]), _healthy_doc(), store
+        )
+        deps = dataclasses.replace(
+            deps,
+            github_write=GitHubWriteClient(repo="acme/sbx", token="t", client=http()),
+            github_readback=GitHubEvidenceClient(repo="acme/sbx", token="t", client=http()),
+        )
+        return deps, caps, seen
+
+    def test_pr_is_opened_via_the_api_origin_is_live_and_readback_passes(
+        self, sqlite_sessions, store
+    ):
+        deps, caps, seen = self._live_deps(sqlite_sessions, store)
+        incident_id = _make_incident(sqlite_sessions, K8S_SIGNAL)
+
+        result = run_incident(incident_id, deps=deps)
+
+        assert result.status == IncidentStatus.RECOVERED
+        assert ("POST", "/repos/acme/sbx/pulls") in seen
+        assert ("GET", "/repos/acme/sbx/pulls/7") in seen  # read back from the real API
+        execution = _rows(sqlite_sessions, models.Execution, incident_id)[0]
+        assert execution.origin == "live"
+        assert execution.output["pr_number"] == 7
+        checks = {
+            c["name"]: c["status"]
+            for c in _rows(sqlite_sessions, models.Verification, incident_id)[0].checks
+        }
+        assert checks["fix_pr_exists"] == "pass"
+        assert "get_pull_request" not in caps["github"].methods()
+
+    def test_closed_pr_on_readback_fails_verification(self, sqlite_sessions, store):
+        deps, _, _ = self._live_deps(sqlite_sessions, store, readback_state="closed")
+        incident_id = _make_incident(sqlite_sessions, K8S_SIGNAL)
+
+        run_incident(incident_id, deps=deps)
+
+        row = _rows(sqlite_sessions, models.Verification, incident_id)[0]
+        assert {c["name"]: c["status"] for c in row.checks}["fix_pr_exists"] == "fail"
+        assert row.outcome == models.VerificationOutcome.FAIL
+
+    def test_missing_pr_on_readback_fails_verification(self, sqlite_sessions, store):
+        deps, _, _ = self._live_deps(sqlite_sessions, store, readback_status=404)
+        incident_id = _make_incident(sqlite_sessions, K8S_SIGNAL)
+
+        run_incident(incident_id, deps=deps)
+
+        row = _rows(sqlite_sessions, models.Verification, incident_id)[0]
+        assert {c["name"]: c["status"] for c in row.checks}["fix_pr_exists"] == "fail"
+
+    def test_recorded_write_keeps_fixture_origin(self, sqlite_sessions, store):
+        """Unset behaviour is unchanged: the recording fake, origin fixture."""
+        deps, _ = _verify_deps(
+            sqlite_sessions, _llm([_plan("open_fix_pr", self.PARAMS, "pr")]), _healthy_doc(), store
+        )
+        incident_id = _make_incident(sqlite_sessions, K8S_SIGNAL)
+
+        run_incident(incident_id, deps=deps)
+
+        assert _rows(sqlite_sessions, models.Execution, incident_id)[0].origin == "fixture"

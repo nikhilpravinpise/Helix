@@ -149,7 +149,7 @@ def execution_node(deps):
                     result=attempt.result,
                     detail=attempt.detail,
                     output=attempt.output,
-                    origin=deps.write_origin,
+                    origin=(attempt.output or {}).get("origin", deps.write_origin),
                     started_at=started,
                     finished_at=_now(),
                 )

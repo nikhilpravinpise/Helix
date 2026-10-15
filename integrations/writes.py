@@ -110,8 +110,16 @@ def get_kubernetes_write() -> KubernetesWrite:
 
 
 def get_github_write() -> GitHubWrite:
-    """Live REST client, or the recording fake in fixture mode."""
-    if get_settings().evidence_source == "fixtures":
+    """Live REST client, or the recording fake in fixture mode.
+    `HELIX_GITHUB_WRITES` overrides the evidence-source default for this
+    one transport (live PRs over recorded evidence)."""
+    settings = get_settings()
+    recorded = (
+        settings.evidence_source == "fixtures"
+        if settings.github_writes is None
+        else settings.github_writes == "recorded"
+    )
+    if recorded:
         from integrations.fakes import FakeGitHubWrite
 
         return FakeGitHubWrite()

@@ -379,7 +379,7 @@ def _run_compensation(
         result=result,
         detail=detail,
         output=output,
-        origin=deps.write_origin,
+        origin=(output or {}).get("origin", deps.write_origin),
         started_at=started,
         finished_at=_now(),
         compensates_id=failed.id,

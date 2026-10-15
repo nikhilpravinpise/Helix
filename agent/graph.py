@@ -125,6 +125,10 @@ class GraphDeps:
     jenkins_write: JenkinsWrite  # 1.8 - trigger build
     database_url: str
     write_origin: str = "live"  # "live" | "fixture" - lands on executions.origin
+    # Live GitHub reader for the fix-PR read-back, set only when a live
+    # GitHub write runs over recorded evidence (HELIX_GITHUB_WRITES=live):
+    # the recorded reader cannot see a PR that was really opened.
+    github_readback: GitHubEvidence | None = None
     max_evidence_rounds: int = 3
     # 1.9 - verification window/poll/threshold and the functional toggle;
     # `sleep` is the test seam: unit tests inject a counting fake so the
@@ -150,6 +154,16 @@ class GraphDeps:
     step_timeout: float = 600.0
 
 
+def _live_github_readback(settings) -> GitHubEvidence | None:
+    """The real GitHub reader, only for a live GitHub write over recorded
+    evidence - everywhere else the evidence capability already matches."""
+    if settings.evidence_source == "fixtures" and settings.github_writes == "live":
+        from integrations.github.client import GitHubEvidenceClient
+
+        return GitHubEvidenceClient()
+    return None
+
+
 def default_deps() -> GraphDeps:
     """Wire deps from settings: live or fixture capabilities per
     HELIX_EVIDENCE_SOURCE, the configured LLM client, HELIX_DATABASE_URL.
@@ -169,6 +183,7 @@ def default_deps() -> GraphDeps:
         jenkins_write=get_jenkins_write(),
         database_url=settings.database_url,
         write_origin=("fixture" if settings.evidence_source == "fixtures" else "live"),
+        github_readback=_live_github_readback(settings),
         max_evidence_rounds=settings.max_evidence_rounds,
         verify_window=settings.verify_window,
         verify_poll=settings.verify_poll,

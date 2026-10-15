@@ -62,6 +62,9 @@ class Settings(BaseSettings):
     es_url: str = "http://localhost:9200"
     kube_context: str = "kind-helix-sandbox"
     evidence_source: Literal["live", "fixtures"] = "live"
+    # None follows evidence_source (fixtures -> recording fake). "live" opens
+    # real fix PRs even when evidence is recorded; "recorded" forces the fake.
+    github_writes: Literal["recorded", "live"] | None = None
     fixture_path: str | None = None
 
     # Kafka backbone (subphase E2), infra/kafka-compose.yml. Literal
