@@ -171,6 +171,51 @@ and Stage 2 above, not yet built):
   above).
 - Smaller items are in FOLLOWUPS.md #21.
 
+### Next: team and services in the dashboard (planned 2026-10-15)
+
+Today `config/service_registry.yaml` is a file in the code that lists
+each service with its owners, reviewers and path rules, and the people
+(GitHub login, name, Slack id) - which is also the sign-in allow-list.
+Adding a service or a teammate means editing it, committing, pushing
+and redeploying. This plan moves all of it into the dashboard. To be
+planned slice by slice with /slice-plan in a fresh session.
+
+Decided by Vraj:
+
+- **Roles: admins and members.** Admins manage services, the team and
+  connections. Members see everything and decide the approvals and
+  reviews state/deciders.py lets them decide. VrajVed and
+  nikhilpravinpise start as admins. High-risk actions stay behind
+  approval whoever is signed in.
+- **The YAML is imported once.** On first start the file's services and
+  people are imported into Postgres; after that the dashboard is the
+  only editor. The benchmark keeps its own fixed
+  `benchmark/service_registry.yaml`.
+
+What to build:
+
+1. **Services page.** Add, edit and remove services: team, repository,
+   owners, default reviewers, dependencies and path rules (CODEOWNERS
+   order, last match wins). Stored in Postgres. agent/ops/registry.py
+   and state/deciders.py keep their rules and read from the database
+   instead of the file.
+2. **Team page.** Invite a teammate by GitHub login and choose admin or
+   member; remove people. The people table becomes the sign-in
+   allow-list (HELIX_ALLOWED_USERS stays as an override). Slack ids are
+   matched through the connected Slack (`users.lookupByEmail`) instead
+   of being copied from profiles.
+3. **Approve and Reject show progress.** Today the decision resumes the
+   run inside the request, so on Render's free CPU the button greys out
+   for ~40s. The button should say "Approving..." at once, the resume
+   should run in the background, and the page should update itself
+   when it finishes.
+4. **One-time import** of `config/service_registry.yaml`, safe to run
+   twice, with a test that every service and person arrives intact.
+
+Open for the planning session: how an invited person who has never
+signed in is shown, whether removing the last admin is refused, and
+how the import treats a database that already has services.
+
 ## Principles that carry over unchanged
 
 - **Postgres is the source of truth**; Slack, Jira, Notion and the graph
