@@ -636,7 +636,8 @@ select {
 
 input[type='text']:focus,
 input[type='password']:focus,
-select:focus {
+select:focus,
+textarea:focus {
   outline: none;
   box-shadow: 0 0 0 1px var(--accent), 0 0 0 4px var(--accent-tint);
 }
@@ -2214,5 +2215,154 @@ details summary:hover {
   .home-row[data-tool] .home-main {
     flex: 1;
     order: 0;
+  }
+}
+
+/* ---------- services ---------- */
+
+.svc-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 8px 16px;
+}
+
+.svc-title {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.svc-facts {
+  display: grid;
+  grid-template-columns: 8rem minmax(0, 1fr);
+  gap: 8px 16px;
+  margin: 12px 0 0;
+}
+
+.svc-facts dt {
+  color: var(--ink-3);
+  font-size: 13px;
+}
+
+.svc-facts dd {
+  margin: 0;
+  min-width: 0;
+}
+
+.svc-label {
+  color: var(--ink-3);
+  font-size: 13px;
+  padding-top: 9px;
+}
+
+.svc-checks {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 16px;
+  padding-top: 6px;
+}
+
+/* .bot-form label styles field names; checkbox labels read as values. */
+.bot-form .svc-check {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding-top: 0;
+  color: var(--ink);
+  font-size: 14px;
+}
+
+.svc-rows {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.svc-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 8px 0;
+  box-shadow: 0 -1px 0 var(--line);
+}
+
+.svc-row:first-child {
+  box-shadow: none;
+}
+
+.svc-rule-main {
+  flex: 1 1 18rem;
+  min-width: 0;
+}
+
+.svc-rule-main input[type='text'] {
+  width: 100%;
+  max-width: 28rem;
+  font-family: var(--mono);
+}
+
+.svc-row-actions {
+  display: inline-flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.svc-form textarea {
+  width: 100%;
+  max-width: 28rem;
+  background: var(--inset);
+  color: var(--ink);
+  border: 0;
+  box-shadow: var(--ring-strong);
+  border-radius: var(--r-control);
+  padding: 7px 12px;
+  font-family: inherit;
+  font-size: 15px;
+  resize: vertical;
+}
+
+.svc-form input[readonly] {
+  color: var(--ink-3);
+  cursor: default;
+}
+
+.svc-icon {
+  min-width: 32px;
+  padding-inline: 8px;
+  font-size: 15px;
+}
+
+.svc-submit {
+  grid-column: 2;
+  display: flex;
+  gap: 8px;
+}
+
+.svc-facts dd {
+  font-size: 14px;
+}
+
+@media (max-width: 720px) {
+  .svc-facts {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 2px;
+  }
+  .svc-facts dd {
+    margin-bottom: 8px;
+  }
+  .svc-label {
+    padding-top: 8px;
+  }
+  .svc-submit {
+    grid-column: 1;
+  }
+  .svc-submit .btn {
+    flex: 1 1 0;
   }
 }

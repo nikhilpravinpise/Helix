@@ -771,3 +771,6 @@ def register_ui(app: FastAPI) -> None:
 
     app.include_router(team_ui.router)
     app.include_router(team_ui.link_router)
+    from helix import services_ui
+
+    app.include_router(services_ui.router)

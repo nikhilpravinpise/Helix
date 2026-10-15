@@ -1,0 +1,121 @@
+{% extends "base.html" %}
+{% block title %}{{ "Edit " ~ f.name if editing else "Add a service" }} - Helix{% endblock %}
+
+{% macro person_select(name, selected) -%}
+<select name="{{ name }}">
+  <option value="">Choose a person</option>
+  {% for c in choices %}<option value="{{ c.login }}"{% if c.login == selected %} selected{% endif %}>{{ c.name }}{% if c.name != c.login %} ({{ c.login }}){% endif %}</option>{% endfor %}
+</select>
+{%- endmacro %}
+
+{% macro row_controls() -%}
+<span class="svc-row-actions">
+  <button class="btn btn-sm svc-icon" type="button" data-act="up" aria-label="Move up" title="Move up" data-js-only hidden>&uarr;</button>
+  <button class="btn btn-sm svc-icon" type="button" data-act="down" aria-label="Move down" title="Move down" data-js-only hidden>&darr;</button>
+  <button class="btn btn-sm btn-reject svc-icon" type="button" data-act="remove" aria-label="Remove" title="Remove" data-js-only hidden>&times;</button>
+</span>
+{%- endmacro %}
+
+{% macro reviewer_row(selected) -%}
+<li class="svc-row" data-row>
+  {{ person_select("reviewer", selected) }}
+  {{ row_controls() }}
+</li>
+{%- endmacro %}
+
+{% macro rule_row(rule, i) -%}
+<li class="svc-row svc-rule" data-row>
+  <div class="svc-rule-main">
+    <input type="text" name="rule_pattern" value="{{ rule.pattern }}" placeholder="k8s/*" aria-label="Path pattern" autocomplete="off" spellcheck="false">
+    <div class="svc-checks">
+      {% for c in choices %}<label class="svc-check"><input type="checkbox" name="rule_owners_{{ i }}" value="{{ c.login }}"{% if c.login in rule.owners %} checked{% endif %}> {{ c.name }}</label>{% endfor %}
+    </div>
+  </div>
+  {{ row_controls() }}
+</li>
+{%- endmacro %}
+
+{% block content %}
+<header class="pane-head">
+  <div>
+    <p class="eyebrow">services</p>
+    <h1>{{ "Edit " ~ f.name if editing else "Add a service" }}</h1>
+  </div>
+</header>
+
+{% if error %}
+<p class="notice notice-bad" role="alert">{{ error }}</p>
+{% endif %}
+
+<form class="card svc-form" method="post" action="{{ '/ui/services/' ~ f.name if editing else '/ui/services' }}" data-service-form>
+  <div class="bot-form">
+    <label for="svc-name">Name</label>
+    <div class="bot-field">
+      <input id="svc-name" type="text" name="name" value="{{ f.name }}" required maxlength="63" placeholder="orders" autocomplete="off" spellcheck="false"{% if editing %} readonly{% endif %}>
+      <p class="small muted">{% if editing %}The name cannot be changed because incidents refer to it.{% else %}Lowercase letters, digits and hyphens, starting with a letter. It cannot be changed later because incidents refer to it.{% endif %}</p>
+    </div>
+    <label for="svc-team">Team</label>
+    <div class="bot-field">
+      <input id="svc-team" type="text" name="team" value="{{ f.team }}" maxlength="64" placeholder="core" autocomplete="off">
+    </div>
+    <label for="svc-repo">Repository</label>
+    <div class="bot-field">
+      <input id="svc-repo" type="text" name="repo" value="{{ f.repo }}" placeholder="owner/name" autocomplete="off" spellcheck="false">
+    </div>
+    <label for="svc-namespace">Namespace</label>
+    <div class="bot-field">
+      <input id="svc-namespace" type="text" name="namespace" value="{{ f.namespace }}" maxlength="63" placeholder="same as the name" autocomplete="off" spellcheck="false">
+      <p class="small muted">The Kubernetes namespace it runs in. Leave empty to use the service name.</p>
+    </div>
+    <label for="svc-depends">Depends on</label>
+    <div class="bot-field">
+      <textarea id="svc-depends" name="depends_on" rows="2" placeholder="postgres, payments">{{ f.depends_on }}</textarea>
+      <p class="small muted">Databases, queues or other services. Separate with commas or new lines.</p>
+    </div>
+
+    <span class="svc-label" id="svc-owners-label">Owners</span>
+    <div class="bot-field">
+      <div class="svc-checks" role="group" aria-labelledby="svc-owners-label">
+        {% for c in choices %}<label class="svc-check"><input type="checkbox" name="owner" value="{{ c.login }}"{% if c.login in f.owners %} checked{% endif %}> {{ c.name }}{% if c.name != c.login %} <span class="mono small muted">{{ c.login }}</span>{% endif %}</label>{% endfor %}
+      </div>
+      <p class="small muted">Owners decide approvals for this service. Only people on the team can be chosen.</p>
+    </div>
+    <label for="svc-default-owner">Default owner</label>
+    <div class="bot-field">
+      <select id="svc-default-owner" name="default_owner">
+        <option value="">The first owner</option>
+        {% for c in choices %}<option value="{{ c.login }}"{% if c.login == f.default_owner %} selected{% endif %}>{{ c.name }}{% if c.name != c.login %} ({{ c.login }}){% endif %}</option>{% endfor %}
+      </select>
+      <p class="small muted">Asked first when no path rule matches. Must be one of the owners.</p>
+    </div>
+
+    <span class="svc-label" id="svc-reviewers-label">Reviewers</span>
+    <div class="bot-field">
+      <ol class="svc-rows" data-rows="reviewers" aria-labelledby="svc-reviewers-label">
+        {% for r in f.reviewers %}{{ reviewer_row(r) }}{% endfor %}
+        {{ reviewer_row("") }}
+      </ol>
+      <button class="btn btn-sm" type="button" data-add="reviewers" data-js-only hidden>Add reviewer</button>
+      <p class="small muted">The first reviewer who did not write the change reviews it, so order matters.</p>
+    </div>
+
+    <span class="svc-label" id="svc-rules-label">Path rules</span>
+    <div class="bot-field">
+      <ol class="svc-rows" data-rows="rules" aria-labelledby="svc-rules-label">
+        {% for rule in f.rules %}{{ rule_row(rule, loop.index0) }}{% endfor %}
+        {{ rule_row({"pattern": "", "owners": []}, f.rules|length) }}
+      </ol>
+      <button class="btn btn-sm" type="button" data-add="rules" data-js-only hidden>Add rule</button>
+      <p class="small muted">Rules are checked top to bottom and the last match wins, like CODEOWNERS. Put broad rules first. Rows with no pattern are ignored.</p>
+    </div>
+
+    <div class="svc-submit">
+      <button class="btn btn-primary" type="submit">{{ "Save changes" if editing else "Add service" }}</button>
+      <a class="btn" href="/ui/services">Cancel</a>
+    </div>
+  </div>
+
+  <template data-for="reviewers">{{ reviewer_row("") }}</template>
+  <template data-for="rules">{{ rule_row({"pattern": "", "owners": []}, 0) }}</template>
+</form>
+{% endblock %}
