@@ -159,7 +159,9 @@ def test_signed_in_login_is_recorded_not_the_body_actor(
     monkeypatch.setenv("HELIX_GITHUB_OAUTH_CLIENT_ID", "cid")
     monkeypatch.setenv("HELIX_GITHUB_OAUTH_CLIENT_SECRET", "csecret")
     monkeypatch.setenv("HELIX_ALLOWED_USERS", review.reviewer)
-    monkeypatch.setattr(auth, "github_login", lambda code, redirect_uri: review.reviewer)
+    monkeypatch.setattr(
+        auth, "github_login", lambda code, redirect_uri: auth.GitHubUser(review.reviewer)
+    )
     try:
         with TestClient(api.app, base_url="https://helix.example") as c:
             start = c.get("/auth/github", follow_redirects=False)

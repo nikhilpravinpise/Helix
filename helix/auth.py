@@ -3,11 +3,15 @@
 Active only when a GitHub OAuth app is configured
 (HELIX_GITHUB_OAUTH_CLIENT_ID / _SECRET). Then every page needs a signed-in
 GitHub user on the allow-list (HELIX_ALLOWED_USERS, default: the
-people table): pages send a signed-out visitor to /login, API
+people table, plus anyone with a pending team invite, who is let in and
+accepted by signing in): pages send a signed-out visitor to /login, API
 routes answer 401. Machine clients keep using the intake token as a Bearer
 header. /healthz, /slack/interactions (Slack-signed) and the sign-in routes
-stay open, and so does "/", the public landing page (a signed-in visitor
-is sent on to the dashboard).
+stay open, and so do "/", the public landing page (a signed-in visitor
+is sent on to the dashboard), and /invite/{token}, the page an invite link
+opens.
+
+Managing the team and the connections needs an admin (`require_admin`).
 
 The session is a cookie holding the GitHub login and an expiry, signed with
 HMAC-SHA256 under HELIX_SESSION_SECRET; no passwords exist anywhere. The
@@ -21,14 +25,17 @@ import hmac
 import json
 import secrets
 import time
+from dataclasses import dataclass
 from urllib.parse import urlencode
 
 import httpx
-from fastapi import APIRouter, Request
+from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse, Response
+from sqlalchemy.orm import Session
 
 from helix.config import get_settings
-from helix.ui import templates
+from helix.ui import DbSession, templates
+from state import models, team
 
 SESSION_COOKIE = "helix_session"
 STATE_COOKIE = "helix_oauth_state"
@@ -46,6 +53,12 @@ _OPEN_PATHS = frozenset(
 )
 
 router = APIRouter()
+
+
+def _is_invite_link(path: str) -> bool:
+    """/invite/{token} - a single non-empty segment, nothing deeper."""
+    token = path.removeprefix("/invite/")
+    return path.startswith("/invite/") and bool(token) and "/" not in token
 
 
 def enabled() -> bool:
@@ -110,8 +123,17 @@ def _secure(request: Request) -> bool:
     return _public_url(request).startswith("https://")
 
 
-def github_login(code: str, redirect_uri: str) -> str:
-    """Exchange the OAuth code for the user's GitHub login."""
+@dataclass(frozen=True)
+class GitHubUser:
+    """The signed-in user's GitHub login and profile name (None when the
+    profile has none)."""
+
+    login: str
+    name: str | None = None
+
+
+def github_login(code: str, redirect_uri: str) -> GitHubUser:
+    """Exchange the OAuth code for the user's GitHub login and profile name."""
     settings = get_settings()
     token = httpx.post(
         "https://github.com/login/oauth/access_token",
@@ -130,12 +152,14 @@ def github_login(code: str, redirect_uri: str) -> str:
         timeout=10.0,
     )
     user.raise_for_status()
-    return str(user.json()["login"])
+    profile = user.json()
+    return GitHubUser(str(profile["login"]), profile.get("name"))
 
 
 def gate(request: Request) -> Response | None:
     """None when the request may proceed; otherwise the response to send."""
-    if not enabled() or request.url.path in _OPEN_PATHS or request.url.path.startswith("/static/"):
+    path = request.url.path
+    if not enabled() or path in _OPEN_PATHS or path.startswith("/static/") or _is_invite_link(path):
         return None
     token = get_settings().intake_token
     scheme, _, credential = (request.headers.get("authorization") or "").partition(" ")
@@ -186,13 +210,23 @@ def start(request: Request) -> Response:
 
 
 @router.get("/auth/github/callback")
-def callback(request: Request, code: str = "", state: str = "") -> Response:
+def callback(request: Request, session: DbSession, code: str = "", state: str = "") -> Response:
     expected = (_unsign(request.cookies.get(STATE_COOKIE)) or {}).get("state")
     if not code or not expected or not hmac.compare_digest(state, expected):
         return _auth_page(request, "expired", 400)
-    login = github_login(code, f"{_public_url(request)}/auth/github/callback")
+    user = github_login(code, f"{_public_url(request)}/auth/github/callback")
+    login = user.login
     if login not in allowed_users():
-        return _auth_page(request, "denied", 403, login)
+        # A configured HELIX_ALLOWED_USERS is the exact list; otherwise a
+        # pending invite for this login (any case) lets them in.
+        accepted = None
+        if not get_settings().allowed_users:
+            accepted = team.accept_on_sign_in(session, login, user.name)
+        if accepted is None:
+            return _auth_page(request, "denied", 403, login)
+        login = accepted.login
+    team.record_sign_in(session, login)
+    session.commit()
     response = RedirectResponse("/ui/", status_code=303)
     response.delete_cookie(STATE_COOKIE)
     response.set_cookie(
@@ -204,6 +238,28 @@ def callback(request: Request, code: str = "", state: str = "") -> Response:
         samesite="lax",
     )
     return response
+
+
+def may_manage(request: Request, session: Session) -> bool:
+    """Whether the request's user may change the team and the connections
+    (people.role is admin). With sign-in off there is no user and the request
+    is trusted, as everywhere else. A user the HELIX_ALLOWED_USERS override
+    lets in without a people row is trusted too: the operator named them."""
+    user = getattr(request.state, "user", None)
+    if user is None:
+        return not enabled()
+    if team.is_admin(session, user):
+        return True
+    return bool(get_settings().allowed_users) and session.get(models.Person, user) is None
+
+
+def require_admin(request: Request, session: DbSession) -> None:
+    """Dependency for the team and connections routers: a POST needs an admin."""
+    if request.method == "POST" and not may_manage(request, session):
+        raise HTTPException(403, "Only admins can make this change.")
+
+
+AdminOnly = Depends(require_admin)
 
 
 @router.get("/logout")

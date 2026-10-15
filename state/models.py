@@ -1143,6 +1143,28 @@ class Person(Base):
     )
 
 
+class Invitation(Base):
+    """An invite to join the team, like a GitHub collaborator invite. `login`
+    is kept as the admin typed it; signing in with that GitHub login (any
+    case) while the invite is pending accepts it. Pending means not
+    accepted, not cancelled and not past `expires_at`.
+    """
+
+    __tablename__ = "invitations"
+    __table_args__ = (CheckConstraint("role IN ('admin', 'member')", name="ck_invitations_role"),)
+
+    id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
+    login: Mapped[str] = mapped_column(String(128))
+    role: Mapped[str] = mapped_column(String(16))
+    email: Mapped[str | None] = mapped_column(String, nullable=True)
+    invited_by: Mapped[str] = mapped_column(String(128))
+    token: Mapped[str] = mapped_column(String(64), unique=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    accepted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    cancelled_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+
+
 class Service(Base):
     """A service the team registered: who owns and reviews it, what it
     depends on and its path rules. `path_owners` is an ordered list of

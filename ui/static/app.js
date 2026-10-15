@@ -9,7 +9,9 @@
       to the 1.8 / 2.6 JSON endpoints with the operator name (and the intake token as
       a Bearer header when the deployment gates decisions); the page
       reloads to show the recorded decision.
-   3. Sidebar: drag its right edge (or use the arrow keys, Home, End on the
+   3. Team page: Copy link puts an invite's link on the clipboard. Without
+      clipboard support (or if copying fails) the link field shows instead.
+   4. Sidebar: drag its right edge (or use the arrow keys, Home, End on the
       focused handle) to resize it; the width lives in the --sidebar-w custom
       property on .app, is clamped to 200-440px, double-click resets it, and
       it persists in localStorage (base.html applies it before first paint). */
@@ -119,6 +121,37 @@
     });
   }
 
+  /* ---- team page: copy an invite link ---- */
+
+  function initCopyLinks() {
+    var buttons = document.querySelectorAll("[data-copy-link]");
+    if (!buttons.length || !navigator.clipboard) return;
+    Array.prototype.forEach.call(buttons, function (btn) {
+      btn.hidden = false;
+      var row = btn.closest(".team-row");
+      var field = row && row.querySelector(".team-link");
+      if (field) field.hidden = true;
+      btn.addEventListener("click", function () {
+        navigator.clipboard.writeText(btn.getAttribute("data-copy-link")).then(
+          function () {
+            btn.textContent = "Copied";
+            window.setTimeout(function () {
+              btn.textContent = "Copy link";
+            }, 2000);
+          },
+          function () {
+            if (field) field.hidden = false;
+            var box = row && row.querySelector("[data-link-field]");
+            if (box) {
+              box.focus();
+              box.select();
+            }
+          }
+        );
+      });
+    });
+  }
+
   /* ---- sidebar resize ---- */
 
   var SIDEBAR_KEY = "helix.sidebar-w";
@@ -188,6 +221,7 @@
     initSidebarResize();
     initIncidentPolling();
     initApprovals();
+    initCopyLinks();
   }
 
   if (document.readyState === "loading") {
