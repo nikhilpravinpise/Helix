@@ -1074,3 +1074,27 @@ class IntegrationOutbox(Base):
     sent_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 
     incident: Mapped[Incident] = relationship(back_populates="outbox_entries")
+
+
+class Connection(Base):
+    """A provider account the team connected (future_plans.md Stage 1),
+    one row per provider (`slack`, `jira`). `access_token`/`refresh_token`
+    hold Fernet ciphertext, never the token: state/connections.py is the
+    only code that encrypts and decrypts them. `settings` is the
+    provider's small non-secret config (Slack team id and channel, Jira
+    cloud id, site url and project key).
+    """
+
+    __tablename__ = "connections"
+
+    provider: Mapped[str] = mapped_column(String(16), primary_key=True)
+    account: Mapped[str] = mapped_column(String(256))
+    scopes: Mapped[list[str]] = mapped_column(_json_doc())
+    access_token: Mapped[str] = mapped_column(Text)
+    refresh_token: Mapped[str | None] = mapped_column(Text)
+    expires_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    settings: Mapped[dict[str, Any]] = mapped_column(_json_doc())
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
+    )
