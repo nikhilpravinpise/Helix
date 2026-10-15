@@ -41,11 +41,12 @@ from integrations.slack import SlackError, oauth
 from integrations.work import connected_jira_provider, jira_oauth
 from integrations.work.contract import WorkItemError
 from integrations.work.jira_oauth import JiraOAuthError
-from state import connections
+from state import connections, models, pr_bot
 
 STATE_COOKIE = "helix_connect_state"
 STATE_SECONDS = 600
 _DETAIL = re.compile(r"[a-z0-9_]{1,64}")
+_BRANCH = re.compile(r"[A-Za-z0-9][A-Za-z0-9._/-]{0,199}")
 
 router = APIRouter(include_in_schema=False)
 
@@ -101,6 +102,29 @@ _NOTICES = {
     "github-test-ok": ("ok", "GitHub accepted the connection."),
     "github-test-failed": ("bad", "GitHub rejected the connection ({detail})."),
     "github-not-connected": ("bad", "GitHub is not connected."),
+    "pr-bot-saved": ("ok", "Saved the pull request bot settings."),
+    "pr-bot-invalid": ("bad", "That setting is not valid, so nothing was changed."),
+    "pr-bot-repo-refused": (
+        "bad",
+        "That is not a repository the GitHub account can push to, so nothing was changed.",
+    ),
+    "pr-bot-repo-unavailable": (
+        "bad",
+        "Could not load the repositories from GitHub, so nothing was changed.",
+    ),
+    "pr-bot-branch-refused": (
+        "bad",
+        "That branch does not exist in the repository, so nothing was changed.",
+    ),
+    "pr-bot-branch-unavailable": (
+        "bad",
+        "Could not check the branch on GitHub, so nothing was changed.",
+    ),
+    "pr-bot-limit-refused": (
+        "bad",
+        f"The daily limit must be a whole number from 1 to {pr_bot.MAX_DAILY_LIMIT} "
+        "(or blank for no limit), so nothing was changed.",
+    ),
 }
 
 
@@ -247,6 +271,56 @@ def _providers(session) -> list[dict[str, Any]]:
     ]
 
 
+def _github_token(session) -> str | None:
+    """The token the PR bot's pickers use: the connected account, else the
+    server's HELIX_GITHUB_TOKEN."""
+    stored = connections.get_connection(session, "github")
+    return stored.access_token if stored else get_settings().github_token
+
+
+def _pr_bot_repos(session) -> tuple[list[str], str | None]:
+    """The repos the token can push to, plus None or why they are missing:
+    "token" (no GitHub token at all) or "load"."""
+    token = _github_token(session)
+    if not token:
+        return [], "token"
+    try:
+        return github_oauth.list_pushable_repos(token), None
+    except GitHubOAuthError:
+        return [], "load"
+
+
+def _toggle(stored: bool | None) -> str:
+    return "" if stored is None else "on" if stored else "off"
+
+
+def _pr_bot(session) -> dict[str, Any]:
+    """Data for the Pull request bot card: the stored choices, the server
+    defaults they fall back to, the repo picker and today's PR count."""
+    settings = get_settings()
+    row = session.get(models.PRBotSettings, 1)
+    default = pr_bot.resolve(settings, None)
+    repos, error = _pr_bot_repos(session)
+    current = row.repo if row else None
+    if current and current not in repos:
+        repos = [current, *repos]
+    return {
+        "real_prs": _toggle(row.real_prs if row else None),
+        "real_prs_default": "on" if default.real_prs else "off",
+        "forced_recorded": settings.github_writes == "recorded",
+        "repo": current,
+        "repos": repos,
+        "repos_error": error,
+        "repo_default": default.repo,
+        "base_branch": (row.base_branch if row else None) or "",
+        "base_default": default.base_branch,
+        "draft": _toggle(row.draft if row else None),
+        "draft_default": "on" if default.draft else "off",
+        "daily_limit": row.daily_limit if row else None,
+        "used": pr_bot.live_prs_last_day(session),
+    }
+
+
 def _render(request: Request, session, *, notice: tuple[str, str] | None, status_code: int = 200):
     return templates.TemplateResponse(
         request,
@@ -254,6 +328,7 @@ def _render(request: Request, session, *, notice: tuple[str, str] | None, status
         {
             "active": "connections",
             "providers": _providers(session),
+            "pr_bot": _pr_bot(session),
             "notice": notice,
             "incident_total": _incident_total(session),
             "pending_count": _pending_count(session),
@@ -475,6 +550,61 @@ async def jira_settings(request: Request, session: DbSession) -> Response:
     connections.update_settings(session, "jira", {"project_key": key})
     session.commit()
     return _back("jira-project-saved")
+
+
+@router.post("/ui/connections/pr-bot/settings")
+async def pr_bot_settings(request: Request, session: DbSession) -> Response:
+    """Save the pull request bot's settings. Every field is checked before
+    any is stored: toggles are on/off/blank, the repo must be one GitHub
+    lists as pushable right now (an unchanged stored repo is kept), the base
+    branch must exist in the repo it will target, and the daily limit is a
+    whole number 1-1000. Blank means "use the server default"."""
+    toggles = {}
+    for name in ("real_prs", "draft"):
+        value = (await _posted(request, name)).strip()
+        if value not in ("", "on", "off"):
+            return _back("pr-bot-invalid")
+        toggles[name] = None if value == "" else value == "on"
+    limit_text = (await _posted(request, "daily_limit")).strip()
+    limit = None
+    if limit_text:
+        if not re.fullmatch(r"[0-9]{1,4}", limit_text) or not (
+            1 <= int(limit_text) <= pr_bot.MAX_DAILY_LIMIT
+        ):
+            return _back("pr-bot-limit-refused")
+        limit = int(limit_text)
+    branch = (await _posted(request, "base_branch")).strip()
+    if branch and (not _BRANCH.fullmatch(branch) or ".." in branch):
+        return _back("pr-bot-branch-refused")
+
+    row = session.get(models.PRBotSettings, 1)
+    repo = (await _posted(request, "repo")).strip()
+    if repo and repo != (row.repo if row else None):
+        options, error = _pr_bot_repos(session)
+        if error:
+            return _back("pr-bot-repo-unavailable")
+        if repo not in options:
+            return _back("pr-bot-repo-refused")
+    if branch:
+        token = _github_token(session)
+        if not token:
+            return _back("pr-bot-branch-unavailable")
+        try:
+            found = github_oauth.branch_exists(token, repo or get_settings().github_repo, branch)
+        except GitHubOAuthError:
+            return _back("pr-bot-branch-unavailable")
+        if not found:
+            return _back("pr-bot-branch-refused")
+
+    row = row or models.PRBotSettings(id=1)
+    row.real_prs = toggles["real_prs"]
+    row.draft = toggles["draft"]
+    row.repo = repo or None
+    row.base_branch = branch or None
+    row.daily_limit = limit
+    session.add(row)
+    session.commit()
+    return _back("pr-bot-saved")
 
 
 @router.post("/ui/connections/jira/connect")

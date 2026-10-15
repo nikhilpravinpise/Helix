@@ -19,7 +19,6 @@ import os
 import random
 import sys
 import threading
-from datetime import UTC, datetime, timedelta
 
 from sqlalchemy import create_engine, func, select
 from sqlalchemy.orm import Session
@@ -70,10 +69,6 @@ SAMPLE_SCENARIOS = (
     "rejected-pr",
     "stale-branch",
 )
-
-#: With HELIX_GITHUB_WRITES=live, samples open real fix PRs; at most this many
-#: per rolling 24 hours, after which a sample's PR is recorded instead.
-DAILY_LIVE_PR_CAP = 5
 
 # Single flight: _sample_lock is held from intake until the background drive
 # ends; _start_guard makes a racing second caller wait out the intake so it
@@ -171,29 +166,9 @@ def seed_demo(database_url: str | None = None) -> int:
     return len(DEMO_SCENARIOS) + len(PARKED_AUTHORS)
 
 
-def _live_prs_today(session: Session) -> int:
-    """Real fix PRs opened in the last 24 hours (live executions rows)."""
-    since = datetime.now(UTC) - timedelta(hours=24)
-    return (
-        session.scalar(
-            select(func.count())
-            .select_from(models.Execution)
-            .where(
-                models.Execution.action == "open_fix_pr",
-                models.Execution.origin == "live",
-                models.Execution.created_at >= since,
-            )
-        )
-        or 0
-    )
-
-
-def _drive_sample(
-    incident_id: str, scenario: dict, database_url: str, record_writes: bool = False
-) -> None:
+def _drive_sample(incident_id: str, scenario: dict, database_url: str) -> None:
     """Background body of a sample: the harness's own hop loop, then free
-    the slot - whatever happened. `record_writes` forces recorded GitHub
-    writes (the daily live-PR cap was reached)."""
+    the slot - whatever happened."""
     global _running_incident
     try:
         env = harness._isolated_env()
@@ -203,9 +178,10 @@ def _drive_sample(
             HELIX_DATABASE_URL=database_url,
             HELIX_FIXTURE_PATH=scenario["evidence_fixture"],
             UV_NO_SYNC="1",
+            # The isolation turns stored connections off; the PR bot's own
+            # settings (real PRs, repo, limit) still apply to a sample.
+            HELIX_PR_BOT_SETTINGS_ENABLED="true",
         )
-        if record_writes:
-            env["HELIX_GITHUB_WRITES"] = "recorded"
         cfg = harness.HarnessConfig(arms=["A"], mode="fixture", database_url=database_url)
         errors = harness._drive(incident_id, env, cfg, scenario)
         if errors:
@@ -219,38 +195,32 @@ def _drive_sample(
         _sample_lock.release()
 
 
-def start_sample(session: Session) -> tuple[str, bool, bool]:
+def start_sample(session: Session) -> tuple[str, bool]:
     """Raise one random sample incident and drive it in the background.
 
-    Returns (incident_id, already_running, capped). While a sample runs, a
-    second call starts nothing and returns the running incident's id with
-    True. `capped` is True when live GitHub writes are on but today's cap on
-    real PRs is reached, so this sample's PR is recorded instead.
+    Returns (incident_id, already_running). While a sample runs, a second
+    call starts nothing and returns the running incident's id with True.
     Intake commits on `session` before the thread starts, so the drive
     always finds the incident."""
     global _running_incident
     with _start_guard:
         if not _sample_lock.acquire(blocking=False):
-            return _running_incident or "", True, False
+            return _running_incident or "", True
         try:
-            capped = (
-                get_settings().github_writes == "live"
-                and _live_prs_today(session) >= DAILY_LIVE_PR_CAP
-            )
             scenario = harness.catalog.load_scenarios()[random.choice(SAMPLE_SCENARIOS)]
             result = intake_signal(session, Signal.model_validate(scenario["signal"]))
             session.commit()
             _running_incident = result.incident_id
             threading.Thread(
                 target=_drive_sample,
-                args=(result.incident_id, scenario, get_settings().database_url, capped),
+                args=(result.incident_id, scenario, get_settings().database_url),
                 daemon=True,
             ).start()
         except BaseException:
             _running_incident = None
             _sample_lock.release()
             raise
-        return result.incident_id, False, capped
+        return result.incident_id, False
 
 
 def main() -> int:

@@ -79,12 +79,14 @@ class GitHubWriteClient:
         client: httpx.Client | None = None,
         timeout: float = 30.0,
         base_branch: str = BASE_BRANCH,
+        draft: bool = False,
     ) -> None:
         self._repo = repo or get_settings().github_repo
         self._token = token
         self._client = client
         self._timeout = timeout
         self._base_branch = base_branch
+        self._draft = draft
 
     def _resolve_token(self) -> str | None:
         """Explicit token, else the connected GitHub account, else
@@ -184,16 +186,15 @@ class GitHubWriteClient:
                 payload["sha"] = existing
             self._request("PUT", f"/repos/{self._repo}/contents/{path}", json=payload)
 
-        pr = self._request(
-            "POST",
-            f"/repos/{self._repo}/pulls",
-            json={
-                "title": title,
-                "head": branch,
-                "base": self._base_branch,
-                "body": body,
-            },
-        )
+        pr_request: dict[str, Any] = {
+            "title": title,
+            "head": branch,
+            "base": self._base_branch,
+            "body": body,
+        }
+        if self._draft:
+            pr_request["draft"] = True
+        pr = self._request("POST", f"/repos/{self._repo}/pulls", json=pr_request)
         pr = pr or {}
         return {
             "op": "open_fix_pr",

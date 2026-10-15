@@ -50,11 +50,12 @@ def sqlite_engine() -> Iterator[Engine]:
 
 @pytest.fixture(autouse=True)
 def no_provider_network(monkeypatch):
-    """The Connections page lists Slack channels and Jira projects for a
-    connected card. Without a test's own fake, those calls fail fast here
+    """The Connections page lists Slack channels, Jira projects and the PR
+    bot's GitHub repos for a connected card. Without a test's own fake, those calls fail fast here
     instead of reaching the real services."""
     import httpx
 
+    from integrations.github import oauth as github_oauth
     from integrations.slack import oauth as slack_oauth
     from integrations.work import jira_oauth
 
@@ -66,6 +67,7 @@ def no_provider_network(monkeypatch):
 
     monkeypatch.setattr(slack_oauth, "_http", client)
     monkeypatch.setattr(jira_oauth, "_http", client)
+    monkeypatch.setattr(github_oauth, "_http", client)
 
 
 @pytest.fixture

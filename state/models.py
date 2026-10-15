@@ -1098,3 +1098,23 @@ class Connection(Base):
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
     )
+
+
+class PRBotSettings(Base):
+    """The pull request bot's settings, a single row (id 1). A NULL column
+    means "use the server default" (state/pr_bot.py resolves them): real
+    PRs on/off, the repo and base branch the bot targets, whether it opens
+    drafts, and an optional daily limit on real PRs.
+    """
+
+    __tablename__ = "pr_bot_settings"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    real_prs: Mapped[bool | None] = mapped_column(Boolean, nullable=True)
+    repo: Mapped[str | None] = mapped_column(String(256), nullable=True)
+    base_branch: Mapped[str | None] = mapped_column(String(256), nullable=True)
+    draft: Mapped[bool | None] = mapped_column(Boolean, nullable=True)
+    daily_limit: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
+    )

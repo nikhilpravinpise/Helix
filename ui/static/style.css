@@ -1213,6 +1213,39 @@ details summary:hover {
   font-size: 13px;
 }
 
+.bot-form {
+  display: grid;
+  grid-template-columns: 8rem minmax(0, 1fr);
+  gap: 16px;
+  margin-top: 16px;
+  align-items: start;
+}
+
+.bot-form label {
+  color: var(--ink-3);
+  font-size: 13px;
+  padding-top: 9px;
+}
+
+.bot-field select,
+.bot-field input[type='text'] {
+  width: 100%;
+  max-width: 28rem;
+}
+
+.bot-field .small {
+  margin-top: 6px;
+}
+
+.bot-form .btn {
+  grid-column: 2;
+  justify-self: start;
+}
+
+.provider .bot-usage {
+  margin-top: 12px;
+}
+
 .provider-actions {
   display: flex;
   flex-wrap: wrap;
@@ -1430,6 +1463,24 @@ details summary:hover {
   }
   .provider-facts dd {
     margin-bottom: 8px;
+  }
+  .bot-form {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 6px;
+  }
+  .bot-form label {
+    padding-top: 8px;
+  }
+  .bot-field {
+    margin-bottom: 8px;
+  }
+  .bot-field select,
+  .bot-field input[type='text'] {
+    max-width: none;
+  }
+  .bot-form .btn {
+    grid-column: 1;
+    justify-self: stretch;
   }
   .provider-actions form,
   .provider-actions .btn {

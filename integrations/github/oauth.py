@@ -9,7 +9,7 @@ seam for tests (an httpx.Client on a MockTransport).
 """
 
 from typing import Any
-from urllib.parse import urlencode
+from urllib.parse import quote, urlencode
 
 import httpx
 
@@ -20,6 +20,8 @@ API_ROOT = "https://api.github.com"
 # can push a branch and open a PR on a private repo. (The sign-in itself only
 # asks read:user.)
 SCOPE = "repo"
+#: Repo-list pages of 100 followed at most this many times.
+MAX_REPO_PAGES = 5
 
 
 class GitHubOAuthError(Exception):
@@ -94,3 +96,50 @@ def revoke(client_id: str, client_secret: str, token: str) -> None:
         )
     except GitHubOAuthError:
         pass
+
+
+def list_pushable_repos(token: str) -> list[str]:
+    """The repos the token can push to, as `owner/name`: GET /user/repos with
+    owner, collaborator and organization access, keeping those with push
+    permission. Paginated, bounded at MAX_REPO_PAGES pages."""
+    found: list[str] = []
+    for page in range(1, MAX_REPO_PAGES + 1):
+        body = _call(
+            "GET",
+            f"{API_ROOT}/user/repos",
+            params={
+                "per_page": 100,
+                "affiliation": "owner,collaborator,organization_member",
+                "sort": "full_name",
+                "page": page,
+            },
+            headers={"Authorization": f"Bearer {token}"},
+        )
+        if not isinstance(body, list):
+            raise GitHubOAuthError("malformed_response")
+        found += [
+            r["full_name"]
+            for r in body
+            if isinstance(r, dict)
+            and r.get("full_name")
+            and (r.get("permissions") or {}).get("push")
+        ]
+        if len(body) < 100:
+            break
+    return found
+
+
+def branch_exists(token: str, repo: str, branch: str) -> bool:
+    """GET /repos/{repo}/branches/{branch}: True if it exists, False on 404;
+    any other failure is a GitHubOAuthError."""
+    try:
+        _call(
+            "GET",
+            f"{API_ROOT}/repos/{repo}/branches/{quote(branch, safe='/')}",
+            headers={"Authorization": f"Bearer {token}"},
+        )
+    except GitHubOAuthError as exc:
+        if str(exc) == "http_404":
+            return False
+        raise
+    return True

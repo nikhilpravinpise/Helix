@@ -71,4 +71,58 @@
   {% if not p.can_connect %}<p class="small muted provider-why" id="why-{{ p.id }}">{{ p.reason }}</p>{% endif %}
 </section>
 {% endfor %}
+
+{% set b = pr_bot %}
+<section class="card provider" id="pr-bot">
+  <div class="provider-head">
+    <h2 class="provider-name">Pull request bot</h2>
+  </div>
+  <p class="muted provider-blurb">Opens the fix pull requests. Anything left on its server default follows the server's settings.</p>
+  <p class="small muted bot-usage">{{ b.used }}{% if b.daily_limit %} of {{ b.daily_limit }}{% endif %} real PR{{ "" if b.used == 1 and not b.daily_limit else "s" }} in the last 24 hours{% if b.daily_limit %} (daily limit){% endif %}.</p>
+  {% if b.forced_recorded %}<p class="small muted provider-why">The server forces recorded PRs (HELIX_GITHUB_WRITES=recorded), so no real PR opens whatever is chosen here.</p>{% endif %}
+
+  <form class="bot-form" method="post" action="/ui/connections/pr-bot/settings">
+    <label for="bot-real">Real PRs</label>
+    <div class="bot-field">
+      <select id="bot-real" name="real_prs">
+        <option value=""{% if not b.real_prs %} selected{% endif %}>Server default ({{ b.real_prs_default }})</option>
+        <option value="on"{% if b.real_prs == "on" %} selected{% endif %}>On - open them on GitHub</option>
+        <option value="off"{% if b.real_prs == "off" %} selected{% endif %}>Off - plan the fix, record the PR</option>
+      </select>
+    </div>
+
+    <label for="bot-repo">Repository</label>
+    <div class="bot-field">
+      <select id="bot-repo" name="repo">
+        <option value=""{% if not b.repo %} selected{% endif %}>Server default ({{ b.repo_default }})</option>
+        {% for name in b.repos %}<option value="{{ name }}"{% if name == b.repo %} selected{% endif %}>{{ name }}</option>{% endfor %}
+      </select>
+      {% if b.repos_error == "load" %}<p class="small muted">Could not load the repository list{% if b.repo %} - keeping {{ b.repo }}{% endif %}.</p>
+      {% elif b.repos_error == "token" %}<p class="small muted">Connect GitHub above to choose from your repositories.</p>{% endif %}
+    </div>
+
+    <label for="bot-base">Base branch</label>
+    <div class="bot-field">
+      <input id="bot-base" type="text" name="base_branch" value="{{ b.base_branch }}" placeholder="{{ b.base_default }}" autocomplete="off" spellcheck="false">
+      <p class="small muted">Blank uses the server default ({{ b.base_default }}). Must exist in the repository.</p>
+    </div>
+
+    <label for="bot-draft">Draft PRs</label>
+    <div class="bot-field">
+      <select id="bot-draft" name="draft">
+        <option value=""{% if not b.draft %} selected{% endif %}>Server default ({{ b.draft_default }})</option>
+        <option value="on"{% if b.draft == "on" %} selected{% endif %}>On - open as drafts</option>
+        <option value="off"{% if b.draft == "off" %} selected{% endif %}>Off - open ready for review</option>
+      </select>
+    </div>
+
+    <label for="bot-limit">Daily limit</label>
+    <div class="bot-field">
+      <input id="bot-limit" type="text" name="daily_limit" inputmode="numeric" value="{{ b.daily_limit or '' }}" placeholder="No limit" autocomplete="off">
+      <p class="small muted">Real PRs per rolling 24 hours, 1 to 1000. Past it, PRs are recorded instead. Blank means no limit.</p>
+    </div>
+
+    <button class="btn btn-primary" type="submit">Save</button>
+  </form>
+</section>
 {% endblock %}

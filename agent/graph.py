@@ -155,12 +155,16 @@ class GraphDeps:
 
 
 def _live_github_readback(settings) -> GitHubEvidence | None:
-    """The real GitHub reader, only for a live GitHub write over recorded
-    evidence - everywhere else the evidence capability already matches."""
-    if settings.evidence_source == "fixtures" and settings.github_writes == "live":
+    """The real GitHub reader, only for real PRs over recorded evidence,
+    reading the repo the bot writes to - everywhere else the evidence
+    capability already matches."""
+    from state import pr_bot
+
+    config = pr_bot.load_config()
+    if settings.evidence_source == "fixtures" and config.real_prs:
         from integrations.github.client import GitHubEvidenceClient
 
-        return GitHubEvidenceClient()
+        return GitHubEvidenceClient(config.repo)
     return None
 
 

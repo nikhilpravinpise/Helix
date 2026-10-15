@@ -17,6 +17,7 @@ failed".
 from typing import Any, Protocol
 
 from helix.config import get_settings
+from helix.logging import get_logger
 
 
 class WriteError(Exception):
@@ -110,22 +111,40 @@ def get_kubernetes_write() -> KubernetesWrite:
 
 
 def get_github_write() -> GitHubWrite:
-    """Live REST client, or the recording fake in fixture mode.
-    `HELIX_GITHUB_WRITES` overrides the evidence-source default for this
-    one transport (live PRs over recorded evidence)."""
-    settings = get_settings()
-    recorded = (
-        settings.evidence_source == "fixtures"
-        if settings.github_writes is None
-        else settings.github_writes == "recorded"
-    )
-    if recorded:
+    """Live REST client, or the recording fake. The pull request bot's
+    effective config (state/pr_bot.py) decides: stored settings over
+    `HELIX_GITHUB_WRITES` over the evidence-source default, with an env
+    "recorded" always winning. A daily limit that is reached records the PR
+    instead, for every run."""
+    from state import pr_bot
+
+    config = pr_bot.load_config()
+    limited = config.daily_limit is not None and _limit_reached(config.daily_limit)
+    if not config.real_prs or limited:
         from integrations.fakes import FakeGitHubWrite
 
         return FakeGitHubWrite()
     from integrations.github.write import GitHubWriteClient
 
-    return GitHubWriteClient()
+    return GitHubWriteClient(config.repo, base_branch=config.base_branch, draft=config.draft)
+
+
+def _limit_reached(limit: int) -> bool:
+    """True when `limit` real PRs already ran in the last 24 hours. A count
+    that cannot be read counts as reached: the limit exists to stop PRs."""
+    from state import pr_bot
+    from state.db import session_scope
+
+    try:
+        with session_scope() as session:
+            used = pr_bot.live_prs_last_day(session)
+    except Exception as exc:
+        get_logger().warning("pr_limit_unreadable", error=str(exc))
+        return True
+    if used >= limit:
+        get_logger().warning("pr_daily_limit_reached", used=used, limit=limit)
+        return True
+    return False
 
 
 def get_jenkins_write() -> JenkinsWrite:

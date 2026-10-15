@@ -322,8 +322,8 @@ def start_sample(session: DbSession) -> RedirectResponse:
     """Demo only: start a sample incident, or point at the one running."""
     if not _samples_enabled():
         raise HTTPException(status_code=404)
-    incident_id, already_running, capped = demo.start_sample(session)
-    suffix = "?busy=1" if already_running else "?capped=1" if capped else ""
+    incident_id, already_running = demo.start_sample(session)
+    suffix = "?busy=1" if already_running else ""
     return RedirectResponse(f"/ui/incidents/{incident_id}{suffix}", status_code=303)
 
 
@@ -333,7 +333,6 @@ def incident_detail(
     incident_id: str,
     session: DbSession,
     busy: bool = False,
-    capped: bool = False,
 ) -> HTMLResponse:
     """One incident's header plus its full decision-provenance timeline.
 
@@ -370,7 +369,6 @@ def incident_detail(
             "transitions": record["transitions"],
             "terminal": incident["status"] in TERMINAL_STATUSES,
             "busy": busy,
-            "capped": capped,
         },
     )
 

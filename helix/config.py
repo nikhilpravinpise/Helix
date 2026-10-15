@@ -96,6 +96,10 @@ class Settings(BaseSettings):
     #: Off for the benchmark (benchmark/harness.py _BENCHMARK_ISOLATION) so a
     #: stored connection never turns an offline run into a live one.
     connections_enabled: bool = True
+    #: Whether the pull request bot reads its stored settings. None follows
+    #: connections_enabled; the demo's sample runs set it true so their
+    #: isolated subprocess still honours the bot's settings.
+    pr_bot_settings_enabled: bool | None = None
     allowed_users: str | None = None
     public_url: str | None = None
 
