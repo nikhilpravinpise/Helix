@@ -93,6 +93,9 @@ class Settings(BaseSettings):
     github_oauth_client_secret: str | None = Field(default=None, repr=False)
     session_secret: str | None = Field(default=None, repr=False)
     connections_key: str | None = Field(default=None, repr=False)
+    #: Off for the benchmark (benchmark/harness.py _BENCHMARK_ISOLATION) so a
+    #: stored connection never turns an offline run into a live one.
+    connections_enabled: bool = True
     allowed_users: str | None = None
     public_url: str | None = None
 

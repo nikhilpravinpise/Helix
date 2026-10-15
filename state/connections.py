@@ -138,3 +138,20 @@ def update_tokens(
     row.expires_at = expires_at
     session.flush()
     return True
+
+
+def active_connection(session: Session, provider: str) -> ConnectionRecord | None:
+    """The connection an integration should use right now: None when
+    connections are disabled (HELIX_CONNECTIONS_ENABLED=false, the benchmark's
+    isolation) or the store cannot be read. A store failure must not stop
+    delivery that works from .env, so it logs a warning and reads as not
+    connected. The read runs in a savepoint so a failure (missing table)
+    cannot poison the caller's transaction."""
+    if not get_settings().connections_enabled:
+        return None
+    try:
+        with session.begin_nested():
+            return get_connection(session, provider)
+    except Exception as exc:
+        get_logger().warning("connection_unreadable", provider=provider, error=str(exc))
+        return None
