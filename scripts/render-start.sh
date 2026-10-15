@@ -25,5 +25,12 @@ done
 export HELIX_PUBLIC_URL="${HELIX_PUBLIC_URL:-${RENDER_EXTERNAL_URL:-}}"
 
 alembic -c state/migrations/alembic.ini upgrade head
+# The demo starts with recorded incidents on the dashboard. Seeding runs
+# here, before the server, so the two never share Render's 512MB; a failure
+# is logged and the (empty) demo still comes up.
+if [[ "${HELIX_ENVIRONMENT:-}" == "demo" ]]; then
+  helix seed-demo || echo "render-start: demo seeding failed, serving anyway" >&2
+fi
+
 export HELIX_API_BIND=0.0.0.0 HELIX_API_PORT="${PORT:-8787}"
 exec helix serve

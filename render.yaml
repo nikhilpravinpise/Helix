@@ -30,6 +30,10 @@ services:
         value: demo
       - key: HELIX_EVIDENCE_SOURCE
         value: fixtures
+      # The server resumes runs in-process after a dashboard approval or
+      # review decision; fixture mode needs a recording to replay.
+      - key: HELIX_FIXTURE_PATH
+        value: ci/docker-build-failure
       - key: HELIX_ARM
         value: A
       - key: HELIX_WORK_PROVIDER

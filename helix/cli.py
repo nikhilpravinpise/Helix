@@ -53,6 +53,12 @@ def build_parser() -> argparse.ArgumentParser:
 
     subparsers.add_parser("incidents", help="list incidents, newest first")
 
+    subparsers.add_parser(
+        "seed-demo",
+        help="fill an EMPTY database with recorded demo incidents (fixture scenarios "
+        "on arm A plus one change parked at review); a no-op if any incident exists",
+    )
+
     run = subparsers.add_parser(
         "run",
         help="drive an incident's workflow to its next stopping point "
@@ -1216,6 +1222,10 @@ def main(argv: list[str] | None = None) -> int:
         return _cmd_intake(args)
     if args.command == "incidents":
         return _cmd_incidents()
+    if args.command == "seed-demo":
+        from helix.demo import main as seed_demo_main
+
+        return seed_demo_main()
     if args.command == "run":
         return _cmd_run(args)
     if args.command == "reclaim":
