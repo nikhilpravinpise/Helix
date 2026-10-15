@@ -175,3 +175,100 @@ def test_unauthenticated_post_starts_nothing(client, sqlite_engine, demo_env, dr
     assert resp.headers["location"] == "/login"
     assert _count(sqlite_engine) == 0
     assert drives.calls == []
+
+
+def _add_live_prs(
+    sqlite_engine, count: int, *, origin: str = "live", age_hours: float = 1, first_attempt: int = 0
+) -> None:
+    """`count` open_fix_pr executions on one incident, `age_hours` old."""
+    from datetime import UTC, datetime, timedelta
+
+    from sqlalchemy.orm import Session
+
+    from state.intake import Signal, intake_signal
+
+    created = datetime.now(UTC) - timedelta(hours=age_hours)
+    with Session(sqlite_engine) as session:
+        incident_id = intake_signal(
+            session,
+            Signal(source="kubernetes", service="payment-api", signature={"reason": "CrashLoop"}),
+        ).incident_id
+        pk = session.scalar(
+            select(models.Incident.id).where(models.Incident.incident_id == incident_id)
+        )
+        for attempt in range(first_attempt, first_attempt + count):
+            session.add(
+                models.Execution(
+                    incident_id=pk,
+                    attempt=attempt,
+                    action="open_fix_pr",
+                    params={},
+                    fingerprint="f",
+                    policy_decision="allow",
+                    origin=origin,
+                    result=models.ExecutionResult.SUCCESS,
+                    detail="",
+                    started_at=created,
+                    created_at=created,
+                )
+            )
+        session.commit()
+
+
+NOTICE = "Today's limit of real pull requests"
+
+
+def test_live_writes_below_cap_keep_live(client, sqlite_engine, demo_env, drives, monkeypatch):
+    monkeypatch.setenv("HELIX_GITHUB_WRITES", "live")
+    _add_live_prs(sqlite_engine, demo.DAILY_LIVE_PR_CAP - 1)
+
+    resp = client.post("/ui/samples", follow_redirects=False)
+
+    assert "capped" not in resp.headers["location"]
+    assert drives.finished.wait(5)
+    _wait_idle()
+    assert drives.calls[0]["env"]["HELIX_GITHUB_WRITES"] == "live"
+    assert NOTICE not in client.get(resp.headers["location"]).text
+
+
+def test_live_writes_at_cap_are_forced_to_recorded(
+    client, sqlite_engine, demo_env, drives, monkeypatch
+):
+    monkeypatch.setenv("HELIX_GITHUB_WRITES", "live")
+    _add_live_prs(sqlite_engine, demo.DAILY_LIVE_PR_CAP)
+
+    resp = client.post("/ui/samples", follow_redirects=False)
+
+    assert resp.headers["location"].endswith("?capped=1")
+    assert drives.finished.wait(5)
+    _wait_idle()
+    assert drives.calls[0]["env"]["HELIX_GITHUB_WRITES"] == "recorded"
+    assert NOTICE in client.get(resp.headers["location"]).text
+    assert NOTICE not in client.get(resp.headers["location"].split("?")[0]).text
+
+
+def test_old_and_fixture_executions_do_not_count(
+    client, sqlite_engine, demo_env, drives, monkeypatch
+):
+    monkeypatch.setenv("HELIX_GITHUB_WRITES", "live")
+    _add_live_prs(sqlite_engine, demo.DAILY_LIVE_PR_CAP, age_hours=25)
+    _add_live_prs(sqlite_engine, demo.DAILY_LIVE_PR_CAP, origin="fixture", first_attempt=100)
+
+    resp = client.post("/ui/samples", follow_redirects=False)
+
+    assert "capped" not in resp.headers["location"]
+    assert drives.finished.wait(5)
+    _wait_idle()
+    assert drives.calls[0]["env"]["HELIX_GITHUB_WRITES"] == "live"
+
+
+def test_cap_is_inert_without_live_writes(client, sqlite_engine, demo_env, drives, monkeypatch):
+    monkeypatch.delenv("HELIX_GITHUB_WRITES", raising=False)
+    _add_live_prs(sqlite_engine, demo.DAILY_LIVE_PR_CAP + 3)
+
+    resp = client.post("/ui/samples", follow_redirects=False)
+
+    assert "capped" not in resp.headers["location"]
+    assert drives.finished.wait(5)
+    _wait_idle()
+    assert "HELIX_GITHUB_WRITES" not in drives.calls[0]["env"]

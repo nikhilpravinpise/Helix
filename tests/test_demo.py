@@ -4,6 +4,8 @@ The non-empty early exit and the failure paths, on SQLite with the harness
 stubbed. The real seed is tests/state/test_demo_seed.py (integration tier).
 """
 
+import os
+
 import pytest
 from sqlalchemy import create_engine
 from sqlalchemy.orm import Session
@@ -89,3 +91,48 @@ def test_parked_authors_are_the_live_registry_reviewers():
 
     registry = load_registry(demo.LIVE_REGISTRY)
     assert set(demo.PARKED_AUTHORS) == set(registry.services["payment-api"].default_reviewers)
+
+
+def test_seeding_never_writes_live(sqlite_url, monkeypatch):
+    """Seeding runs on every empty boot: whatever the process env says, the
+    harness and the parked-review subprocesses get recorded writes."""
+    monkeypatch.setenv("HELIX_GITHUB_WRITES", "live")
+    monkeypatch.setenv("HELIX_DATABASE_URL", sqlite_url)
+    monkeypatch.setenv("HELIX_ENV_FILE", "")
+    seen: list[str | None] = []
+
+    def run_benchmark(cfg):
+        seen.append(os.environ.get("HELIX_GITHUB_WRITES"))
+        return {"outcomes": [{"scenario": s, "skipped": None} for s in demo.DEMO_SCENARIOS]}
+
+    def park_reviews(url):
+        seen.append(os.environ.get("HELIX_GITHUB_WRITES"))
+        return []
+
+    monkeypatch.setattr(demo.harness, "run_benchmark", run_benchmark)
+    monkeypatch.setattr(demo, "_park_reviews", park_reviews)
+
+    demo.seed_demo(sqlite_url)
+
+    assert seen == ["recorded", "recorded"]
+
+
+def test_parked_review_subprocess_env_is_recorded(sqlite_url, monkeypatch):
+    monkeypatch.setenv("HELIX_GITHUB_WRITES", "live")
+    envs: list[dict] = []
+    monkeypatch.setattr(
+        demo.harness,
+        "_ingest_declared_events",
+        lambda scenario, url: ([{"incident_id": "inc-x"}], None),
+    )
+
+    def helix(args, env):
+        envs.append(env)
+        raise RuntimeError("stop after the first run")
+
+    monkeypatch.setattr(demo.harness, "_helix", helix)
+
+    with pytest.raises(RuntimeError):
+        demo._park_review(sqlite_url, "VrajVed", 101)
+
+    assert envs[0]["HELIX_GITHUB_WRITES"] == "recorded"

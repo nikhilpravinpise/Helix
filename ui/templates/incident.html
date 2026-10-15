@@ -20,6 +20,7 @@
   </header>
 
   {% if busy %}<p class="callout">A sample is already running - showing it.</p>{% endif %}
+  {% if capped %}<p class="callout">Today's limit of real pull requests was reached, so this run's PR is recorded, not opened on GitHub.</p>{% endif %}
 
   <section class="card summary st-{{ i.status }}">
     <dl class="summary-rows">
