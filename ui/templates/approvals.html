@@ -1,10 +1,13 @@
 {% extends "base.html" %}
 {% block title %}Approvals - Helix{% endblock %}
 {% block content %}
-<div class="page-head">
-  <h1>Approvals</h1>
-  <span class="muted">{{ pending|length }} pending</span>
-</div>
+<header class="pane-head">
+  <div>
+    <p class="eyebrow">approvals</p>
+    <h1>Approval queue</h1>
+  </div>
+  <span class="mono muted">{{ pending|length }} pending</span>
+</header>
 
 {%- set who = request.state.user if request.state is defined else none %}
 <div class="card actor-bar">
@@ -22,7 +25,7 @@
   {% endif %}
 </div>
 
-<h2 class="timeline-title">Pending</h2>
+<h2 class="section-title">Pending</h2>
 {% if pending %}
   {% for a in pending %}
   <div class="card approval" id="approval-{{ a.id }}">
@@ -44,14 +47,18 @@
   </div>
   {% endfor %}
 {% else %}
-<div class="empty">
-  <p class="empty-title">Nothing awaiting approval.</p>
-  <p class="muted">Actions the policy marks REQUIRE_APPROVAL park here until an operator decides.</p>
+<div class="canvas canvas-fill">
+  <div class="empty preview">
+    <p class="eyebrow">queue empty</p>
+    <p class="empty-title">Nothing awaiting approval.</p>
+    <p class="muted">Actions the policy marks REQUIRE_APPROVAL park here until an operator decides.</p>
+  </div>
 </div>
 {% endif %}
 
 {% if decided %}
-<h2 class="timeline-title">Decided</h2>
+<h2 class="section-title">Decided</h2>
+<section class="card flush"><div class="table-wrap">
 <table class="table">
   <thead>
     <tr><th>#</th><th>Incident</th><th>Action</th><th>Decision</th><th>By</th><th>At</th><th>Note</th><th>Age</th></tr>
@@ -71,5 +78,6 @@
     {% endfor %}
   </tbody>
 </table>
+</div></section>
 {% endif %}
 {% endblock %}

@@ -1,52 +1,81 @@
 {% extends "base.html" %}
 {% block title %}Incidents - Helix{% endblock %}
 {% block content %}
-<div class="page-head">
-  <h1>Incidents</h1>
-  <span class="muted">{{ incidents|length }} total</span>
+<header class="pane-head">
+  <div>
+    <p class="eyebrow">incidents</p>
+    <h1>Incident dashboard</h1>
+  </div>
   {% if samples_enabled %}
-  <form method="post" action="/ui/samples"><button class="btn" type="submit">Run a sample incident</button></form>
+  <form method="post" action="/ui/samples"><button class="btn btn-primary" type="submit">Run a sample incident</button></form>
   {% endif %}
+</header>
+
+<div class="stats">
+  <div class="stat" data-stat="total">
+    <span class="stat-value">{{ stats.total }}</span>
+    <span class="stat-label">total</span>
+  </div>
+  <div class="stat stat-green" data-stat="recovered">
+    <span class="stat-value">{{ stats.recovered }}</span>
+    <span class="stat-label">recovered</span>
+  </div>
+  <div class="stat stat-danger" data-stat="escalated">
+    <span class="stat-value">{{ stats.escalated }}</span>
+    <span class="stat-label">escalated</span>
+  </div>
+  <div class="stat stat-accent" data-stat="open">
+    <span class="stat-value">{{ stats.open }}</span>
+    <span class="stat-label">open</span>
+  </div>
 </div>
+
 {% if incidents %}
-<table class="table">
-  <thead>
-    <tr>
-      <th>Incident</th>
-      <th>Service</th>
-      <th>Environment</th>
-      <th>Severity</th>
-      <th>Status</th>
-      <th class="num">Signals</th>
-      <th class="num">Attempts</th>
-      <th>Age</th>
-    </tr>
-  </thead>
-  <tbody>
-    {% for i in incidents %}
-    <tr>
-      <td><a class="mono strong" href="/ui/incidents/{{ i.incident_id }}">{{ i.incident_id }}</a></td>
-      <td>{{ i.service }}</td>
-      <td>{{ i.environment }}</td>
-      <td><span class="badge sev-{{ i.severity }}">{{ i.severity }}</span></td>
-      <td><span class="badge st-{{ i.status }}">{{ i.status }}</span></td>
-      <td class="num">{{ i.signal_count }}</td>
-      <td class="num">{{ i.attempt_count }}</td>
-      <td class="mono muted" title="{{ i.created_at|dt }}">{{ i.created_at|age }}</td>
-    </tr>
-    {% endfor %}
-  </tbody>
-</table>
+<section class="card flush">
+  <div class="table-wrap">
+    <table class="table table-rows">
+      <thead>
+        <tr>
+          <th>Incident</th>
+          <th>Service</th>
+          <th>Environment</th>
+          <th>Severity</th>
+          <th>Status</th>
+          <th class="num">Signals</th>
+          <th class="num">Attempts</th>
+          <th class="num">Age</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for i in incidents %}
+        <tr class="row-link">
+          <td><a class="mono strong" href="/ui/incidents/{{ i.incident_id }}">{{ i.incident_id }}</a></td>
+          <td>{{ i.service }}</td>
+          <td class="muted">{{ i.environment }}</td>
+          <td><span class="badge sev-{{ i.severity }}">{{ i.severity }}</span></td>
+          <td><span class="badge st-{{ i.status }}">{{ i.status }}</span></td>
+          <td class="num mono">{{ i.signal_count }}</td>
+          <td class="num mono">{{ i.attempt_count }}</td>
+          <td class="num mono muted" title="{{ i.created_at|dt }}">{{ i.created_at|age }}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</section>
 {% else %}
-<div class="empty">
-  <p class="empty-title">No incidents yet.</p>
-  {% if samples_enabled %}
-  <p class="muted">Raise a recorded failure and watch Helix work it.</p>
-  <form method="post" action="/ui/samples"><button class="btn" type="submit">Run a sample incident</button></form>
-  {% else %}
-  <p class="muted">Failure signals arrive via <code>helix intake --file signal.json</code>
-  or <code>POST /intake/kubernetes</code> / <code>POST /intake/jenkins</code>.</p>
-  {% endif %}
+<div class="canvas canvas-fill">
+  <div class="empty preview">
+    <p class="eyebrow">no incidents</p>
+    <p class="empty-title">No incidents yet.</p>
+    {% if samples_enabled %}
+    <p class="muted">Raise a recorded failure and watch Helix work it.</p>
+    <form method="post" action="/ui/samples"><button class="btn btn-primary" type="submit">Run a sample incident</button></form>
+    {% else %}
+    <p class="muted">Failure signals arrive via <code>helix intake --file signal.json</code>
+    or <code>POST /intake/kubernetes</code> / <code>POST /intake/jenkins</code>.</p>
+    {% endif %}
+  </div>
 </div>
 {% endif %}
 {% endblock %}

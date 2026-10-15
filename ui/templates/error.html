@@ -1,9 +1,12 @@
 {% extends "base.html" %}
 {% block title %}{{ code }} - Helix{% endblock %}
 {% block content %}
-<div class="empty">
-  <p class="empty-title">{{ code }}</p>
-  <p class="muted">{{ message }}</p>
-  <p><a href="/ui/">back to incidents</a></p>
+<div class="canvas canvas-fill">
+  <div class="empty preview">
+    <p class="eyebrow">error</p>
+    <p class="empty-title">{{ code }}</p>
+    <p class="muted">{{ message }}</p>
+    <p><a class="btn" href="/ui/">Back to incidents</a></p>
+  </div>
 </div>
 {% endblock %}

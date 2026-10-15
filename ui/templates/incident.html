@@ -2,11 +2,16 @@
 {% block title %}{{ i.incident_id }} - Helix{% endblock %}
 {% block content %}
 <article data-incident-id="{{ i.incident_id }}" data-incident-status="{{ i.status }}">
-  <div class="page-head">
-    <h1 class="mono">{{ i.incident_id }}</h1>
-    <span class="badge badge-lg st-{{ i.status }}">{{ i.status }}</span>
-    {% if not terminal %}<span class="live muted" id="live-check">live - polling</span>{% endif %}
-  </div>
+  <header class="pane-head">
+    <div>
+      <p class="eyebrow">incident - {{ i.service }}</p>
+      <h1 class="mono">{{ i.incident_id }}</h1>
+    </div>
+    <div class="head-meta">
+      <span class="badge badge-lg st-{{ i.status }}">{{ i.status }}</span>
+      {% if not terminal %}<span class="live"><span class="pulse" aria-hidden="true"></span><span id="live-check">live - polling</span></span>{% endif %}
+    </div>
+  </header>
 
   {% if busy %}<p class="callout">A sample is already running - showing it.</p>{% endif %}
 
@@ -29,11 +34,11 @@
       <div class="span"><dt>fingerprint</dt><dd class="mono">{{ i.fingerprint }}</dd></div>
     </dl>
     {% if i.escalation_cause %}
-    <p class="callout"><strong>Escalated:</strong> {{ i.escalation_cause }}</p>
+    <p class="callout callout-danger"><strong>Escalated:</strong> {{ i.escalation_cause }}</p>
     {% endif %}
   </section>
 
-  <h2 class="timeline-title">Provenance</h2>
+  <h2 class="section-title">Provenance</h2>
   <ol class="timeline">
 
     <li class="stage">
@@ -145,7 +150,7 @@
     <li class="stage">
       <h3><span class="stage-dot"></span>Candidates</h3>
       {% if stages.candidates %}
-      <table class="table table-tight">
+      <div class="table-wrap card flush"><table class="table table-tight">
         <thead>
           <tr><th>#</th><th class="num">att</th><th class="num">rank</th><th>action</th>
               <th>params</th><th class="num">score</th><th>risk</th><th>rationale</th><th>at</th></tr>
@@ -157,7 +162,7 @@
             <td class="num">{{ c.attempt }}</td>
             <td class="num">{{ c.rank }}</td>
             <td class="mono">{{ c.action }}</td>
-            <td class="mono small">{{ c.params|tojson }}</td>
+            <td class="mono small"><div class="cell-scroll">{{ c.params|tojson }}</div></td>
             <td class="num">{{ "%.2f"|format(c.score) }}</td>
             <td><span class="badge risk-{{ c.risk_tier }}">{{ c.risk_tier }}</span></td>
             <td class="small">{{ c.rationale }}</td>
@@ -165,7 +170,7 @@
           </tr>
           {% endfor %}
         </tbody>
-      </table>
+      </table></div>
       {% else %}<p class="none">none recorded</p>{% endif %}
     </li>
 
@@ -275,7 +280,7 @@
             (window {{ v.window_seconds }}s / poll {{ v.poll_seconds }}s)</p>
           <p class="record-body">{{ v.detail }}</p>
           {% if v.checks %}
-          <table class="table table-tight">
+          <div class="table-wrap card flush"><table class="table table-tight">
             <thead><tr><th>check</th><th>status</th><th>detail</th><th>evidence</th></tr></thead>
             <tbody>
               {% for c in v.checks %}
@@ -287,7 +292,7 @@
               </tr>
               {% endfor %}
             </tbody>
-          </table>
+          </table></div>
           {% endif %}
         </div>
         {% endfor %}
@@ -324,8 +329,8 @@
 
   </ol>
 
-  <h2 class="timeline-title">Transitions</h2>
-  <table class="table">
+  <h2 class="section-title">Transitions</h2>
+  <div class="table-wrap card flush"><table class="table">
     <thead><tr><th>#</th><th>from</th><th>to</th><th>cause</th><th>at</th></tr></thead>
     <tbody>
       {% for t in transitions %}
@@ -338,6 +343,6 @@
       </tr>
       {% endfor %}
     </tbody>
-  </table>
+  </table></div>
 </article>
 {% endblock %}

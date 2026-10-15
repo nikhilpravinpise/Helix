@@ -47,7 +47,7 @@ from helix import demo
 from helix.config import get_settings
 from state import models
 from state.db import session_scope
-from state.machine import TERMINAL_STATUSES
+from state.machine import TERMINAL_STATUSES, IncidentStatus
 from state.provenance import assemble_provenance
 
 # Repo-root ui/ directory - sibling of the helix package.
@@ -99,6 +99,7 @@ def _jsonpp(value: Any) -> str:
 templates.env.filters["dt"] = _fmt_dt
 templates.env.filters["age"] = _age
 templates.env.filters["jsonpp"] = _jsonpp
+templates.env.globals["is_demo"] = lambda: get_settings().environment == "demo"
 
 
 def get_db_session() -> Iterator[Session]:
@@ -113,6 +114,11 @@ def get_db_session() -> Iterator[Session]:
 DbSession = Annotated[Session, Depends(get_db_session)]
 
 router = APIRouter(include_in_schema=False)
+
+
+def _incident_total(session: Session) -> int:
+    """Incident count for the sidebar nav on every page."""
+    return session.scalar(select(func.count()).select_from(models.Incident)) or 0
 
 
 def _pending_count(session: Session) -> int:
@@ -161,12 +167,20 @@ def incident_list(request: Request, session: DbSession) -> HTMLResponse:
         }
         for i in incidents
     ]
+    stats = {
+        "total": len(rows),
+        "recovered": sum(1 for r in rows if r["status"] == IncidentStatus.RECOVERED),
+        "escalated": sum(1 for r in rows if r["status"] == IncidentStatus.ESCALATED),
+        "open": sum(1 for i in incidents if i.status not in TERMINAL_STATUSES),
+    }
     return templates.TemplateResponse(
         request,
         "incidents.html",
         {
             "active": "incidents",
             "incidents": rows,
+            "stats": stats,
+            "incident_total": len(rows),
             "pending_count": _pending_count(session),
             "samples_enabled": _samples_enabled(),
         },
@@ -198,6 +212,7 @@ def incident_detail(
             "error.html",
             {
                 "active": "incidents",
+                "incident_total": _incident_total(session),
                 "pending_count": _pending_count(session),
                 "code": 404,
                 "message": f"no such incident: {incident_id}",
@@ -210,6 +225,7 @@ def incident_detail(
         "incident.html",
         {
             "active": "incidents",
+            "incident_total": _incident_total(session),
             "pending_count": _pending_count(session),
             "i": incident,
             "stages": record["stages"],
@@ -260,6 +276,7 @@ def approvals_queue(request: Request, session: DbSession) -> HTMLResponse:
         "approvals.html",
         {
             "active": "approvals",
+            "incident_total": _incident_total(session),
             "pending_count": len(pending),
             "pending": pending,
             "decided": decided,

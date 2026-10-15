@@ -17,7 +17,6 @@ callback Helix did not start is refused.
 import base64
 import hashlib
 import hmac
-import html
 import json
 import secrets
 import time
@@ -28,6 +27,7 @@ from fastapi import APIRouter, Request
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse, Response
 
 from helix.config import get_settings
+from helix.ui import templates
 
 SESSION_COOKIE = "helix_session"
 STATE_COOKIE = "helix_oauth_state"
@@ -142,18 +142,15 @@ def gate(request: Request) -> Response | None:
     return JSONResponse({"detail": "sign in required"}, status_code=401)
 
 
-_PAGE = """<!doctype html><html lang="en"><head><meta charset="utf-8">
-<meta name="viewport" content="width=device-width,initial-scale=1">
-<title>Helix - sign in</title><link rel="stylesheet" href="/static/style.css"></head>
-<body><main class="container"><h1>Helix</h1>{body}</main></body></html>"""
+def _auth_page(request: Request, state: str, status_code: int = 200, login: str = "") -> Response:
+    return templates.TemplateResponse(
+        request, "login.html", {"state": state, "login": login}, status_code=status_code
+    )
 
 
 @router.get("/login", response_class=HTMLResponse)
-def login_page() -> str:
-    return _PAGE.format(
-        body="<p>Sign in to see incidents and decide approvals.</p>"
-        '<p><a class="button" href="/auth/github">Sign in with GitHub</a></p>'
-    )
+def login_page(request: Request) -> Response:
+    return _auth_page(request, "login")
 
 
 @router.get("/auth/github")
@@ -184,17 +181,10 @@ def start(request: Request) -> Response:
 def callback(request: Request, code: str = "", state: str = "") -> Response:
     expected = (_unsign(request.cookies.get(STATE_COOKIE)) or {}).get("state")
     if not code or not expected or not hmac.compare_digest(state, expected):
-        return HTMLResponse(
-            _PAGE.format(body='<p>Sign-in expired. <a href="/login">Try again</a>.</p>'), 400
-        )
+        return _auth_page(request, "expired", 400)
     login = github_login(code, f"{_public_url(request)}/auth/github/callback")
     if login not in allowed_users():
-        return HTMLResponse(
-            _PAGE.format(
-                body=f"<p>GitHub user <b>{html.escape(login)}</b> is not allowed to use Helix.</p>"
-            ),
-            403,
-        )
+        return _auth_page(request, "denied", 403, login)
     response = RedirectResponse("/ui/", status_code=303)
     response.delete_cookie(STATE_COOKIE)
     response.set_cookie(
