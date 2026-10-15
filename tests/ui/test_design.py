@@ -67,6 +67,12 @@ def _state_cookie(client, state: str) -> None:
     client.cookies.set(auth.STATE_COOKIE, auth._sign({"state": state, "exp": time.time() + 600}))
 
 
+@pytest.mark.parametrize("path", ["/login", "/ui/", "/ui/approvals", "/ui/incidents/INC-nope"])
+def test_every_page_sets_the_mobile_viewport(client, path):
+    resp = client.get(path)
+    assert '<meta name="viewport" content="width=device-width, initial-scale=1">' in resp.text
+
+
 def test_not_allowed_page_escapes_login_and_keeps_403(client, oauth, monkeypatch):
     monkeypatch.setattr(auth, "github_login", lambda code, uri: "<script>alert(1)</script>")
     monkeypatch.setenv("HELIX_ALLOWED_USERS", "someone")
