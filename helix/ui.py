@@ -178,6 +178,10 @@ def _did(incident: dict[str, Any], stages: dict[str, Any]) -> dict[str, Any] | N
     if status == "review_pending" or reviews:
         who = f" with {reviews[-1]['reviewer']}" if reviews else ""
         return {"text": f"Nothing executed - review pending{who}"}
+    if status == "approved":
+        return {"text": "Review approved - deploy not started yet"}
+    if status == "deploying":
+        return {"text": "Review approved - waiting for the deploy to report"}
     if status == "escalated":
         return {"text": "Nothing executed - escalated to a human"}
     if stages.get("trigger") and status not in ("received",):
@@ -242,15 +246,19 @@ def _incident_total(session: Session) -> int:
 
 
 def _pending_count(session: Session) -> int:
-    """Pending approvals count for the nav badge on every page."""
-    return (
-        session.scalar(
-            select(func.count())
-            .select_from(models.Approval)
-            .where(models.Approval.status == models.ApprovalStatus.PENDING)
-        )
-        or 0
+    """Pending approvals plus pending reviews - everything waiting on a
+    human in the decision queue - for the nav badge on every page."""
+    approvals = session.scalar(
+        select(func.count())
+        .select_from(models.Approval)
+        .where(models.Approval.status == models.ApprovalStatus.PENDING)
     )
+    reviews = session.scalar(
+        select(func.count())
+        .select_from(models.ReviewRequest)
+        .where(models.ReviewRequest.status == models.ApprovalStatus.PENDING)
+    )
+    return (approvals or 0) + (reviews or 0)
 
 
 @router.get("/", response_class=HTMLResponse)
@@ -340,10 +348,13 @@ def incident_detail(
             status_code=404,
         )
     incident = record["incident"]
+    settings = get_settings()
     return templates.TemplateResponse(
         request,
         "incident.html",
         {
+            "default_actor": settings.operator,
+            "token_required": bool(settings.intake_token),
             "active": "incidents",
             "incident_total": _incident_total(session),
             "pending_count": _pending_count(session),
@@ -377,10 +388,29 @@ def _approval_row(row: models.Approval) -> dict[str, Any]:
     }
 
 
+def _review_row(row: models.ReviewRequest) -> dict[str, Any]:
+    """Plain-dict view of a review_requests row for the decision queue."""
+    return {
+        "id": row.id,
+        "incident_id": row.incident.incident_id,
+        "incident_status": row.incident.status.value,
+        "service": row.incident.service,
+        "owner": row.incident.owner,
+        "reviewer": row.reviewer,
+        "rationale": row.rationale,
+        "status": row.status.value,
+        "decided_by": row.decided_by,
+        "decided_at": row.decided_at,
+        "note": row.note,
+        "created_at": row.created_at,
+    }
+
+
 @router.get("/ui/approvals", response_class=HTMLResponse)
 def approvals_queue(request: Request, session: DbSession) -> HTMLResponse:
-    """The approval queue: pending rows first (oldest waiting first), then
-    decided rows newest-first with who decided and when.
+    """The decision queue: approvals, then change-lifecycle reviews. Each
+    lists pending rows first (oldest waiting first), then decided rows
+    newest-first with who decided and when.
 
     `default_actor` prefills the operator-name field (HELIX_OPERATOR);
     `token_required` shows the intake-token field only when the decision
@@ -391,6 +421,14 @@ def approvals_queue(request: Request, session: DbSession) -> HTMLResponse:
     ]
     pending = [r for r in rows if r["status"] == models.ApprovalStatus.PENDING]
     decided = [r for r in reversed(rows) if r["status"] != models.ApprovalStatus.PENDING]
+    review_rows = [
+        _review_row(r)
+        for r in session.scalars(select(models.ReviewRequest).order_by(models.ReviewRequest.id))
+    ]
+    pending_reviews = [r for r in review_rows if r["status"] == models.ApprovalStatus.PENDING]
+    decided_reviews = [
+        r for r in reversed(review_rows) if r["status"] != models.ApprovalStatus.PENDING
+    ]
     settings = get_settings()
     return templates.TemplateResponse(
         request,
@@ -398,9 +436,11 @@ def approvals_queue(request: Request, session: DbSession) -> HTMLResponse:
         {
             "active": "approvals",
             "incident_total": _incident_total(session),
-            "pending_count": len(pending),
+            "pending_count": len(pending) + len(pending_reviews),
             "pending": pending,
             "decided": decided,
+            "pending_reviews": pending_reviews,
+            "decided_reviews": decided_reviews,
             "default_actor": settings.operator,
             "token_required": bool(settings.intake_token),
         },

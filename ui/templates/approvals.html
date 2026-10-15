@@ -1,31 +1,66 @@
 {% extends "base.html" %}
-{% block title %}Approvals - Helix{% endblock %}
+{% from "_decide.html" import actor_bar, review_decide_row %}
+{% block title %}Approvals &amp; reviews - Helix
+{% if pending_reviews or decided_reviews %}
+<h2 class="section-title">Pending reviews</h2>
+{% if pending_reviews %}
+  {% for r in pending_reviews %}
+  <div class="card approval" id="review-{{ r.id }}">
+    <div class="record-head">
+      <span class="mono strong">review #{{ r.id }} - {{ r.reviewer }}</span>
+      <a class="mono" href="/ui/incidents/{{ r.incident_id }}">{{ r.incident_id }}</a>
+      <span class="badge">{{ r.service }}</span>
+      {% if r.owner %}<span class="muted">owner {{ r.owner }}</span>{% endif %}
+      <span class="badge">{{ r.incident_status|label }}</span>
+      <span class="mono muted ts" title="{{ r.created_at|dt }}">waiting {{ r.created_at|age }}</span>
+    </div>
+    <p class="record-body">{{ r.rationale }}</p>
+    {{ review_decide_row(r.id) }}
+  </div>
+  {% endfor %}
+{% else %}
+<p class="muted">No reviews awaiting a decision.</p>
+{% endif %}
+
+{% if decided_reviews %}
+<h2 class="section-title">Decided reviews</h2>
+<section class="card flush"><div class="table-wrap">
+<table class="table">
+  <thead>
+    <tr><th>#</th><th>Incident</th><th>Reviewer</th><th>Decision</th><th>By</th><th>At</th><th>Note</th><th>Age</th></tr>
+  </thead>
+  <tbody>
+    {% for r in decided_reviews %}
+    <tr>
+      <td class="mono">{{ r.id }}</td>
+      <td><a class="mono" href="/ui/incidents/{{ r.incident_id }}">{{ r.incident_id }}</a></td>
+      <td>{{ r.reviewer }}</td>
+      <td><span class="badge ap-{{ r.status }}">{{ r.status|label }}</span></td>
+      <td>{{ r.decided_by or "-" }}</td>
+      <td class="mono muted">{{ r.decided_at|dt }}</td>
+      <td class="small">{{ r.note or "" }}</td>
+      <td class="mono muted" title="{{ r.created_at|dt }}">{{ r.created_at|age }}</td>
+    </tr>
+    {% endfor %}
+  </tbody>
+</table>
+</div></section>
+{% endif %}
+{% endif %}
+{% endblock %}
 {% block content %}
 <header class="pane-head">
   <div>
-    <p class="eyebrow">approvals</p>
-    <h1>Approval queue</h1>
+    <p class="eyebrow">approvals &amp; reviews</p>
+    <h1>Decision queue</h1>
   </div>
-  <span class="mono muted">{{ pending|length }} pending</span>
+  <span class="mono muted">{{ pending|length + pending_reviews|length }} pending</span>
 </header>
 
 {%- set who = request.state.user if request.state is defined else none %}
-<div class="card actor-bar">
-  {% if who %}
-  <span>Deciding as <b>{{ who }}</b></span>
-  <input id="actor" type="hidden" value="{{ who }}">
-  {% else %}
-  <label for="actor">Operator</label>
-  <input id="actor" type="text" value="{{ default_actor }}" maxlength="128" autocomplete="off">
-  {% endif %}
-  {% if token_required and not who %}
-  <label for="intake-token">Intake token</label>
-  <input id="intake-token" type="password" maxlength="256" autocomplete="off"
-         placeholder="HELIX_INTAKE_TOKEN">
-  {% endif %}
-</div>
+{{ actor_bar(who, default_actor, token_required) }}
 
-<h2 class="section-title">Pending</h2>
+<h2 class="section-title">Pending approvals</h2>
 {% if pending %}
   {% for a in pending %}
   <div class="card approval" id="approval-{{ a.id }}">
@@ -46,6 +81,8 @@
     <p class="decide-error" id="decide-error-{{ a.id }}"></p>
   </div>
   {% endfor %}
+{% elif pending_reviews %}
+<p class="muted">Nothing awaiting approval.</p>
 {% else %}
 <div class="canvas canvas-fill">
   <div class="empty preview">
@@ -57,7 +94,7 @@
 {% endif %}
 
 {% if decided %}
-<h2 class="section-title">Decided</h2>
+<h2 class="section-title">Decided approvals</h2>
 <section class="card flush"><div class="table-wrap">
 <table class="table">
   <thead>
@@ -79,5 +116,52 @@
   </tbody>
 </table>
 </div></section>
+{% endif %}
+
+{% if pending_reviews or decided_reviews %}
+<h2 class="section-title">Pending reviews</h2>
+{% if pending_reviews %}
+  {% for r in pending_reviews %}
+  <div class="card approval" id="review-{{ r.id }}">
+    <div class="record-head">
+      <span class="mono strong">review #{{ r.id }} - {{ r.reviewer }}</span>
+      <a class="mono" href="/ui/incidents/{{ r.incident_id }}">{{ r.incident_id }}</a>
+      <span class="badge">{{ r.service }}</span>
+      {% if r.owner %}<span class="muted">owner {{ r.owner }}</span>{% endif %}
+      <span class="badge">{{ r.incident_status|label }}</span>
+      <span class="mono muted ts" title="{{ r.created_at|dt }}">waiting {{ r.created_at|age }}</span>
+    </div>
+    <p class="record-body">{{ r.rationale }}</p>
+    {{ review_decide_row(r.id) }}
+  </div>
+  {% endfor %}
+{% else %}
+<p class="muted">No reviews awaiting a decision.</p>
+{% endif %}
+
+{% if decided_reviews %}
+<h2 class="section-title">Decided reviews</h2>
+<section class="card flush"><div class="table-wrap">
+<table class="table">
+  <thead>
+    <tr><th>#</th><th>Incident</th><th>Reviewer</th><th>Decision</th><th>By</th><th>At</th><th>Note</th><th>Age</th></tr>
+  </thead>
+  <tbody>
+    {% for r in decided_reviews %}
+    <tr>
+      <td class="mono">{{ r.id }}</td>
+      <td><a class="mono" href="/ui/incidents/{{ r.incident_id }}">{{ r.incident_id }}</a></td>
+      <td>{{ r.reviewer }}</td>
+      <td><span class="badge ap-{{ r.status }}">{{ r.status|label }}</span></td>
+      <td>{{ r.decided_by or "-" }}</td>
+      <td class="mono muted">{{ r.decided_at|dt }}</td>
+      <td class="small">{{ r.note or "" }}</td>
+      <td class="mono muted" title="{{ r.created_at|dt }}">{{ r.created_at|age }}</td>
+    </tr>
+    {% endfor %}
+  </tbody>
+</table>
+</div></section>
+{% endif %}
 {% endif %}
 {% endblock %}

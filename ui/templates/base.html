@@ -13,7 +13,7 @@
         {%- if incident_total is defined %}<span class="count">{{ incident_total }}</span>{% endif -%}
       </a>
       <a class="nav-item" href="/ui/approvals"{% if active == "approvals" %} aria-current="page"{% endif %}>
-        <span class="nav-label">Approvals</span>
+        <span class="nav-label">Approvals &amp; reviews</span>
         {%- if pending_count %}<span class="count count-hot">{{ pending_count }}</span>{% endif -%}
       </a>
     </nav>

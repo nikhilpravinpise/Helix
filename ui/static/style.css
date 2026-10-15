@@ -1076,6 +1076,19 @@ details summary:hover {
   margin-top: 14px;
 }
 
+.record .actor-bar {
+  margin-top: 12px;
+  padding: 10px 14px;
+}
+
+.record .decide-row {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 12px;
+}
+
 .decide-row input {
   flex: 1;
   min-width: 160px;

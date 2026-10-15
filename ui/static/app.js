@@ -4,8 +4,9 @@
       read endpoint (GET /incidents/{id}) every few seconds; when the
       status changes reload so the timeline re-renders, and stop polling
       once a terminal status arrives.
-   2. Approvals queue: Approve/Reject buttons POST the decision to the
-      1.8 JSON endpoints with the operator name (and the intake token as
+   2. Approvals queue and incident page: Approve/Reject buttons POST the
+      decision (data-decide-kind="review" for a review, else an approval)
+      to the 1.8 / 2.6 JSON endpoints with the operator name (and the intake token as
       a Bearer header when the deployment gates decisions); the page
       reloads to show the recorded decision. */
 (function () {
@@ -57,14 +58,16 @@
     var action = btn.getAttribute("data-decide");
     var actorEl = field("actor");
     var tokenEl = field("intake-token");
-    var noteEl = field("note-" + id);
-    var errEl = field("decide-error-" + id);
+    var kind = btn.getAttribute("data-decide-kind") === "review" ? "review" : "";
+    var suffix = kind ? kind + "-" + id : id;
+    var noteEl = field("note-" + suffix);
+    var errEl = field("decide-error-" + suffix);
     var headers = { "Content-Type": "application/json", Accept: "application/json" };
     if (tokenEl && tokenEl.value) {
       headers.Authorization = "Bearer " + tokenEl.value;
     }
     btn.disabled = true;
-    fetch("/approvals/" + encodeURIComponent(id) + "/" + action, {
+    fetch((kind ? "/reviews/" : "/approvals/") + encodeURIComponent(id) + "/" + action, {
       method: "POST",
       headers: headers,
       body: JSON.stringify({

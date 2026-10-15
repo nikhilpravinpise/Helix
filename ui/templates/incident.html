@@ -1,4 +1,5 @@
 {% extends "base.html" %}
+{% from "_decide.html" import actor_bar, review_decide_row %}
 {% block title %}{{ i.incident_id }} - Helix{% endblock %}
 {% block content %}
 {% macro params_block(value) %}
@@ -104,6 +105,10 @@
           </div>
           <p class="record-body">{{ r.rationale }}</p>
           {% if r.note %}<p class="record-body">{{ r.note }}</p>{% endif %}
+          {% if r.status == "pending" %}
+          {{ actor_bar(request.state.user if request.state is defined else none, default_actor, token_required) }}
+          {{ review_decide_row(r.id) }}
+          {% endif %}
         </div>
         {% endfor %}
       {% else %}<p class="none">none recorded</p>{% endif %}
