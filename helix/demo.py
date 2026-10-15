@@ -53,10 +53,6 @@ PARKED_FIXTURE = "ci/docker-build-failure"
 #: review lands on the other login and each visitor has one to decide.
 PARKED_AUTHORS = ("nikhilpravinpise", "VrajVed")
 
-#: The live team (config/service_registry.yaml), not the benchmark cast the
-#: harness pins: the parked reviews must name people who can sign in.
-LIVE_REGISTRY = harness.REPO_ROOT / "config" / "service_registry.yaml"
-
 
 #: The signal-flow scenarios a visitor's "Run a sample incident" picks from.
 SAMPLE_SCENARIOS = (
@@ -113,7 +109,9 @@ def _park_review(database_url: str, author: str, number: int) -> str:
         HELIX_ARM="A",
         HELIX_DATABASE_URL=database_url,
         HELIX_FIXTURE_PATH=PARKED_FIXTURE,
-        HELIX_SERVICE_REGISTRY=str(LIVE_REGISTRY),
+        # Blank reads the people and services tables (the live team), not the
+        # benchmark cast the harness pins: reviews must name people who can sign in.
+        HELIX_SERVICE_REGISTRY="",
         HELIX_GITHUB_WRITES="recorded",
     )
     # Triage and review-request are separate stopping points: two runs.
@@ -178,11 +176,12 @@ def _drive_sample(incident_id: str, scenario: dict, database_url: str) -> None:
             UV_NO_SYNC="1",
             # A sample behaves like a real incident on the connected tools:
             # Slack, Jira and the PR bot (connection, repo, limit) apply,
-            # and it names the live team. Work tracking stays `memory`,
-            # which yields to a connected Jira; the server's own .env Slack
-            # and Notion tokens stay blanked, so only a connection delivers.
+            # and it names the live team (the database). Work tracking stays
+            # `memory`, which yields to a connected Jira; the server's own
+            # .env Slack and Notion tokens stay blanked, so only a connection
+            # delivers.
             HELIX_CONNECTIONS_ENABLED="true",
-            HELIX_SERVICE_REGISTRY=str(LIVE_REGISTRY),
+            HELIX_SERVICE_REGISTRY="",
         )
         cfg = harness.HarnessConfig(arms=["A"], mode="fixture", database_url=database_url)
         errors = harness._drive(incident_id, env, cfg, scenario)

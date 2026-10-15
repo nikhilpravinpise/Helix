@@ -37,13 +37,14 @@ REJECTED -> FIX_REQUIRED, approval drives REVIEW_PENDING -> APPROVED.
 
 import hmac
 import json
+import time
 from collections.abc import Iterator
 from datetime import datetime
 from typing import Annotated
 from urllib.parse import parse_qsl
 
 import httpx
-from fastapi import BackgroundTasks, Depends, FastAPI, Header, HTTPException, Request
+from fastapi import BackgroundTasks, Depends, FastAPI, Header, HTTPException, Request, Response
 from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy import select
 from sqlalchemy.orm import Session
@@ -343,10 +344,13 @@ class ApprovalDecisionIn(BaseModel):
 
 
 class ApprovalDecisionOut(BaseModel):
-    """The decided row plus what the resumed run did."""
+    """The decided row plus what the resumed run did. With `?wait=false` the
+    run resumes after the response: `scheduled` is true, `resumed` false and
+    `status` is the incident's status at decision time."""
 
     approval: ApprovalOut
     resumed: bool
+    scheduled: bool = False
     status: str | None = None  # incident status after the resume
     run_status: str | None = None
     run_error: str | None = None
@@ -359,8 +363,25 @@ def _decider(request: Request, body: "ApprovalDecisionIn") -> str:
     return _signed_in(request) or body.actor
 
 
+def _schedule_resume(background: BackgroundTasks, incident_id: str) -> None:
+    """Resume after the response, until the run parks again - the dashboard
+    shows "Approving..." instead of a button frozen for the whole run."""
+    from agent.runner import run_until_parked
+
+    background.add_task(_resume_logged, run_until_parked, incident_id)
+
+
+def _status_now(incident: models.Incident) -> str:
+    return getattr(incident.status, "value", str(incident.status))
+
+
 def _decide_approval(
-    approval_id: int, approved: bool, body: ApprovalDecisionIn, session: Session, actor: str
+    approval_id: int,
+    approved: bool,
+    body: ApprovalDecisionIn,
+    session: Session,
+    actor: str,
+    background: BackgroundTasks | None = None,
 ) -> ApprovalDecisionOut:
     """Record the decision on a pending row and resume the suspended run.
 
@@ -377,6 +398,14 @@ def _decide_approval(
         raise HTTPException(status_code=409, detail=str(exc)) from exc
     incident_id = approval.incident.incident_id
     session.commit()
+    if background is not None:
+        _schedule_resume(background, incident_id)
+        return ApprovalDecisionOut(
+            approval=_approval_out(approval),
+            resumed=False,
+            scheduled=True,
+            status=_status_now(approval.incident),
+        )
 
     resumed = False
     status = run_status = run_error = None
@@ -402,26 +431,40 @@ def _decide_approval(
 @app.post("/approvals/{approval_id}/approve", response_model=ApprovalDecisionOut)
 def approve_approval(
     request: Request,
+    response: Response,
+    background: BackgroundTasks,
     approval_id: int,
     body: ApprovalDecisionIn,
     session: DbSession,
     _: Annotated[None, Depends(require_intake_token)],
+    wait: bool = True,
 ) -> ApprovalDecisionOut:
     """Approve the pending row and resume the suspended run."""
-    return _decide_approval(approval_id, True, body, session, _decider(request, body))
+    if not wait:
+        response.status_code = 202
+    return _decide_approval(
+        approval_id, True, body, session, _decider(request, body), None if wait else background
+    )
 
 
 @app.post("/approvals/{approval_id}/reject", response_model=ApprovalDecisionOut)
 def reject_approval(
     request: Request,
+    response: Response,
+    background: BackgroundTasks,
     approval_id: int,
     body: ApprovalDecisionIn,
     session: DbSession,
     _: Annotated[None, Depends(require_intake_token)],
+    wait: bool = True,
 ) -> ApprovalDecisionOut:
     """Reject the pending row and resume: the incident replans with the
     rejected fingerprint excluded."""
-    return _decide_approval(approval_id, False, body, session, _decider(request, body))
+    if not wait:
+        response.status_code = 202
+    return _decide_approval(
+        approval_id, False, body, session, _decider(request, body), None if wait else background
+    )
 
 
 def _slack_action(
@@ -507,7 +550,7 @@ def _resume_logged(run_incident, incident_id: str) -> None:  # type: ignore[no-u
         run_incident(incident_id)
     except Exception as exc:  # the decision is durable; the run is retryable
         get_logger().warning(
-            "slack decision resume failed",
+            "decision resume failed",
             incident_id=incident_id,
             error=f"{type(exc).__name__}: {exc}",
         )
@@ -553,17 +596,22 @@ async def slack_interactions(
     return handle_slack_interaction(payload, session, background)
 
 
-def _slack_handle(user: dict) -> str:
-    """The registry handle of the Slack user who clicked: the person whose
-    `people.<handle>.slack` is their member id. Someone not linked keeps
-    their Slack name, which the decision rules then refuse with a reason."""
+def _slack_person(member: str | None) -> str | None:
+    """The registry handle whose `people.<handle>.slack` is this Slack member
+    id, or None when nobody is linked to it."""
     from agent.ops.registry import load_registry
 
-    member = user.get("id")
     for handle, person in load_registry().people.items():
         if member and person.slack == member:
             return handle
-    return user.get("username") or user.get("name") or member or "slack"
+    return None
+
+
+def _slack_handle(user: dict) -> str:
+    """The registry handle of the Slack user who clicked. Someone not linked
+    keeps their Slack name, which the decision rules then refuse with a reason."""
+    member = user.get("id")
+    return _slack_person(member) or user.get("username") or user.get("name") or member or "slack"
 
 
 def handle_slack_interaction(payload: dict, session: Session, background: BackgroundTasks) -> dict:
@@ -608,7 +656,62 @@ def handle_slack_interaction(payload: dict, session: Session, background: Backgr
         # timed out) must say so to the person who clicked, or it looks
         # like nothing happened. Only they see it; the card is unchanged.
         background.add_task(_tell_clicker, str(payload["response_url"]), refusals[0])
+    if payload.get("response_url") and user.get("id") and _slack_person(user["id"]) is None:
+        # Helix cannot tell who this is: offer a private, signed link that
+        # binds their Slack account to their Helix account once they open it
+        # while signed in (helix/team_ui.py link-slack).
+        link = _slack_link_url(payload, user)
+        if link:
+            background.add_task(
+                _send_ephemeral,
+                str(payload["response_url"]),
+                f"Helix doesn't know which teammate you are yet. Link your Slack account: {link}",
+            )
     return {"ok": True, "decisions": decisions}
+
+
+#: How long a Slack self-link stays valid.
+_LINK_MINUTES = 15
+
+
+def _slack_link_url(payload: dict, user: dict) -> str | None:
+    """The signed self-link for an unlinked Slack member; None (logged) when
+    Helix has no public URL or session secret to sign one with."""
+    from helix import auth
+
+    base = (get_settings().public_url or "").rstrip("/")
+    try:
+        token = auth._sign(
+            {
+                # Session cookies share the signing key; the purpose keeps a
+                # link token from standing in for any other signed value.
+                "purpose": "slack-link",
+                "slack_id": user["id"],
+                "slack_name": user.get("username") or user.get("name") or user["id"],
+                "team": (payload.get("team") or {}).get("id") or user.get("team_id") or "",
+                "exp": time.time() + _LINK_MINUTES * 60,
+            }
+        )
+    except RuntimeError:
+        base = ""
+    if not base:
+        get_logger().warning(
+            "slack self-link unavailable: set HELIX_PUBLIC_URL and the session secret"
+        )
+        return None
+    return f"{base}{auth.LINK_SLACK_PATH}?t={token}"
+
+
+def _send_ephemeral(response_url: str, text: str) -> None:
+    """A private note to the person who clicked; a failure is only logged."""
+    try:
+        httpx.post(
+            response_url,
+            json={"response_type": "ephemeral", "replace_original": False, "text": text},
+            timeout=10.0,
+        ).raise_for_status()
+    except httpx.HTTPError as exc:
+        get_logger().warning("slack link note failed", error=str(exc))
 
 
 def _tell_clicker(response_url: str, text: str) -> None:
@@ -699,17 +802,24 @@ def list_reviews(
 
 
 class ReviewDecisionOut(BaseModel):
-    """The decided review row plus what the resumed run did."""
+    """The decided review row plus what the resumed run did (see
+    ApprovalDecisionOut for `?wait=false`)."""
 
     review: ReviewOut
     resumed: bool
+    scheduled: bool = False
     status: str | None = None
     run_status: str | None = None
     run_error: str | None = None
 
 
 def _decide_review(
-    review_id: int, approved: bool, body: ApprovalDecisionIn, session: Session, actor: str
+    review_id: int,
+    approved: bool,
+    body: ApprovalDecisionIn,
+    session: Session,
+    actor: str,
+    background: BackgroundTasks | None = None,
 ) -> ReviewDecisionOut:
     """The review-side twin of `_decide_approval`: record the decision on
     the pending review_requests row (durable first), then best-effort
@@ -726,6 +836,14 @@ def _decide_review(
         raise HTTPException(status_code=409, detail=str(exc)) from exc
     incident_id = review.incident.incident_id
     session.commit()
+    if background is not None:
+        _schedule_resume(background, incident_id)
+        return ReviewDecisionOut(
+            review=_review_out(review),
+            resumed=False,
+            scheduled=True,
+            status=_status_now(review.incident),
+        )
 
     resumed = False
     status = run_status = run_error = None
@@ -751,27 +869,41 @@ def _decide_review(
 @app.post("/reviews/{review_id}/approve", response_model=ReviewDecisionOut)
 def approve_review(
     request: Request,
+    response: Response,
+    background: BackgroundTasks,
     review_id: int,
     body: ApprovalDecisionIn,
     session: DbSession,
     _: Annotated[None, Depends(require_intake_token)],
+    wait: bool = True,
 ) -> ReviewDecisionOut:
     """Approve the pending review request and resume: the change proceeds
     toward APPROVED -> DEPLOYING."""
-    return _decide_review(review_id, True, body, session, _decider(request, body))
+    if not wait:
+        response.status_code = 202
+    return _decide_review(
+        review_id, True, body, session, _decider(request, body), None if wait else background
+    )
 
 
 @app.post("/reviews/{review_id}/reject", response_model=ReviewDecisionOut)
 def reject_review(
     request: Request,
+    response: Response,
+    background: BackgroundTasks,
     review_id: int,
     body: ApprovalDecisionIn,
     session: DbSession,
     _: Annotated[None, Depends(require_intake_token)],
+    wait: bool = True,
 ) -> ReviewDecisionOut:
     """Reject the pending review request and resume: the change drives
     REJECTED -> FIX_REQUIRED awaiting an updated commit."""
-    return _decide_review(review_id, False, body, session, _decider(request, body))
+    if not wait:
+        response.status_code = 202
+    return _decide_review(
+        review_id, False, body, session, _decider(request, body), None if wait else background
+    )
 
 
 # Subphase 1.12 (D11): mount the server-rendered operator UI - / redirects

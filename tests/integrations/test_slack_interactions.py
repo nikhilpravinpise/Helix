@@ -556,3 +556,73 @@ def test_a_rejected_approval_reads_as_rejected(client, sqlite_engine, monkeypatc
         },
     )
     assert "Rejected by <@U123>" in str(posts[-1]["blocks"])
+
+
+class TestSelfLinkFromSlack:
+    """An unlinked Slack member who clicks a Helix button is refused as
+    before, and also gets a private signed link to bind their Slack account
+    to their Helix account (team Slack matching, step 3)."""
+
+    def _setup(self, client, sqlite_engine, monkeypatch):
+        monkeypatch.setenv("HELIX_SESSION_SECRET", "test-session-secret")
+        monkeypatch.setenv("HELIX_PUBLIC_URL", "https://helix.example")
+        posts = []
+        monkeypatch.setattr(
+            "helix.api.httpx.post",
+            lambda url, json=None, timeout=None: (
+                posts.append((url, json)) or httpx.Response(200, request=httpx.Request("POST", url))
+            ),
+        )
+        incident_id = _seed_incident(client)
+        approval_id = _seed_pending(sqlite_engine, incident_id)
+        _stub_run(monkeypatch, [])
+        return posts, approval_id
+
+    def test_an_unlinked_click_is_refused_and_gets_a_signed_link(
+        self, client, sqlite_engine, monkeypatch
+    ):
+        from helix import auth
+
+        posts, approval_id = self._setup(client, sqlite_engine, monkeypatch)
+        _link_slack(monkeypatch, alice="U999")
+        payload = {
+            **_block_actions(approval_id),
+            "user": {"id": "U000", "name": "mallory-name"},
+            "team": {"id": "T1"},
+            "response_url": "https://hooks.slack.test/r",
+        }
+        response = _post(client, payload)
+        assert response.status_code == 200
+        assert "decision" not in response.json()["decisions"][0]
+        assert _get_approval(sqlite_engine, approval_id).status == models.ApprovalStatus.PENDING
+        assert any("Not recorded" in body["text"] for _, body in posts)
+        links = [body for _, body in posts if "link-slack" in body["text"]]
+        assert len(links) == 1
+        link = links[0]
+        assert link["response_type"] == "ephemeral" and link["replace_original"] is False
+        assert link["text"].startswith(
+            "Helix doesn't know which teammate you are yet. Link your Slack account: "
+            "https://helix.example/ui/team/link-slack?t="
+        )
+        token = link["text"].split("?t=", 1)[1]
+        claims = auth._unsign(token)
+        assert (claims["slack_id"], claims["slack_name"], claims["team"]) == (
+            "U000",
+            "mallory-name",
+            "T1",
+        )
+        assert claims["purpose"] == "slack-link"
+        assert 800 < claims["exp"] - time.time() <= 900
+
+    def test_a_linked_click_gets_no_link(self, client, sqlite_engine, monkeypatch):
+        posts, approval_id = self._setup(client, sqlite_engine, monkeypatch)
+        _link_slack(monkeypatch, alice="U123")
+        payload = {**_block_actions(approval_id), "response_url": "https://hooks.slack.test/r"}
+        assert _post(client, payload).status_code == 200
+        assert not any("link-slack" in body["text"] for _, body in posts if body.get("text"))
+
+    def test_no_response_url_means_no_link_and_no_crash(self, client, sqlite_engine, monkeypatch):
+        posts, approval_id = self._setup(client, sqlite_engine, monkeypatch)
+        _link_slack(monkeypatch, alice="U999")
+        payload = {**_block_actions(approval_id), "user": {"id": "U000", "name": "x"}}
+        assert _post(client, payload).status_code == 200 and posts == []

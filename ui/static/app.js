@@ -7,9 +7,17 @@
    2. Approvals queue and incident page: Approve/Reject buttons POST the
       decision (data-decide-kind="review" for a review, else an approval)
       to the 1.8 / 2.6 JSON endpoints with the operator name (and the intake token as
-      a Bearer header when the deployment gates decisions); the page
-      reloads to show the recorded decision.
-   3. Sidebar: drag its right edge (or use the arrow keys, Home, End on the
+      a Bearer header when the deployment gates decisions). The button says
+      "Approving..." at once; with ?wait=false the server saves the decision
+      and resumes the run after answering, so the page polls the incident
+      and reloads once its status moves (or after two minutes).
+   3. Team page: Copy link puts an invite's link on the clipboard. Without
+      clipboard support (or if copying fails) the link field shows instead.
+   4. Services form: reviewer and path-rule rows get Move up / Move down /
+      Remove buttons and an Add button that clones the form's <template> row;
+      rule rows renumber their owner checkboxes (rule_owners_<i>) to match the
+      row order. Without this the server-rendered rows submit as they are.
+   5. Sidebar: drag its right edge (or use the arrow keys, Home, End on the
       focused handle) to resize it; the width lives in the --sidebar-w custom
       property on .app, is clamped to 200-440px, double-click resets it, and
       it persists in localStorage (base.html applies it before first paint). */
@@ -70,8 +78,17 @@
     if (tokenEl && tokenEl.value) {
       headers.Authorization = "Bearer " + tokenEl.value;
     }
-    btn.disabled = true;
-    fetch((kind ? "/reviews/" : "/approvals/") + encodeURIComponent(id) + "/" + action, {
+    var row = btn.closest(".decide-row");
+    var pair = row ? row.querySelectorAll("[data-decide]") : [btn];
+    var label = btn.textContent;
+    Array.prototype.forEach.call(pair, function (b) {
+      b.disabled = true;
+    });
+    btn.textContent = action === "approve" ? "Approving..." : "Rejecting...";
+    btn.classList.add("is-busy");
+    if (errEl) errEl.textContent = "";
+    var url = (kind ? "/reviews/" : "/approvals/") + encodeURIComponent(id) + "/" + action;
+    fetch(url + "?wait=false", {
       method: "POST",
       headers: headers,
       body: JSON.stringify({
@@ -81,8 +98,9 @@
     })
       .then(function (res) {
         if (res.ok) {
-          window.location.reload();
-          return null;
+          return res.json().then(function (body) {
+            waitForRun(body, errEl);
+          });
         }
         return res.json().then(function (body) {
           var detail = body && body.detail ? body.detail : "HTTP " + res.status;
@@ -90,9 +108,50 @@
         });
       })
       .catch(function (err) {
-        btn.disabled = false;
+        btn.textContent = label;
+        btn.classList.remove("is-busy");
+        Array.prototype.forEach.call(pair, function (b) {
+          b.disabled = false;
+        });
         if (errEl) errEl.textContent = String(err && err.message ? err.message : err);
       });
+  }
+
+  /* The decision is saved; the run carries on in the background. Reload
+     when the incident's status moves, or after two minutes regardless. */
+  function waitForRun(body, note) {
+    var record = body.approval || body.review || {};
+    var from = body.status;
+    if (note) {
+      note.classList.add("decide-progress");
+      note.textContent = "Saved. Helix is carrying on in the background - this page updates when it is done.";
+    }
+    if (!record.incident_id || !body.scheduled) {
+      window.location.reload();
+      return;
+    }
+    var polls = 0;
+    var timer = window.setInterval(function () {
+      polls += 1;
+      fetch("/incidents/" + encodeURIComponent(record.incident_id), {
+        headers: { Accept: "application/json" },
+      })
+        .then(function (res) {
+          return res.ok ? res.json() : null;
+        })
+        .then(function (data) {
+          if ((data && data.status && data.status !== from) || polls >= 40) {
+            window.clearInterval(timer);
+            window.location.reload();
+          }
+        })
+        .catch(function () {
+          if (polls >= 40) {
+            window.clearInterval(timer);
+            window.location.reload();
+          }
+        });
+    }, POLL_MS);
   }
 
   function initApprovals() {
@@ -115,6 +174,37 @@
     Array.prototype.forEach.call(buttons, function (btn) {
       btn.addEventListener("click", function () {
         decide(btn);
+      });
+    });
+  }
+
+  /* ---- team page: copy an invite link ---- */
+
+  function initCopyLinks() {
+    var buttons = document.querySelectorAll("[data-copy-link]");
+    if (!buttons.length || !navigator.clipboard) return;
+    Array.prototype.forEach.call(buttons, function (btn) {
+      btn.hidden = false;
+      var row = btn.closest(".team-row");
+      var field = row && row.querySelector(".team-link");
+      if (field) field.hidden = true;
+      btn.addEventListener("click", function () {
+        navigator.clipboard.writeText(btn.getAttribute("data-copy-link")).then(
+          function () {
+            btn.textContent = "Copied";
+            window.setTimeout(function () {
+              btn.textContent = "Copy link";
+            }, 2000);
+          },
+          function () {
+            if (field) field.hidden = false;
+            var box = row && row.querySelector("[data-link-field]");
+            if (box) {
+              box.focus();
+              box.select();
+            }
+          }
+        );
       });
     });
   }
@@ -184,10 +274,54 @@
     });
   }
 
+  /* ---- services form: ordered rows ---- */
+
+  function initServiceForm() {
+    var form = document.querySelector("[data-service-form]");
+    if (!form) return;
+
+    function sync() {
+      form.querySelectorAll("[data-js-only]").forEach(function (el) {
+        el.hidden = false;
+      });
+      form.querySelectorAll('[data-rows="rules"] > [data-row]').forEach(function (row, i) {
+        row.querySelectorAll('input[type="checkbox"]').forEach(function (box) {
+          box.name = "rule_owners_" + i;
+        });
+      });
+    }
+
+    form.addEventListener("click", function (ev) {
+      var add = ev.target.closest("[data-add]");
+      if (add) {
+        var kind = add.getAttribute("data-add");
+        var list = form.querySelector('[data-rows="' + kind + '"]');
+        var tpl = form.querySelector('template[data-for="' + kind + '"]');
+        list.appendChild(tpl.content.firstElementChild.cloneNode(true));
+        sync();
+        return;
+      }
+      var btn = ev.target.closest("[data-act]");
+      if (!btn) return;
+      var row = btn.closest("[data-row]");
+      var act = btn.getAttribute("data-act");
+      if (act === "remove") row.remove();
+      else if (act === "up" && row.previousElementSibling) {
+        row.parentNode.insertBefore(row, row.previousElementSibling);
+      } else if (act === "down" && row.nextElementSibling) {
+        row.parentNode.insertBefore(row.nextElementSibling, row);
+      }
+      sync();
+    });
+    sync();
+  }
+
   function init() {
     initSidebarResize();
+    initServiceForm();
     initIncidentPolling();
     initApprovals();
+    initCopyLinks();
   }
 
   if (document.readyState === "loading") {

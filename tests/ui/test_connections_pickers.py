@@ -398,7 +398,7 @@ def test_signed_in_user_can_save(client, slack, sqlite_engine, monkeypatch):
     monkeypatch.setenv("HELIX_GITHUB_OAUTH_CLIENT_ID", "cid")
     monkeypatch.setenv("HELIX_GITHUB_OAUTH_CLIENT_SECRET", "csecret")
     monkeypatch.setenv("HELIX_ALLOWED_USERS", "VrajVed")
-    monkeypatch.setattr(auth, "github_login", lambda code, redirect_uri: "VrajVed")
+    monkeypatch.setattr(auth, "github_login", lambda code, redirect_uri: auth.GitHubUser("VrajVed"))
     start = client.get("/auth/github", follow_redirects=False)
     gh_state = parse_qs(urlparse(start.headers["location"]).query)["state"][0]
     client.get(f"/auth/github/callback?code=c&state={gh_state}", follow_redirects=False)

@@ -142,7 +142,9 @@ def test_connect_redirects_to_slack_with_params_and_state(client):
     query = parse_qs(target.query)
     assert (target.netloc, target.path) == ("slack.com", "/oauth/v2/authorize")
     assert query["client_id"] == ["slack-cid"]
-    assert query["scope"] == ["chat:write,chat:write.public,channels:read"]
+    assert query["scope"] == [
+        "chat:write,chat:write.public,channels:read,users:read,users:read.email"
+    ]
     assert query["redirect_uri"] == [CALLBACK]
     assert len(query["state"][0]) >= 16
     assert "helix_connect_state" in response.headers["set-cookie"]
@@ -302,7 +304,7 @@ def signed_in(client, monkeypatch):
     monkeypatch.setenv("HELIX_GITHUB_OAUTH_CLIENT_ID", "cid")
     monkeypatch.setenv("HELIX_GITHUB_OAUTH_CLIENT_SECRET", "csecret")
     monkeypatch.setenv("HELIX_ALLOWED_USERS", "VrajVed,nikhilpravinpise")
-    monkeypatch.setattr(auth, "github_login", lambda code, redirect_uri: "VrajVed")
+    monkeypatch.setattr(auth, "github_login", lambda code, redirect_uri: auth.GitHubUser("VrajVed"))
     start = client.get("/auth/github", follow_redirects=False)
     gh_state = parse_qs(urlparse(start.headers["location"]).query)["state"][0]
     client.get(f"/auth/github/callback?code=c&state={gh_state}", follow_redirects=False)

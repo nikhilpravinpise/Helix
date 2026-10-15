@@ -45,6 +45,8 @@ from fastapi import APIRouter, Depends, FastAPI, HTTPException, Request
 from fastapi.responses import HTMLResponse, RedirectResponse, Response
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
+from jinja2 import pass_context
+from markupsafe import Markup, escape
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
@@ -146,7 +148,8 @@ def _why(incident: dict[str, Any], stages: dict[str, Any]) -> str | None:
         rationale = t["rationale"]
         if t["owner"] and t["owner"] in rationale:
             return rationale[:1].upper() + rationale[1:]
-        return f"Owner {t['owner'] or 'unresolved'}. {rationale}"
+        owner = _display_name(t["owner"]) if t["owner"] else "unresolved"
+        return f"Owner {owner}. {rationale}"
     hypotheses = stages.get("hypothesis") or []
     if not hypotheses:
         return None
@@ -168,7 +171,7 @@ def _did(incident: dict[str, Any], stages: dict[str, Any]) -> dict[str, Any] | N
         if out.get("branch"):
             text += f" (branch {out['branch']})"
         if e.get("decided_by"):
-            text += f" - approved by {e['decided_by']}"
+            text += f" - approved by {_display_name(e['decided_by'])}"
         if len(primary) < len(executions):
             text += " - undone after verification failed"
         row: dict[str, Any] = {"text": text}
@@ -183,7 +186,7 @@ def _did(incident: dict[str, Any], stages: dict[str, Any]) -> dict[str, Any] | N
         action = f" of {pending[-1]['action']}" if pending else ""
         return {"text": f"Nothing executed - waiting for approval{action}"}
     if status == "review_pending" or reviews:
-        who = f" with {reviews[-1]['reviewer']}" if reviews else ""
+        who = f" with {_display_name(reviews[-1]['reviewer'])}" if reviews else ""
         return {"text": f"Nothing executed - review pending{who}"}
     if status == "approved":
         return {"text": "Review approved - deploy not started yet"}
@@ -230,6 +233,35 @@ templates.env.filters["label"] = _label
 templates.env.filters["dt"] = _fmt_dt
 templates.env.filters["age"] = _age
 templates.env.filters["jsonpp"] = _jsonpp
+
+
+def _person(login: str | None, people: dict | None = None) -> Markup:
+    """A person as the dashboard shows them: the display name with the
+    GitHub login as a tooltip, or the login when there is no name."""
+    if not login:
+        return Markup("")
+    if people is None:
+        people = load_registry().people
+    person = people.get(login)
+    name = (person.name if person else "") or login
+    if name == login:
+        return escape(login)
+    return Markup('<span class="person" title="{}">{}</span>').format(login, name)
+
+
+@pass_context
+def _person_filter(context: Any, login: str | None) -> Markup:
+    """`{{ login|person }}`; the team is read once per page, not per name."""
+    state = getattr(context.get("request"), "state", None)
+    people = getattr(state, "helix_people", None)
+    if people is None:
+        people = load_registry().people
+        if state is not None:
+            state.helix_people = people
+    return _person(login, people)
+
+
+templates.env.filters["person"] = _person_filter
 
 
 def get_db_session() -> Iterator[Session]:
@@ -767,3 +799,10 @@ def register_ui(app: FastAPI) -> None:
     from helix import connections_ui  # imports this module, so only here
 
     app.include_router(connections_ui.router)
+    from helix import team_ui
+
+    app.include_router(team_ui.router)
+    app.include_router(team_ui.link_router)
+    from helix import services_ui
+
+    app.include_router(services_ui.router)

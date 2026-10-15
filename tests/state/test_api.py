@@ -420,3 +420,102 @@ def test_intake_endpoint_against_real_postgres(pg):
         )
         assert incident is not None
         assert len(incident.signals) == 1
+
+
+class TestDecideInTheBackground:
+    """`?wait=false` (the dashboard's buttons): the decision is durable at
+    once, the run resumes after the response as a background task - the
+    same multi-hop resume a Slack click gets - and the response is a 202
+    with the incident's status at decision time. Without it nothing
+    changes: the CLI and machine clients still get the resumed result."""
+
+    @pytest.fixture
+    def runs(self, monkeypatch):
+        calls = {"until_parked": [], "single": []}
+
+        def until_parked(iid, **kw):
+            calls["until_parked"].append(iid)
+
+        def single(iid, **kw):
+            calls["single"].append(iid)
+            raise AssertionError("wait=false must not resume inside the request")
+
+        monkeypatch.setattr("agent.runner.run_until_parked", until_parked)
+        monkeypatch.setattr("agent.runner.run_incident", single)
+        return calls
+
+    def test_approve_returns_at_once_and_resumes_after(self, client, sqlite_engine, runs):
+        incident_id = client.post("/intake/kubernetes", json=K8S_SIGNAL).json()["incident_id"]
+        approval_id = TestApprovalEndpoints()._seed_pending(sqlite_engine, incident_id)
+        before = client.get(f"/incidents/{incident_id}").json()["status"]
+
+        response = client.post(
+            f"/approvals/{approval_id}/approve?wait=false", json={"actor": "alice"}
+        )
+
+        assert response.status_code == 202
+        body = response.json()
+        assert body["approval"]["status"] == "approved"
+        assert body["approval"]["decided_by"] == "alice"
+        assert body["scheduled"] is True and body["resumed"] is False
+        assert body["status"] == before
+        assert runs == {"until_parked": [incident_id], "single": []}
+
+    def test_reject_returns_at_once_and_resumes_after(self, client, sqlite_engine, runs):
+        incident_id = client.post("/intake/kubernetes", json=K8S_SIGNAL).json()["incident_id"]
+        approval_id = TestApprovalEndpoints()._seed_pending(sqlite_engine, incident_id)
+
+        response = client.post(
+            f"/approvals/{approval_id}/reject?wait=false", json={"actor": "alice"}
+        )
+
+        assert response.status_code == 202
+        assert response.json()["approval"]["status"] == "rejected"
+        assert runs["until_parked"] == [incident_id]
+
+    def test_a_failed_background_resume_keeps_the_decision(
+        self, client, sqlite_engine, monkeypatch
+    ):
+        def boom(iid, **kw):
+            raise RuntimeError("cluster unreachable")
+
+        monkeypatch.setattr("agent.runner.run_until_parked", boom)
+        incident_id = client.post("/intake/kubernetes", json=K8S_SIGNAL).json()["incident_id"]
+        approval_id = TestApprovalEndpoints()._seed_pending(sqlite_engine, incident_id)
+
+        response = client.post(
+            f"/approvals/{approval_id}/approve?wait=false", json={"actor": "alice"}
+        )
+
+        assert response.status_code == 202
+        rows = client.get("/approvals", params={"incident_id": incident_id}).json()
+        assert rows[0]["status"] == "approved"
+
+    def test_an_already_decided_approval_is_still_a_409(self, client, sqlite_engine, runs):
+        incident_id = client.post("/intake/kubernetes", json=K8S_SIGNAL).json()["incident_id"]
+        approval_id = TestApprovalEndpoints()._seed_pending(sqlite_engine, incident_id)
+        url = f"/approvals/{approval_id}/approve?wait=false"
+        assert client.post(url, json={"actor": "alice"}).status_code == 202
+        assert client.post(url, json={"actor": "alice"}).status_code == 409
+        assert runs["until_parked"] == [incident_id]
+
+    def test_a_review_returns_at_once_and_resumes_after(self, client, sqlite_engine, runs):
+        incident_id = client.post("/intake/kubernetes", json=K8S_SIGNAL).json()["incident_id"]
+        review_id = TestReviewEndpoints()._seed_review(sqlite_engine, incident_id)
+
+        response = client.post(f"/reviews/{review_id}/approve?wait=false", json={"actor": "bob"})
+
+        assert response.status_code == 202
+        body = response.json()
+        assert body["review"]["status"] == "approved"
+        assert body["scheduled"] is True and body["resumed"] is False
+        assert runs == {"until_parked": [incident_id], "single": []}
+
+    def test_a_review_reject_returns_at_once(self, client, sqlite_engine, runs):
+        incident_id = client.post("/intake/kubernetes", json=K8S_SIGNAL).json()["incident_id"]
+        review_id = TestReviewEndpoints()._seed_review(sqlite_engine, incident_id)
+
+        response = client.post(f"/reviews/{review_id}/reject?wait=false", json={"actor": "bob"})
+
+        assert response.status_code == 202
+        assert response.json()["review"]["status"] == "rejected"

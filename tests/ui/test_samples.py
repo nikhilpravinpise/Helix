@@ -189,20 +189,31 @@ def test_sample_drive_uses_connections_and_the_live_team(client, demo_env, drive
     env = _sample_env(client, drives)
 
     assert env["HELIX_CONNECTIONS_ENABLED"] == "true"
-    assert env["HELIX_SERVICE_REGISTRY"] == str(demo.LIVE_REGISTRY)
+    # Blank: the people and services tables, not a registry file.
+    assert env["HELIX_SERVICE_REGISTRY"] == ""
     # The server's own .env tokens still do not reach a sample.
     assert env["HELIX_SLACK_BOT_TOKEN"] == ""
     assert env["HELIX_NOTION_API_KEY"] == ""
 
 
-def test_sample_addresses_the_real_team_not_the_benchmark_cast(client, demo_env, drives):
-    from pathlib import Path
+def test_sample_addresses_the_real_team_not_the_benchmark_cast(
+    client, sqlite_engine, demo_env, drives, monkeypatch
+):
+    from sqlalchemy.orm import Session
 
-    from agent.ops.registry import load_registry
+    from agent.ops.registry import REPO_ROOT, load_registry
+    from state.team import import_registry
 
     env = _sample_env(client, drives)
+    with Session(sqlite_engine) as session:
+        import_registry(session, load_registry(REPO_ROOT / "config" / "service_registry.yaml"))
+        session.commit()
+    # What the sample's subprocess does: apply its env, read the registry.
+    for name, value in env.items():
+        monkeypatch.setenv(name, value)
+    monkeypatch.setattr("state.db.get_engine", lambda url=None: sqlite_engine)
 
-    service = load_registry(Path(env["HELIX_SERVICE_REGISTRY"])).services["payment-api"]
+    service = load_registry().services["payment-api"]
     assert service.default_owner == "VrajVed"
     assert set(service.default_reviewers) == {"nikhilpravinpise", "VrajVed"}
 

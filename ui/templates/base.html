@@ -23,10 +23,16 @@
       <a class="nav-item" href="/ui/connections"{% if active == "connections" %} aria-current="page"{% endif %}>
         <span class="nav-label">Connections</span>
       </a>
+      <a class="nav-item" href="/ui/team"{% if active == "team" %} aria-current="page"{% endif %}>
+        <span class="nav-label">Team</span>
+      </a>
+      <a class="nav-item" href="/ui/services"{% if active == "services" %} aria-current="page"{% endif %}>
+        <span class="nav-label">Services</span>
+      </a>
     </nav>
     <div class="side-foot">
       {% if who %}
-      <p class="whoami"><span class="who-name">{{ who }}</span> <a href="/logout">Sign out</a></p>
+      <p class="whoami"><span class="who-name">{{ who|person }}</span> <a href="/logout">Sign out</a></p>
       {% endif %}
     </div>
   </aside>

@@ -74,7 +74,9 @@ def test_every_page_sets_the_mobile_viewport(client, path):
 
 
 def test_not_allowed_page_escapes_login_and_keeps_403(client, oauth, monkeypatch):
-    monkeypatch.setattr(auth, "github_login", lambda code, uri: "<script>alert(1)</script>")
+    monkeypatch.setattr(
+        auth, "github_login", lambda code, uri: auth.GitHubUser("<script>alert(1)</script>")
+    )
     monkeypatch.setenv("HELIX_ALLOWED_USERS", "someone")
     _state_cookie(client, "abc")
     resp = client.get("/auth/github/callback?code=x&state=abc", follow_redirects=False)

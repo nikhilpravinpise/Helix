@@ -43,7 +43,7 @@ def _enable(monkeypatch, login="VrajVed"):
     monkeypatch.setenv("HELIX_GITHUB_OAUTH_CLIENT_SECRET", "csecret")
     # The test tier's registry is the benchmark cast, so name the list.
     monkeypatch.setenv("HELIX_ALLOWED_USERS", "VrajVed,nikhilpravinpise")
-    monkeypatch.setattr(auth, "github_login", lambda code, redirect_uri: login)
+    monkeypatch.setattr(auth, "github_login", lambda code, redirect_uri: auth.GitHubUser(login))
 
 
 def _sign_in(client):

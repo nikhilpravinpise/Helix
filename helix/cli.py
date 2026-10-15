@@ -268,7 +268,47 @@ def build_parser() -> argparse.ArgumentParser:
     )
     export.add_argument("--out", required=True, help="CSV path to write")
 
+    team = subparsers.add_parser("team", help="the team and its services")
+    team_sub = team.add_subparsers(dest="team_command", required=True)
+    team_import = team_sub.add_parser(
+        "import",
+        help="one-time import of the service registry YAML into the database "
+        "(only into an empty team; safe to run on every boot)",
+    )
+    team_import.add_argument(
+        "--path",
+        default=None,
+        help="registry YAML to import (default: config/service_registry.yaml)",
+    )
+
     return parser
+
+
+def _cmd_team_import(args: argparse.Namespace) -> int:
+    """Import the registry YAML into the people and services tables. Reads
+    the file explicitly, never HELIX_SERVICE_REGISTRY (that names the
+    benchmark/test registry). A missing file or a non-empty team imports
+    nothing and says why; both exit 0."""
+    from pathlib import Path
+
+    from agent.ops.registry import REPO_ROOT, load_registry
+    from state.db import session_scope
+    from state.team import import_registry
+
+    path = Path(args.path) if args.path else REPO_ROOT / "config" / "service_registry.yaml"
+    if not path.is_file():
+        print(f"nothing imported: {path} not found")
+        return 0
+    with session_scope() as session:
+        result = import_registry(session, load_registry(path))
+    if result.skipped_reason:
+        print(f"nothing imported: {result.skipped_reason}")
+    else:
+        print(
+            f"imported {result.imported_services} services and "
+            f"{result.imported_people} people from {path}"
+        )
+    return 0
 
 
 def _cmd_export_history(args: argparse.Namespace) -> int:
@@ -1257,4 +1297,6 @@ def main(argv: list[str] | None = None) -> int:
         return _cmd_graph_sync()
     if args.command == "export-history":
         return _cmd_export_history(args)
+    if args.command == "team":
+        return _cmd_team_import(args)
     return 2

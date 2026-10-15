@@ -41,7 +41,7 @@ if docker ps --format '{{.Names}}' | grep -qx helix-postgres; then
 else
     make db-up
 fi
-make db-migrate >/dev/null 2>&1
+make db-migrate >/dev/null 2>&1  # also seeds the team on first run
 echo "schema current"
 
 # --- 2. Operator UI ----------------------------------------------------------

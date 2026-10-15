@@ -212,9 +212,31 @@ What to build:
 4. **One-time import** of `config/service_registry.yaml`, safe to run
    twice, with a test that every service and person arrives intact.
 
-Open for the planning session: how an invited person who has never
-signed in is shown, whether removing the last admin is refused, and
-how the import treats a database that already has services.
+Decided in the planning session (2026-10-15):
+
+- **Invites work like GitHub collaborator invites.** An invite is
+  pending, shows who sent it and when, and expires after 7 days; admins
+  can cancel or resend it and copy its link, and Helix DMs the person in
+  Slack when it finds them. Signing in with the invited GitHub login
+  accepts it. Until then the person cannot own or review a service.
+- **The last admin cannot be removed or demoted**; the page says why.
+- **The import runs only into an empty team.** If the database already
+  has people or services it does nothing and logs why, so dashboard
+  edits always win and running it on every boot is harmless.
+- **Slack ids are matched in three steps:** the email the admin typed
+  on the invite, then every verified email on the person's GitHub
+  account (sign-in asks for `user:email`), then a self-link: an unlinked
+  person clicking a Helix button in Slack gets a private, signed "Link
+  your Slack to Helix" link that binds the two when opened while signed
+  in. Slack needs `users:read` and `users:read.email`, so it is
+  reconnected once.
+- **Where the registry is read from:** HELIX_SERVICE_REGISTRY set means
+  that file (benchmark, tests); unset means the database.
+
+Slices: 1 tables and import, 2 readers switch to the database, 3 Team
+page, 4 Services page, 5 background Approve/Reject, 6 display names vs
+logins (FOLLOWUPS #21), 7 delete config/service_registry.yaml once the
+import is confirmed on Render.
 
 ## Principles that carry over unchanged
 

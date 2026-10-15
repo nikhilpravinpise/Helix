@@ -51,7 +51,7 @@ def approval_refusal(incident: models.Incident, actor: str) -> str | None:
     if not allowed:
         return (
             f"{incident.service} has no registered owners who may decide approvals "
-            "(config/service_registry.yaml)"
+            "(add owners on the Services page)"
         )
     return f"{actor} is not allowed to decide approvals for {incident.service} ({allowed})"
 

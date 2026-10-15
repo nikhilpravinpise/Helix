@@ -62,6 +62,7 @@ from typing import Any
 
 from sqlalchemy import (
     Boolean,
+    CheckConstraint,
     DateTime,
     Enum,
     Float,
@@ -1117,6 +1118,73 @@ class PRBotSettings(Base):
     base_branch: Mapped[str | None] = mapped_column(String(256), nullable=True)
     draft: Mapped[bool | None] = mapped_column(Boolean, nullable=True)
     daily_limit: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
+    )
+
+
+class Person(Base):
+    """Someone on the team, keyed by their GitHub login exactly as given.
+    `role` is `admin` (manages services, the team and connections) or
+    `member`. `slack_id` is the Slack member id to @-mention, if linked.
+    """
+
+    __tablename__ = "people"
+    __table_args__ = (CheckConstraint("role IN ('admin', 'member')", name="ck_people_role"),)
+
+    login: Mapped[str] = mapped_column(String(128), primary_key=True)
+    name: Mapped[str] = mapped_column(String, default="", server_default="")
+    email: Mapped[str | None] = mapped_column(String, nullable=True)
+    slack_id: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    role: Mapped[str] = mapped_column(String(16))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    last_signed_in_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+
+
+class Invitation(Base):
+    """An invite to join the team, like a GitHub collaborator invite. `login`
+    is kept as the admin typed it; signing in with that GitHub login (any
+    case) while the invite is pending accepts it. Pending means not
+    accepted, not cancelled and not past `expires_at`.
+    """
+
+    __tablename__ = "invitations"
+    __table_args__ = (CheckConstraint("role IN ('admin', 'member')", name="ck_invitations_role"),)
+
+    id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
+    login: Mapped[str] = mapped_column(String(128))
+    role: Mapped[str] = mapped_column(String(16))
+    email: Mapped[str | None] = mapped_column(String, nullable=True)
+    slack_id: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    invited_by: Mapped[str] = mapped_column(String(128))
+    token: Mapped[str] = mapped_column(String(64), unique=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    accepted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    cancelled_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+
+
+class Service(Base):
+    """A service the team registered: who owns and reviews it, what it
+    depends on and its path rules. `path_owners` is an ordered list of
+    {"pattern": str, "owners": [str]} - order matters, CODEOWNERS
+    last-match-wins (agent/ops/registry.py).
+    """
+
+    __tablename__ = "services"
+
+    name: Mapped[str] = mapped_column(String(128), primary_key=True)
+    team: Mapped[str] = mapped_column(String, default="", server_default="")
+    repo: Mapped[str] = mapped_column(String, default="", server_default="")
+    default_owner: Mapped[str | None] = mapped_column(String, nullable=True)
+    owners: Mapped[list[str]] = mapped_column(_json_doc(), default=list)
+    default_reviewers: Mapped[list[str]] = mapped_column(_json_doc(), default=list)
+    depends_on: Mapped[list[str]] = mapped_column(_json_doc(), default=list)
+    path_owners: Mapped[list[dict[str, Any]]] = mapped_column(_json_doc(), default=list)
+    namespace: Mapped[str | None] = mapped_column(String, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
     )

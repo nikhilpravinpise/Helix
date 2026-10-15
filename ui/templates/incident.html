@@ -45,7 +45,7 @@
       <div><dt>attempts</dt><dd class="num">{{ i.attempt_count }}</dd></div>
       {% if i.kind == "change" %}
       <div><dt>lifecycle</dt><dd><span class="badge">change</span></dd></div>
-      {% if i.owner %}<div><dt>owner</dt><dd class="mono">{{ i.owner }}</dd></div>{% endif %}
+      {% if i.owner %}<div><dt>owner</dt><dd>{{ i.owner|person }}</dd></div>{% endif %}
       {% if i.priority %}<div><dt>priority</dt><dd class="mono">{{ i.priority }}</dd></div>{% endif %}
       {% if i.duplicate_of %}<div><dt>duplicate of</dt><dd class="mono"><a href="/ui/incidents/{{ i.duplicate_of }}">{{ i.duplicate_of }}</a></dd></div>{% endif %}
       {% endif %}
@@ -90,7 +90,7 @@
           <div class="record-head">
             <span class="mono strong">#{{ t.id }} - {{ t.affected_service }}</span>
             <span class="badge sev-{{ t.blast_radius }}">{{ t.blast_radius }}</span>
-            {% if t.owner %}<span class="muted">owner {{ t.owner }} ({{ t.owner_source }})</span>{% endif %}
+            {% if t.owner %}<span class="muted">owner {{ t.owner|person }} ({{ t.owner_source }})</span>{% endif %}
             {% if t.duplicate_of %}<span class="badge st-escalated">dup of {{ t.duplicate_of }}</span>{% endif %}
             <span class="mono muted ts">{{ t.created_at|dt }}</span>
           </div>
@@ -106,9 +106,9 @@
         {% for r in stages.reviews %}
         <div class="record">
           <div class="record-head">
-            <span class="mono strong">#{{ r.id }} - {{ r.reviewer }}</span>
+            <span class="mono strong">#{{ r.id }} - {{ r.reviewer|person }}</span>
             <span class="badge ap-{{ r.status }}">{{ r.status|label }}</span>
-            {% if r.decided_by %}<span class="muted">by {{ r.decided_by }} at <span class="mono">{{ r.decided_at|dt }}</span></span>{% endif %}
+            {% if r.decided_by %}<span class="muted">by {{ r.decided_by|person }} at <span class="mono">{{ r.decided_at|dt }}</span></span>{% endif %}
             <span class="mono muted ts">{{ r.created_at|dt }}</span>
           </div>
           <p class="record-body">{{ r.rationale }}</p>
@@ -213,7 +213,7 @@
           <div><dt>approval</dt><dd>
             {% if d.approval_id %}
               #{{ d.approval_id }} <span class="badge ap-{{ d.approval_status }}">{{ d.approval_status|label }}</span>
-              by {{ d.decided_by }} at <span class="mono">{{ d.decided_at|dt }}</span>
+              by {{ d.decided_by|person }} at <span class="mono">{{ d.decided_at|dt }}</span>
             {% else %}none required{% endif %}
           </dd></div>
           {% if d.execution_id %}<div><dt>execution</dt><dd class="mono">#{{ d.execution_id }}</dd></div>{% endif %}
@@ -252,7 +252,7 @@
           <div class="record-head">
             <span class="mono strong">#{{ a.id }} - {{ a.action }}</span>
             <span class="badge ap-{{ a.status }}">{{ a.status|label }}</span>
-            {% if a.decided_by %}<span class="muted">by {{ a.decided_by }} at <span class="mono">{{ a.decided_at|dt }}</span></span>{% endif %}
+            {% if a.decided_by %}<span class="muted">by {{ a.decided_by|person }} at <span class="mono">{{ a.decided_at|dt }}</span></span>{% endif %}
             <span class="mono muted ts">{{ a.created_at|dt }}</span>
           </div>
           {% if a.note %}<p class="record-body">{{ a.note }}</p>{% endif %}
@@ -275,7 +275,7 @@
             <span class="badge pol-{{ e.policy_decision }}">{{ e.policy_decision|label }}</span>
             <span class="badge origin-{{ e.origin }}">{{ e.origin }}</span>
             <span class="muted">attempt {{ e.attempt }}</span>
-            {% if e.decided_by %}<span class="muted">approved by {{ e.decided_by }}</span>{% endif %}
+            {% if e.decided_by %}<span class="muted">approved by {{ e.decided_by|person }}</span>{% endif %}
             {% if e.compensates_id %}<span class="badge">compensates #{{ e.compensates_id }}</span>{% endif %}
           </div>
           <p class="mono muted small">{{ e.started_at|dt }} -> {{ e.finished_at|dt }}</p>

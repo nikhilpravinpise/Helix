@@ -60,7 +60,7 @@ STATE_SECONDS = 600
 _DETAIL = re.compile(r"[a-z0-9_]{1,64}")
 _BRANCH = re.compile(r"[A-Za-z0-9][A-Za-z0-9._/-]{0,199}")
 
-router = APIRouter(include_in_schema=False)
+router = APIRouter(include_in_schema=False, dependencies=[auth.AdminOnly])
 
 _NOT_SET_UP = "Connecting {} isn't set up on this Helix yet. An admin needs to finish setup."
 

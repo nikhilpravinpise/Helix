@@ -1,0 +1,80 @@
+{% extends "base.html" %}
+{% block title %}Services - Helix{% endblock %}
+{% macro who(login) -%}
+<span title="{{ login }}">{{ names.get(login, login) }}</span>
+{%- endmacro %}
+{% block content %}
+<header class="pane-head">
+  <div>
+    <p class="eyebrow">services</p>
+    <h1>Services</h1>
+  </div>
+  {% if can_manage and services %}
+  <a class="btn btn-primary" href="/ui/services/new">Add a service</a>
+  {% endif %}
+</header>
+
+{% if notice %}
+<p class="notice notice-{{ notice[0] }}" role="status">{{ notice[1] }}</p>
+{% endif %}
+{% if not can_manage %}
+<p class="small muted team-readonly">Only admins can change services.</p>
+{% endif %}
+
+{% if services %}
+{% for s in services %}
+<section class="card svc">
+  <div class="svc-head">
+    <div class="svc-title">
+      <h2 class="provider-name">{{ s.name }}</h2>
+      <span class="small muted">
+        {% if s.team %}{{ s.team }}{% endif %}
+        {% if s.team and s.repo %} - {% endif %}
+        {% if s.repo %}<a href="https://github.com/{{ s.repo }}" rel="noopener">{{ s.repo }}</a>{% endif %}
+      </span>
+    </div>
+    {% if can_manage %}
+    <div class="team-actions">
+      <a class="btn btn-sm" href="/ui/services/{{ s.name }}/edit">Edit</a>
+      <details class="team-more">
+        <summary class="btn btn-sm btn-reject">Remove</summary>
+        <form class="team-inline" method="post" action="/ui/services/{{ s.name }}/delete">
+          <span class="small">Remove {{ s.name }}? Open incidents on {{ s.name }} will have nobody who can approve them.</span>
+          <button class="btn btn-sm btn-reject" type="submit">Yes, remove</button>
+        </form>
+      </details>
+    </div>
+    {% endif %}
+  </div>
+  <dl class="svc-facts">
+    <dt>Owners</dt>
+    <dd>
+      {% for o in s.owners %}<span class="chip">{{ who(o) }}{% if o == s.default_owner %} (default){% endif %}</span>{% endfor %}
+      {% if s.default_owner and s.default_owner not in s.owners %}<span class="chip">{{ who(s.default_owner) }} (default)</span>{% endif %}
+      {% if not s.owners %}<span class="muted">Nobody</span>{% endif %}
+    </dd>
+    <dt>Reviewers</dt>
+    <dd>
+      {% for r in s.default_reviewers %}<span class="chip">{{ loop.index }}. {{ who(r) }}</span>{% endfor %}
+      {% if not s.default_reviewers %}<span class="muted">None</span>{% endif %}
+    </dd>
+    <dt>Depends on</dt>
+    <dd>
+      {% for d in s.depends_on %}<span class="chip">{{ d }}</span>{% endfor %}
+      {% if not s.depends_on %}<span class="muted">Nothing</span>{% endif %}
+    </dd>
+    <dt>Path rules</dt>
+    <dd>{{ s.path_owners|length }} path rule{{ "" if s.path_owners|length == 1 else "s" }}</dd>
+  </dl>
+</section>
+{% endfor %}
+{% else %}
+<section class="card">
+  <h2 class="provider-name">No services yet</h2>
+  <p class="muted provider-blurb">Helix needs to know who owns a service to ask the right person to approve a change.</p>
+  {% if can_manage %}
+  <a class="btn btn-primary" href="/ui/services/new">Add a service</a>
+  {% endif %}
+</section>
+{% endif %}
+{% endblock %}
