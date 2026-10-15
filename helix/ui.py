@@ -299,7 +299,7 @@ def _pending_count(session: Session) -> int:
     return (approvals or 0) + (reviews or 0)
 
 
-@router.get("/", response_class=HTMLResponse)
+@router.api_route("/", methods=["GET", "HEAD"], response_class=HTMLResponse)
 def index(request: Request) -> Response:
     """Root is the public landing page for a signed-out visitor when sign-in
     is on; everyone else lands on the dashboard - the UI lives under

@@ -227,7 +227,7 @@ def _auth_page(request: Request, state: str, status_code: int = 200, login: str 
     )
 
 
-@router.get("/login", response_class=HTMLResponse)
+@router.api_route("/login", methods=["GET", "HEAD"], response_class=HTMLResponse)
 def login_page(request: Request, next: str = "") -> Response:
     return templates.TemplateResponse(
         request,
