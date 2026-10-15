@@ -172,7 +172,7 @@ def test_card_renders_with_server_defaults_marked(client, github, connected):
     card = _card(client.get("/ui/connections").text)
     assert "Pull request bot" in card
     assert "acme/server-default" in card and "main" in card
-    assert "server default" in card.lower()
+    assert "(default)" in card
     assert 'action="/ui/connections/pr-bot/settings"' in card
     assert TOKEN not in card
 

@@ -100,7 +100,7 @@ def test_page_not_connected_offers_connect(client):
 def test_page_not_connected_with_server_token_says_so(client, monkeypatch):
     monkeypatch.setenv("HELIX_SLACK_BOT_TOKEN", BOT_TOKEN)
     page = client.get("/ui/connections").text
-    assert "Not connected" in page and "server" in page.lower()
+    assert "Not connected" in page and "an admin set up" in page
     assert BOT_TOKEN not in page
 
 

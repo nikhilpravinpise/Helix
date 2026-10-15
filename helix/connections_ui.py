@@ -62,16 +62,21 @@ _BRANCH = re.compile(r"[A-Za-z0-9][A-Za-z0-9._/-]{0,199}")
 
 router = APIRouter(include_in_schema=False)
 
+_NOT_SET_UP = "Connecting {} isn't set up on this Helix yet. An admin needs to finish setup."
+
 # notice code -> (tone, text); {detail} is a short provider error code.
 _NOTICES = {
     "slack-connected": ("ok", "Connected Slack."),
-    "slack-denied": ("bad", "Slack connection cancelled - nothing was saved."),
-    "slack-failed": ("bad", "Slack did not complete the connection ({detail}). Nothing was saved."),
-    "slack-unconfigured": ("bad", "Slack cannot be connected until the server is configured."),
-    "slack-key-missing": ("bad", "HELIX_CONNECTIONS_KEY is not set, so nothing was saved."),
+    "slack-denied": ("bad", "Slack connection cancelled. Nothing was saved."),
+    "slack-failed": (
+        "bad",
+        "Slack did not finish connecting (error: {detail}). Nothing was saved.",
+    ),
+    "slack-unconfigured": ("bad", _NOT_SET_UP.format("Slack")),
+    "slack-key-missing": ("bad", _NOT_SET_UP.format("Slack")),
     "slack-disconnected": ("ok", "Disconnected Slack."),
     "slack-test-ok": ("ok", "Slack accepted the connection."),
-    "slack-test-failed": ("bad", "Slack rejected the connection ({detail})."),
+    "slack-test-failed": ("bad", "Slack rejected the connection (error: {detail})."),
     "slack-not-connected": ("bad", "Slack is not connected."),
     "slack-channel-saved": ("ok", "Saved the Slack channel."),
     "slack-channel-refused": (
@@ -92,30 +97,30 @@ _NOTICES = {
         "Could not load Jira's project list, so nothing was changed.",
     ),
     "jira-connected": ("ok", "Connected Jira."),
-    "jira-denied": ("bad", "Jira connection cancelled - nothing was saved."),
+    "jira-denied": ("bad", "Jira connection cancelled. Nothing was saved."),
     "jira-failed": (
         "bad",
-        "Atlassian did not complete the connection ({detail}). Nothing was saved.",
+        "Jira did not finish connecting (error: {detail}). Nothing was saved.",
     ),
-    "jira-unconfigured": ("bad", "Jira cannot be connected until the server is configured."),
-    "jira-key-missing": ("bad", "HELIX_CONNECTIONS_KEY is not set, so nothing was saved."),
+    "jira-unconfigured": ("bad", _NOT_SET_UP.format("Jira")),
+    "jira-key-missing": ("bad", _NOT_SET_UP.format("Jira")),
     "jira-disconnected": ("ok", "Disconnected Jira."),
     "jira-test-ok": ("ok", "Jira accepted the connection."),
-    "jira-test-failed": ("bad", "Jira rejected the connection ({detail})."),
+    "jira-test-failed": ("bad", "Jira rejected the connection (error: {detail})."),
     "jira-not-connected": ("bad", "Jira is not connected."),
     "github-connected": ("ok", "Connected GitHub."),
     "github-failed": (
         "bad",
-        "GitHub did not complete the installation ({detail}). Nothing was saved.",
+        "GitHub did not finish installing (error: {detail}). Nothing was saved.",
     ),
-    "github-unconfigured": ("bad", "GitHub cannot be connected until the server is configured."),
+    "github-unconfigured": ("bad", _NOT_SET_UP.format("GitHub")),
     "github-disconnected": (
         "ok",
         "Disconnected GitHub. The app stays installed until you uninstall it at "
         "github.com/settings/installations.",
     ),
     "github-test-ok": ("ok", "GitHub accepted the installation."),
-    "github-test-failed": ("bad", "GitHub rejected the installation ({detail})."),
+    "github-test-failed": ("bad", "GitHub rejected the installation (error: {detail})."),
     "github-not-connected": ("bad", "GitHub is not connected."),
     "pr-bot-saved": ("ok", "Saved the pull request bot settings."),
     "pr-bot-invalid": ("bad", "That setting is not valid, so nothing was changed."),
@@ -153,7 +158,7 @@ def _slack_missing() -> str | None:
         (settings.session_secret, "HELIX_SESSION_SECRET"),
     ):
         if not value:
-            return f"Set {name} on the server to enable Connect."
+            return f"Set {name} to enable Connect."
     return None
 
 
@@ -167,7 +172,7 @@ def _jira_missing() -> str | None:
         (settings.session_secret, "HELIX_SESSION_SECRET"),
     ):
         if not value:
-            return f"Set {name} on the server to enable Connect."
+            return f"Set {name} to enable Connect."
     return None
 
 
@@ -182,7 +187,7 @@ def _github_missing() -> str | None:
         (settings.session_secret, "HELIX_SESSION_SECRET"),
     ):
         if not value:
-            return f"Set {name} on the server to enable Install on GitHub."
+            return f"Set {name} to enable Install on GitHub."
     return None
 
 
@@ -257,7 +262,8 @@ def _providers(session) -> list[dict[str, Any]]:
             "picker_label": "Channel",
             "uses_server": slack is None and bool(settings.slack_bot_token),
             "can_connect": missing is None,
-            "reason": missing,
+            "reason": _NOT_SET_UP.format("Slack") if missing else None,
+            "admin_reason": missing,
         },
         {
             "id": "jira",
@@ -282,7 +288,8 @@ def _providers(session) -> list[dict[str, Any]]:
             "scopes": jira.scopes if jira else [],
             "uses_server": jira is None and bool(settings.jira_api_token),
             "can_connect": jira_missing is None,
-            "reason": jira_missing,
+            "reason": _NOT_SET_UP.format("Jira") if jira_missing else None,
+            "admin_reason": jira_missing,
         },
         {
             "id": "github",
@@ -297,7 +304,8 @@ def _providers(session) -> list[dict[str, Any]]:
             "scopes": github.scopes if github else [],
             "uses_server": github is None and bool(settings.github_token),
             "can_connect": github_missing is None,
-            "reason": github_missing,
+            "reason": _NOT_SET_UP.format("GitHub") if github_missing else None,
+            "admin_reason": github_missing,
             "connect_label": "Install on GitHub",
         },
     ]
