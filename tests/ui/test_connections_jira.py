@@ -142,7 +142,7 @@ def test_card_not_connected_offers_connect(client):
 def test_card_not_connected_with_server_token_says_so(client, monkeypatch):
     monkeypatch.setenv("HELIX_JIRA_API_TOKEN", "server-api-token")
     card = _jira_card(client.get("/ui/connections").text)
-    assert "Not connected" in card and "server" in card.lower()
+    assert "Not connected" in card and "an admin set up" in card
     assert "server-api-token" not in card
 
 

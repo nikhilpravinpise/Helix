@@ -19,7 +19,15 @@
     </div>
   </header>
 
-  {% if busy %}<p class="callout">A sample is already running - showing it.</p>{% endif %}
+  {% if busy %}<p class="callout">A test incident is already running - showing it.</p>{% endif %}
+
+  {% if ext_links %}
+  <div class="ext-links" aria-label="Links to this incident elsewhere">
+    {% for l in ext_links %}
+    <a class="btn btn-sm ext" href="{{ l.url }}" target="_blank" rel="noopener noreferrer">{{ l.label }}<svg class="ext-icon" viewBox="0 0 16 16" width="12" height="12" aria-hidden="true" focusable="false"><path d="M6.5 3H3.75A.75.75 0 0 0 3 3.75v8.5c0 .41.34.75.75.75h8.5a.75.75 0 0 0 .75-.75V9.5M9 3h4v4M13 3 7.5 8.5" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg><span class="sr-only"> (opens in a new tab)</span></a>
+    {% endfor %}
+  </div>
+  {% endif %}
 
   <section class="card summary st-{{ i.status }}">
     <dl class="summary-rows">

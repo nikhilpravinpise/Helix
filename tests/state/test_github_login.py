@@ -14,7 +14,7 @@ from urllib.parse import parse_qs, urlparse
 import pytest
 from fastapi.testclient import TestClient
 
-from helix import auth
+from helix import auth, ui
 from helix.api import app, get_db_session
 
 
@@ -27,6 +27,10 @@ def client(sqlite_engine, monkeypatch):
             yield session
 
     app.dependency_overrides[get_db_session] = override
+    # The dashboard pages have their own session dependency (helix/ui.py
+    # never imports helix.api); without this they reached the real
+    # Postgres - the developer's locally, nothing at all in CI.
+    app.dependency_overrides[ui.get_db_session] = override
     monkeypatch.setenv("HELIX_SESSION_SECRET", "test-session-secret")
     monkeypatch.setenv("HELIX_PUBLIC_URL", "https://helix.example")
     with TestClient(app, base_url="https://helix.example") as test_client:

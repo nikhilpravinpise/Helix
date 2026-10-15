@@ -405,3 +405,10 @@ def test_signed_in_user_can_save(client, slack, sqlite_engine, monkeypatch):
     _save_slack(sqlite_engine)
     client.post("/ui/connections/slack/settings", data={"channel": "C1"}, follow_redirects=False)
     assert _stored(sqlite_engine, "slack").settings["channel"] == "C1"
+
+
+def test_slack_save_stores_the_channel_name_beside_the_id(client, slack, sqlite_engine):
+    _save_slack(sqlite_engine)
+    client.post("/ui/connections/slack/settings", data={"channel": "C3"})
+    settings = _stored(sqlite_engine, "slack").settings
+    assert settings["channel"] == "C3" and settings["channel_name"] == "#helix-incidents"

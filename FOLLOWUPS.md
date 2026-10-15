@@ -64,6 +64,10 @@ documents.
 
 ## 5. The incident page dumps fix-PR file contents as raw JSON
 
+**Status 2026-10-15: mitigated.** Long params now fold behind a
+`<details>` (a83e18c); the file content itself is still one JSON string
+when opened.
+
 On `/ui/incidents/<id>` for an incident that ran `open_fix_pr`, the
 selected candidate's params and the execution output each render the
 full corrected file as one JSON string with literal `\n` escapes - a
@@ -182,6 +186,10 @@ read the project's workflow (`/rest/api/3/project/{key}/statuses`) into
 the capability map, or add a Blocked column to the project.
 
 ## 12. Slack message edits need a channel id, not a name
+
+**Update 2026-10-15:** the outbox now stores the `channel` id Slack
+returns next to the first message's `ts` (95f381d), used for the
+dashboard's thread links. Edits still do not use it.
 
 Live test 2026-10-03: `WebSlackClient.update_message("#helix-incidents",
 ...)` fails with `channel_not_found`. Slack's chat.postMessage accepts a
@@ -457,3 +465,29 @@ runs in 4 (a step other than `execute` timed out first), and passed 4 in
 4 with no `.env`. Not caused by a code change: it passes on every commit
 in a clean checkout. Fix: make the unit tier ignore `.env` (an autouse
 fixture or `Settings(_env_file=None)` under test), then rerun the suite.
+
+## 21. Product DX follow-ups (2026-10-15)
+
+Found while turning the hosted service into a product (future_plans.md
+"Product DX"). None blocks it.
+
+- **Names vs logins.** Home says "waiting on Nikhil" (registry display
+  name) while the summary card says "review pending with
+  nikhilpravinpise" (login). Pick one rule - display name with the login
+  as a tooltip - and apply it everywhere a person is named.
+- **Slow decisions look frozen.** On Render's free CPU, Approve/Reject
+  takes ~40s because the decision resumes the run inside the request,
+  and the button only greys out. Show "Approving..." with a note, or
+  resume in the background and let the page poll.
+- **Old Slack rows link to the configured channel.** Incidents posted
+  before 95f381d have no stored channel id, so their thread link falls
+  back to the currently configured channel, which may not be where the
+  message went.
+- **Home's open-incidents list assembles provenance per row** (up to 6
+  per page load) to say what each is waiting on. Fine at this size;
+  replace with a direct query if Home gets slow.
+- **Render still holds the old seeded incidents.** Boot seeding is gone
+  (d52eec8), but the 10 example incidents and the test runs from the
+  demo period are still in the Render database. Clearing them was
+  approved in principle; it is a destructive one-off to confirm before
+  running.

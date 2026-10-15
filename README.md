@@ -100,10 +100,11 @@ uv run helix sync                        # deliver Slack/Jira/Notion updates
 uv run helix --help                      # everything else
 ```
 
-**Hosted demo:** https://helix-eksf.onrender.com (Render, from `render.yaml`;
-Sign in with GitHub, open to the people in `config/service_registry.yaml`). It runs the API and dashboard on recorded evidence
-with the rules arm only: no cluster, Kafka, Jenkins, Slack or LLM key. An
-empty database is seeded with recorded incidents on boot (`helix seed-demo`).
+**Hosted:** https://helix-eksf.onrender.com (Render, from `render.yaml`;
+Sign in with GitHub, open to the people in `config/service_registry.yaml`).
+It runs the API and dashboard on recorded evidence with the rules arm only:
+no cluster, Kafka, Jenkins or LLM key. Slack, Jira and GitHub are connected
+from the Connections page, and "Send a test incident" checks them end to end.
 Free tier, so the first load after idling is slow. Deploys are manual
 (`render deploys create srv-db7noi49v7es73cn286g`). The course's cloud
 deployment is still GCP (plan.md D23).

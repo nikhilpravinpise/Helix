@@ -131,17 +131,17 @@ def test_incident_stat_tiles_count_total_recovered_escalated_open(client, sqlite
             IncidentStatus.FAILED,
         ],
     )
-    body = client.get("/ui/").text
+    body = client.get("/ui/incidents").text
     tiles = dict(re.findall(r'data-stat="(\w+)"[^>]*>\s*<span class="stat-value">(\d+)<', body))
     assert tiles == {"total": "7", "recovered": "3", "escalated": "1", "open": "2"}
 
 
 def test_sidebar_marks_active_page(client):
-    incidents = client.get("/ui/").text
+    incidents = client.get("/ui/incidents").text
     approvals = client.get("/ui/approvals").text
     for body, here, other in (
-        (incidents, 'href="/ui/"', 'href="/ui/approvals"'),
-        (approvals, 'href="/ui/approvals"', 'href="/ui/"'),
+        (incidents, 'href="/ui/incidents"', 'href="/ui/approvals"'),
+        (approvals, 'href="/ui/approvals"', 'href="/ui/incidents"'),
     ):
         current = re.findall(r'<a [^>]*aria-current="page"[^>]*>', body)
         assert len(current) == 1

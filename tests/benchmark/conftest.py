@@ -2,6 +2,7 @@
 in-memory SQLite, fixture-backed capabilities, scripted FakeLLM."""
 
 import functools
+import os
 import sys
 from collections.abc import Iterator
 from pathlib import Path
@@ -19,6 +20,18 @@ from fakes import make_deps  # noqa: E402  (path shim above must run first)
 from integrations.fixtures import FixtureStore  # noqa: E402
 from state import models  # noqa: E402
 from state.db import session_scope  # noqa: E402
+
+
+@pytest.fixture(autouse=True)
+def _restore_environ() -> Iterator[None]:
+    """run_benchmark pins its isolation (HELIX_CONNECTIONS_ENABLED=false,
+    the benchmark registry, ...) into os.environ on purpose - it is the
+    CLI's whole process. In-process calls here must not carry that into
+    every later test."""
+    saved = dict(os.environ)
+    yield
+    os.environ.clear()
+    os.environ.update(saved)
 
 
 @pytest.fixture

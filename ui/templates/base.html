@@ -2,13 +2,17 @@
 {% block body %}
 {%- set who = request.state.user if request.state is defined else none %}
 <div class="app">
+  <script>try{var w=parseInt(localStorage.getItem("helix.sidebar-w"),10);if(w>=200&&w<=440)document.currentScript.parentNode.style.setProperty("--sidebar-w",w+"px")}catch(e){}</script>
   <aside class="sidebar">
     <div class="side-top">
       <a class="brand" href="/ui/"><span class="prompt" aria-hidden="true">$</span><span class="brand-name">helix</span></a>
       <p class="tagline">Watches engineering systems, fixes what breaks, proves it worked.</p>
     </div>
     <nav class="nav" aria-label="Main">
-      <a class="nav-item" href="/ui/"{% if active == "incidents" %} aria-current="page"{% endif %}>
+      <a class="nav-item" href="/ui/"{% if active == "home" %} aria-current="page"{% endif %}>
+        <span class="nav-label">Home</span>
+      </a>
+      <a class="nav-item" href="/ui/incidents"{% if active == "incidents" %} aria-current="page"{% endif %}>
         <span class="nav-label">Incidents</span>
         {%- if incident_total is defined %}<span class="count">{{ incident_total }}</span>{% endif -%}
       </a>
@@ -21,12 +25,12 @@
       </a>
     </nav>
     <div class="side-foot">
-      {% if is_demo() %}<p class="demo-note">Demo - recorded evidence</p>{% endif %}
       {% if who %}
       <p class="whoami"><span class="who-name">{{ who }}</span> <a href="/logout">Sign out</a></p>
       {% endif %}
     </div>
   </aside>
+  <div class="sidebar-handle" role="separator" aria-orientation="vertical" aria-label="Resize sidebar" aria-valuenow="264" aria-valuemin="200" aria-valuemax="440" tabindex="0" title="Drag to resize, double-click to reset"></div>
   <main class="main">
 {% block content %}{% endblock %}
   </main>

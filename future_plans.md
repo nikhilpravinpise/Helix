@@ -127,6 +127,95 @@ decision made in the dashboard goes through `record_decision` and the
 human-in-the-loop rules (state/deciders.py), and the dashboard is never
 exposed on a public URL without sign-in (Stage 2).
 
+## Product DX (2026-10-15)
+
+Recorded 2026-10-15: Helix on Render is a product, not a demo, and the
+focus is the experience of a team using it. Stage 1's connections
+(Slack and Jira OAuth, the GitHub App, the PR bot) landed before this.
+
+Done:
+
+- No demo framing: no "Demo" badge, no boot seeding, production label;
+  "Send a test incident" checks the connected tools end to end (d52eec8).
+- A public landing page at `/`; signed-in visitors go straight to the
+  dashboard (cff50bc).
+- A dashboard home at `/ui/`: greeting, what needs you (real decider
+  rules), open incidents, 30-day stats, activity, tool status; the
+  incident list moved to `/ui/incidents` (19a93e4).
+- Links out to the team's Slack channel, Jira project and GitHub
+  repository, and per incident to its Slack thread, Jira ticket and pull
+  request (95f381d).
+- A Connections page in plain English, admin detail behind "For admins"
+  (83847bc).
+- A draggable, remembered sidebar width (7520312).
+
+Open decision - **setup tutorial for new users.** Vraj wants a first-run
+setup guide (connect Slack, pick a channel, connect Jira, pick a
+project, install the GitHub App, pick the PR repository, send a test
+incident, see it in Slack). There are no per-person accounts yet:
+connections belong to the team and sign-in is an allow-list. Choose:
+
+1. A **team checklist** on Home, ticked off from real state and shown
+   until setup is complete (each person can hide it) - no new model; or
+2. **Per-person accounts first** (Stage 2), so each new person gets their
+   own first-run tour.
+
+Still missing for a team to onboard without editing files (from Stage 1
+and Stage 2 above, not yet built):
+
+- An editor for services, owners and reviewers (today
+  `config/service_registry.yaml`), with Slack ids looked up by email.
+- Inviting people: sign-in is limited to the registry's `people` or
+  HELIX_ALLOWED_USERS, so adding a teammate means a config change.
+- Live updates without full-page reloads (the dashboard redesign item
+  above).
+- Smaller items are in FOLLOWUPS.md #21.
+
+### Next: team and services in the dashboard (planned 2026-10-15)
+
+Today `config/service_registry.yaml` is a file in the code that lists
+each service with its owners, reviewers and path rules, and the people
+(GitHub login, name, Slack id) - which is also the sign-in allow-list.
+Adding a service or a teammate means editing it, committing, pushing
+and redeploying. This plan moves all of it into the dashboard. To be
+planned slice by slice with /slice-plan in a fresh session.
+
+Decided by Vraj:
+
+- **Roles: admins and members.** Admins manage services, the team and
+  connections. Members see everything and decide the approvals and
+  reviews state/deciders.py lets them decide. VrajVed and
+  nikhilpravinpise start as admins. High-risk actions stay behind
+  approval whoever is signed in.
+- **The YAML is imported once.** On first start the file's services and
+  people are imported into Postgres; after that the dashboard is the
+  only editor. The benchmark keeps its own fixed
+  `benchmark/service_registry.yaml`.
+
+What to build:
+
+1. **Services page.** Add, edit and remove services: team, repository,
+   owners, default reviewers, dependencies and path rules (CODEOWNERS
+   order, last match wins). Stored in Postgres. agent/ops/registry.py
+   and state/deciders.py keep their rules and read from the database
+   instead of the file.
+2. **Team page.** Invite a teammate by GitHub login and choose admin or
+   member; remove people. The people table becomes the sign-in
+   allow-list (HELIX_ALLOWED_USERS stays as an override). Slack ids are
+   matched through the connected Slack (`users.lookupByEmail`) instead
+   of being copied from profiles.
+3. **Approve and Reject show progress.** Today the decision resumes the
+   run inside the request, so on Render's free CPU the button greys out
+   for ~40s. The button should say "Approving..." at once, the resume
+   should run in the background, and the page should update itself
+   when it finishes.
+4. **One-time import** of `config/service_registry.yaml`, safe to run
+   twice, with a test that every service and person arrives intact.
+
+Open for the planning session: how an invited person who has never
+signed in is shown, whether removing the last admin is refused, and
+how the import treats a database that already has services.
+
 ## Principles that carry over unchanged
 
 - **Postgres is the source of truth**; Slack, Jira, Notion and the graph

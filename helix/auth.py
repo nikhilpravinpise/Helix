@@ -6,7 +6,8 @@ GitHub user on the allow-list (HELIX_ALLOWED_USERS, default: the people in
 the service registry): pages send a signed-out visitor to /login, API
 routes answer 401. Machine clients keep using the intake token as a Bearer
 header. /healthz, /slack/interactions (Slack-signed) and the sign-in routes
-stay open.
+stay open, and so does "/", the public landing page (a signed-in visitor
+is sent on to the dashboard).
 
 The session is a cookie holding the GitHub login and an expiry, signed with
 HMAC-SHA256 under HELIX_SESSION_SECRET; no passwords exist anywhere. The
@@ -34,6 +35,7 @@ STATE_COOKIE = "helix_oauth_state"
 SESSION_SECONDS = 12 * 3600
 _OPEN_PATHS = frozenset(
     {
+        "/",
         "/healthz",
         "/slack/interactions",
         "/login",
@@ -94,6 +96,12 @@ def signed_in_user(request: Request) -> str | None:
     return login if login in allowed_users() else None
 
 
+def shows_landing(request: Request) -> bool:
+    """True when "/" should render the public landing page: sign-in is on
+    and the visitor has no valid session. Otherwise "/" goes to the dashboard."""
+    return enabled() and signed_in_user(request) is None
+
+
 def _public_url(request: Request) -> str:
     return (get_settings().public_url or str(request.base_url)).rstrip("/")
 
@@ -137,7 +145,7 @@ def gate(request: Request) -> Response | None:
     if user:
         request.state.user = user
         return None
-    if request.url.path == "/" or request.url.path.startswith("/ui"):
+    if request.url.path.startswith("/ui"):
         return RedirectResponse("/login", status_code=303)
     return JSONResponse({"detail": "sign in required"}, status_code=401)
 
