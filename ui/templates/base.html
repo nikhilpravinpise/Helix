@@ -2,6 +2,7 @@
 {% block body %}
 {%- set who = request.state.user if request.state is defined else none %}
 <div class="app">
+  <script>try{var w=parseInt(localStorage.getItem("helix.sidebar-w"),10);if(w>=200&&w<=440)document.currentScript.parentNode.style.setProperty("--sidebar-w",w+"px")}catch(e){}</script>
   <aside class="sidebar">
     <div class="side-top">
       <a class="brand" href="/ui/"><span class="prompt" aria-hidden="true">$</span><span class="brand-name">helix</span></a>
@@ -29,6 +30,7 @@
       {% endif %}
     </div>
   </aside>
+  <div class="sidebar-handle" role="separator" aria-orientation="vertical" aria-label="Resize sidebar" aria-valuenow="264" aria-valuemin="200" aria-valuemax="440" tabindex="0" title="Drag to resize, double-click to reset"></div>
   <main class="main">
 {% block content %}{% endblock %}
   </main>

@@ -178,8 +178,9 @@ kbd {
 /* ---------- layout ---------- */
 
 .app {
+  --sidebar-w: 264px;
   display: grid;
-  grid-template-columns: 264px minmax(0, 1fr);
+  grid-template-columns: var(--sidebar-w) minmax(0, 1fr);
   min-height: 100vh;
 }
 
@@ -242,8 +243,44 @@ kbd {
   overflow-y: auto;
 }
 
+.sidebar-handle {
+  position: fixed;
+  top: 0;
+  bottom: 0;
+  left: calc(var(--sidebar-w) - 4px);
+  width: 8px;
+  z-index: 4;
+  cursor: col-resize;
+  touch-action: none;
+  outline: 0;
+}
+
+.sidebar-handle::after {
+  content: '';
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 3px;
+  width: 2px;
+  background: var(--accent);
+  opacity: 0;
+  transition: opacity 0.15s var(--ease);
+}
+
+.sidebar-handle:hover::after,
+.sidebar-handle:focus-visible::after,
+.sidebar-handle.is-dragging::after {
+  opacity: 1;
+}
+
+body.sidebar-resizing {
+  cursor: col-resize;
+  user-select: none;
+}
+
 .side-top {
   padding: 0 8px;
+  min-width: 0;
 }
 
 .brand {
@@ -304,7 +341,15 @@ kbd {
   font-weight: 500;
 }
 
+.nav-label {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .count {
+  flex-shrink: 0;
   font-family: var(--mono);
   font-size: 12px;
   color: var(--ink-3);
@@ -335,6 +380,8 @@ kbd {
 }
 
 .who-name {
+  min-width: 0;
+  white-space: nowrap;
   font-family: var(--mono);
   font-size: 13px;
   color: var(--ink-2);
@@ -1345,6 +1392,9 @@ details summary:hover {
 /* ---------- narrow: sidebar becomes a sticky top bar ---------- */
 
 @media (max-width: 1100px) {
+  .sidebar-handle {
+    display: none;
+  }
   .app {
     grid-template-columns: minmax(0, 1fr);
     /* Without this the min-height spare space is shared by both rows and
