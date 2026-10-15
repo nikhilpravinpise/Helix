@@ -236,7 +236,33 @@ Decided in the planning session (2026-10-15):
 Slices: 1 tables and import, 2 readers switch to the database, 3 Team
 page, 4 Services page, 5 background Approve/Reject, 6 display names vs
 logins (FOLLOWUPS #21), 7 delete config/service_registry.yaml once the
-import is confirmed on Render.
+import is confirmed on Render. Slices 1-6 merged in #40.
+
+### Roles: owners, admins, members (decided 2026-10-15)
+
+Vraj asked for a Discord-style hierarchy. Decided:
+
+- **Three roles: Owner, Admin, Member.** Several people can be Owners
+  (co-owners) and share Owner power. One of them is the **main owner**,
+  who cannot be removed or demoted by anyone and can hand main ownership
+  to another co-owner. VrajVed is the main owner; today's admins
+  (VrajVed, nikhilpravinpise) become co-owners.
+- **Owners** manage everything: services, connections and the whole
+  team, including making and removing Admins and other co-owners
+  (never the main owner).
+- **Admins** manage services and connections, and invite, rename or
+  remove Members. They cannot change Admins or Owners.
+- **Members** decide the approvals and reviews state/deciders.py lets
+  them decide, as before.
+- Nobody acts on someone at their own rank or above, except Owners on
+  other co-owners. Invites can grant a role only up to what the inviter
+  could later manage.
+- **Service "owners" are called Approvers** on the pages and in
+  messages, so "owner" only means the team role. The registry fields and
+  CODEOWNERS-style path rules keep their names in code.
+
+Slices: A roles and the rank rules, B the Team page for them, C the
+Approvers rename.
 
 ## Principles that carry over unchanged
 
