@@ -17,7 +17,7 @@ The other fields: repo -> HELIX_GITHUB_REPO, base branch -> "main", draft ->
 off, daily limit -> none.
 
 Stored settings are off under HELIX_CONNECTIONS_ENABLED=false (the
-benchmark's isolation) unless HELIX_PR_BOT_SETTINGS_ENABLED says otherwise.
+benchmark's isolation).
 An unreadable store reads as "no row", with a warning, so a database hiccup
 never stops a run that works from the server's own settings.
 """
@@ -70,8 +70,6 @@ def resolve(settings: Settings, row: models.PRBotSettings | None) -> PRBotConfig
 
 
 def _settings_enabled(settings: Settings) -> bool:
-    if settings.pr_bot_settings_enabled is not None:
-        return settings.pr_bot_settings_enabled
     return settings.connections_enabled
 
 

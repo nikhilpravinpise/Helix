@@ -178,9 +178,13 @@ def _drive_sample(incident_id: str, scenario: dict, database_url: str) -> None:
             HELIX_DATABASE_URL=database_url,
             HELIX_FIXTURE_PATH=scenario["evidence_fixture"],
             UV_NO_SYNC="1",
-            # The isolation turns stored connections off; the PR bot's own
-            # settings (real PRs, repo, limit) still apply to a sample.
-            HELIX_PR_BOT_SETTINGS_ENABLED="true",
+            # A sample behaves like a real incident on the connected tools:
+            # Slack, Jira and the PR bot (connection, repo, limit) apply,
+            # and it names the live team. Work tracking stays `memory`,
+            # which yields to a connected Jira; the server's own .env Slack
+            # and Notion tokens stay blanked, so only a connection delivers.
+            HELIX_CONNECTIONS_ENABLED="true",
+            HELIX_SERVICE_REGISTRY=str(LIVE_REGISTRY),
         )
         cfg = harness.HarnessConfig(arms=["A"], mode="fixture", database_url=database_url)
         errors = harness._drive(incident_id, env, cfg, scenario)

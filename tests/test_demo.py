@@ -136,3 +136,40 @@ def test_parked_review_subprocess_env_is_recorded(sqlite_url, monkeypatch):
         demo._park_review(sqlite_url, "VrajVed", 101)
 
     assert envs[0]["HELIX_GITHUB_WRITES"] == "recorded"
+
+
+def test_parked_review_stays_offline_and_off_the_connections(sqlite_url, monkeypatch):
+    """Seeding must never reach a connected Slack, Jira or GitHub account,
+    whatever a sample run is allowed to do."""
+    monkeypatch.setenv("HELIX_CONNECTIONS_ENABLED", "true")
+    monkeypatch.setenv("HELIX_WORK_PROVIDER", "jira")
+    envs: list[dict] = []
+    monkeypatch.setattr(
+        demo.harness,
+        "_ingest_declared_events",
+        lambda scenario, url: ([{"incident_id": "inc-x"}], None),
+    )
+
+    def helix(args, env):
+        envs.append(env)
+        raise RuntimeError("stop after the first run")
+
+    monkeypatch.setattr(demo.harness, "_helix", helix)
+
+    with pytest.raises(RuntimeError):
+        demo._park_review(sqlite_url, "VrajVed", 101)
+
+    env = envs[0]
+    assert env["HELIX_CONNECTIONS_ENABLED"] == "false"
+    assert env["HELIX_WORK_PROVIDER"] == "memory"
+    assert env["HELIX_SLACK_BOT_TOKEN"] == ""
+    assert env["HELIX_GITHUB_WRITES"] == "recorded"
+    assert env["HELIX_SERVICE_REGISTRY"] == str(demo.LIVE_REGISTRY)
+
+
+def test_the_benchmark_harness_env_stays_isolated():
+    env = demo.harness._isolated_env()
+
+    assert env["HELIX_CONNECTIONS_ENABLED"] == "false"
+    assert env["HELIX_WORK_PROVIDER"] == "memory"
+    assert env["HELIX_SERVICE_REGISTRY"] == str(demo.harness.BENCHMARK_REGISTRY)

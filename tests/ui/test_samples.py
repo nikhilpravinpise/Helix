@@ -175,3 +175,81 @@ def test_unauthenticated_post_starts_nothing(client, sqlite_engine, demo_env, dr
     assert resp.headers["location"] == "/login"
     assert _count(sqlite_engine) == 0
     assert drives.calls == []
+
+
+def _sample_env(client, drives) -> dict:
+    assert client.post("/ui/samples", follow_redirects=False).status_code == 303
+    assert drives.finished.wait(5)
+    _wait_idle()
+    return drives.calls[0]["env"]
+
+
+def test_sample_drive_uses_connections_and_the_live_team(client, demo_env, drives):
+    env = _sample_env(client, drives)
+
+    assert env["HELIX_CONNECTIONS_ENABLED"] == "true"
+    assert env["HELIX_SERVICE_REGISTRY"] == str(demo.LIVE_REGISTRY)
+    # The server's own .env tokens still do not reach a sample.
+    assert env["HELIX_SLACK_BOT_TOKEN"] == ""
+    assert env["HELIX_NOTION_API_KEY"] == ""
+
+
+def test_sample_addresses_the_real_team_not_the_benchmark_cast(client, demo_env, drives):
+    from pathlib import Path
+
+    from agent.ops.registry import load_registry
+
+    env = _sample_env(client, drives)
+
+    service = load_registry(Path(env["HELIX_SERVICE_REGISTRY"])).services["payment-api"]
+    assert service.default_owner == "VrajVed"
+    assert set(service.default_reviewers) == {"nikhilpravinpise", "VrajVed"}
+
+
+def test_sample_env_reaches_the_connected_slack_and_jira(
+    client, sqlite_engine, demo_env, drives, monkeypatch
+):
+    """Apply the sample's env to this process and check what the outbox
+    would deliver to: the stored Slack and Jira connections, not the fakes."""
+    from sqlalchemy.orm import Session
+
+    from integrations.outbox import _resolve_slack_for, resolve_work_for_session
+    from integrations.slack import WebSlackClient
+    from integrations.work import JiraProvider, effective_work_provider
+    from state import connections
+
+    monkeypatch.setenv("HELIX_CONNECTIONS_KEY", "test connections key")
+    env = _sample_env(client, drives)
+    with Session(sqlite_engine) as session:
+        connections.save_connection(
+            session,
+            "slack",
+            account="Acme",
+            scopes=["chat:write"],
+            access_token="xoxb-stored",
+            refresh_token=None,
+            expires_at=None,
+            settings={"channel": "C-chosen"},
+        )
+        connections.save_connection(
+            session,
+            "jira",
+            account="Acme",
+            scopes=["write:jira-work"],
+            access_token="jira-access",
+            refresh_token="jira-refresh",
+            expires_at=None,
+            settings={
+                "cloud_id": "cloud-1",
+                "site_url": "https://acme.atlassian.net",
+                "project_key": "OPS",
+            },
+        )
+        session.commit()
+        for name, value in env.items():
+            monkeypatch.setenv(name, value)
+
+        slack = _resolve_slack_for(session)
+        assert isinstance(slack, WebSlackClient) and slack._token == "xoxb-stored"
+        assert effective_work_provider(session) == "jira"
+        assert isinstance(resolve_work_for_session(session, "jira"), JiraProvider)

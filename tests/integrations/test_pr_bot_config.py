@@ -39,7 +39,6 @@ def env(monkeypatch):
         "HELIX_GITHUB_WRITES",
         "HELIX_EVIDENCE_SOURCE",
         "HELIX_CONNECTIONS_ENABLED",
-        "HELIX_PR_BOT_SETTINGS_ENABLED",
     ):
         monkeypatch.delenv(name, raising=False)
 
@@ -146,14 +145,6 @@ def test_isolation_ignores_the_db(engine, monkeypatch):
         daily_limit=None,
     )
     assert isinstance(get_github_write(), FakeGitHubWrite)
-
-
-def test_settings_enabled_flag_turns_the_db_back_on_under_isolation(engine, monkeypatch):
-    monkeypatch.setenv("HELIX_EVIDENCE_SOURCE", "fixtures")
-    monkeypatch.setenv("HELIX_CONNECTIONS_ENABLED", "false")
-    monkeypatch.setenv("HELIX_PR_BOT_SETTINGS_ENABLED", "true")
-    _store(engine, real_prs=True)
-    assert pr_bot.load_config().real_prs is True
 
 
 def test_unreadable_store_falls_back_to_server_defaults(tmp_path, monkeypatch):
