@@ -77,7 +77,8 @@ async def sign_in_gate(request: Request, call_next):
     return await call_next(request)
 
 
-@app.get("/healthz")
+# HEAD too: uptime monitors check with it, and a 405 reads as "down".
+@app.api_route("/healthz", methods=["GET", "HEAD"])
 def healthz() -> dict[str, bool]:
     """Liveness for the hosting platform; open even behind the gate."""
     return {"ok": True}

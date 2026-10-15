@@ -72,3 +72,13 @@ def test_favicon_is_served_and_linked_from_every_layout_page(client, oauth):
         assert (
             'rel="icon"' in client.get(path).text and "/static/favicon.svg" in client.get(path).text
         )
+
+
+def test_uptime_monitors_can_check_the_public_pages_with_head(client, oauth):
+    """Uptime monitors (UptimeRobot's default) send HEAD. A 405 there reads
+    as Helix being down, so the public pages answer HEAD like GET, minus
+    the body."""
+    for path in ("/healthz", "/", "/login"):
+        response = client.head(path)
+        assert response.status_code == 200, path
+        assert response.content == b"", path
