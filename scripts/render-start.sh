@@ -32,6 +32,8 @@ fi
 export HELIX_PUBLIC_URL="${HELIX_PUBLIC_URL:-${RENDER_EXTERNAL_URL:-}}"
 
 alembic -c state/migrations/alembic.ini upgrade head
+# Seed the team and services from the YAML the first time only (a no-op once they exist).
+helix team import
 
 export HELIX_API_BIND=0.0.0.0 HELIX_API_PORT="${PORT:-8787}"
 exec helix serve
