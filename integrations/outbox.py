@@ -115,11 +115,11 @@ def _resolve_notion() -> "NotionClient | None":
     return get_notion_client()
 
 
-def _thread_ts_for(session: Session, incident_pk: int) -> str | None:
-    """The Slack thread this incident's updates live in - the `ts` the
-    first successfully sent Slack row recorded. Threading is recovered
-    from the outbox itself, so a retried notify never starts a second
-    thread."""
+def slack_thread_for(session: Session, incident_pk: int) -> tuple[str, str | None] | None:
+    """The Slack thread this incident's updates live in: the `ts` (and the
+    channel id Slack answered with, absent on rows sent before it was kept)
+    of the first successfully sent Slack row. Threading is recovered from the
+    outbox itself, so a retried notify never starts a second thread."""
     row = session.scalar(
         select(models.IntegrationOutbox)
         .where(models.IntegrationOutbox.incident_id == incident_pk)
@@ -130,8 +130,18 @@ def _thread_ts_for(session: Session, incident_pk: int) -> str | None:
     )
     if row is None:
         return None
-    ts = (row.payload or {}).get("ts")
-    return str(ts) if ts else None
+    payload = row.payload or {}
+    ts = payload.get("ts")
+    if not ts:
+        return None
+    channel = payload.get("channel")
+    return str(ts), str(channel) if channel else None
+
+
+def _thread_ts_for(session: Session, incident_pk: int) -> str | None:
+    """The `ts` of the thread this incident's Slack updates reply under."""
+    thread = slack_thread_for(session, incident_pk)
+    return thread[0] if thread else None
 
 
 def _fail_or_retry(row: models.IntegrationOutbox, error: str) -> str:
@@ -284,7 +294,12 @@ def _send_slack(
             )
             resp = slack.post_message(channel, line, thread_ts=thread)
     if resp.get("ts"):
-        row.payload = {**row.payload, "ts": resp["ts"]}
+        # The channel id Slack answers with is what a thread link needs
+        # (a configured channel may be a name); older rows lack it.
+        recorded = {"ts": resp["ts"]}
+        if resp.get("channel"):
+            recorded["channel"] = resp["channel"]
+        row.payload = {**row.payload, **recorded}
 
 
 def _send_work(

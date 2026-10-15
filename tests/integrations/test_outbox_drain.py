@@ -550,3 +550,23 @@ class TestDeliveredRowsStayDelivered:
         with sessions() as session:
             drain_outbox(session, slack=slack)
         assert claimed and len(claimed) == len(set(claimed))
+
+
+def test_first_slack_post_records_the_channel_id_beside_ts(sessions):
+    class _ChannelSlack(_RecordingSlack):
+        def post_message(self, channel, text, *, thread_ts=None, blocks=None):
+            resp = super().post_message(channel, text, thread_ts=thread_ts, blocks=blocks)
+            return {**resp, "channel": "C123"}
+
+    with sessions() as session:
+        incident = _incident(session)
+        enqueue_for_transition(session, incident, IncidentStatus.TRIAGED, cause="a")
+        drain_outbox(
+            session, slack=_ChannelSlack(), work=_RecordingWork(), notion=_RecordingNotion()
+        )
+        row = session.scalar(
+            select(models.IntegrationOutbox)
+            .where(models.IntegrationOutbox.integration == "slack")
+            .order_by(models.IntegrationOutbox.id)
+        )
+        assert row.payload["ts"] == "1000.1" and row.payload["channel"] == "C123"

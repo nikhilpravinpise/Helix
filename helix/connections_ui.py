@@ -566,7 +566,8 @@ async def slack_settings(request: Request, session: DbSession) -> Response:
         return _back("slack-channel-unavailable")
     if channel not in [value for value, _ in options]:
         return _back("slack-channel-refused")
-    connections.update_settings(session, "slack", {"channel": channel})
+    name = dict(options)[channel]
+    connections.update_settings(session, "slack", {"channel": channel, "channel_name": name})
     session.commit()
     return _back("slack-channel-saved")
 

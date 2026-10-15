@@ -35,6 +35,7 @@ and the JS sends it as a Bearer header.
 """
 
 import json
+import re
 from collections.abc import Iterator
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
@@ -50,7 +51,7 @@ from sqlalchemy.orm import Session
 from agent.ops.registry import load_registry
 from helix import demo
 from helix.config import get_settings
-from state import connections, models
+from state import connections, models, pr_bot
 from state.db import session_scope
 from state.deciders import approval_deciders, approval_refusal, review_refusal
 from state.machine import TERMINAL_STATUSES, IncidentStatus
@@ -454,8 +455,60 @@ def _recent_activity(session: Session) -> list[dict[str, Any]]:
     ]
 
 
+_SLACK_ID = re.compile(r"[A-Z0-9]{2,32}")
+_SLACK_TS = re.compile(r"\d{1,12}\.\d{1,12}")
+_JIRA_KEY = re.compile(r"[A-Za-z][A-Za-z0-9_]{0,31}")
+_REPO = re.compile(r"[A-Za-z0-9][A-Za-z0-9-]{0,38}/[A-Za-z0-9._-]{1,100}")
+
+
+def _slack_url(team_id: Any, channel: Any, ts: Any = None) -> str | None:
+    """app.slack.com link to a channel, or to the thread whose parent message
+    has `ts` (the format Slack's own "copy link" opens in the web client).
+    None unless every id looks like one, so a link is never half-built."""
+    if not (isinstance(team_id, str) and _SLACK_ID.fullmatch(team_id)):
+        return None
+    if not (isinstance(channel, str) and _SLACK_ID.fullmatch(channel)):
+        return None
+    base = f"https://app.slack.com/client/{team_id}/{channel}"
+    if ts is None:
+        return base
+    return f"{base}/thread/{channel}-{ts}" if _SLACK_TS.fullmatch(str(ts)) else None
+
+
+def _web_url(value: Any) -> str | None:
+    return value if isinstance(value, str) and value.startswith(("http://", "https://")) else None
+
+
+def _tool_link(provider: str, record: Any, session: Session) -> dict[str, Any] | None:
+    """Where "Open" goes for a connected tool, or None when nothing is
+    configured yet. Read from stored settings only - no provider is called."""
+    settings = record.settings
+    if provider == "slack":
+        url = _slack_url(settings.get("team_id"), settings.get("channel"))
+        if url is None:
+            return None
+        return {"url": url, "label": settings.get("channel_name") or "your channel"}
+    if provider == "jira":
+        site, key = _web_url(settings.get("site_url")), settings.get("project_key")
+        if not site or not isinstance(key, str) or not _JIRA_KEY.fullmatch(key):
+            return None
+        # /browse/KEY opens the project for any project type (the board URL
+        # /jira/software/projects/KEY only exists for software projects).
+        site_name = settings.get("site_name")
+        label = f"{key} - {site_name}" if site_name else key
+        return {"url": f"{site.rstrip('/')}/browse/{key}", "label": label}
+    repo = pr_bot.resolve(get_settings(), session.get(models.PRBotSettings, 1)).repo
+    if not _REPO.fullmatch(repo or ""):
+        return None
+    return {"url": f"https://github.com/{repo}", "label": repo}
+
+
+_PICK = {"slack": "Pick a channel", "jira": "Pick a project", "github": "Pick a repository"}
+
+
 def _tools(session: Session) -> list[dict[str, Any]]:
-    """Connected state of each tool Helix works through."""
+    """Connected state of each tool Helix works through, with the link out
+    to its configured channel, project or repository."""
     out = []
     for provider, name in HOME_TOOLS:
         record = connections.active_connection(session, provider)
@@ -465,9 +518,37 @@ def _tools(session: Session) -> list[dict[str, Any]]:
                 "name": name,
                 "connected": record is not None,
                 "account": record.account if record else None,
+                "link": _tool_link(provider, record, session) if record else None,
+                "pick": _PICK[provider],
             }
         )
     return out
+
+
+def _incident_links(session: Session, incident: dict[str, Any], stages: dict[str, Any]) -> list:
+    """External links for an incident's header: its Slack thread, Jira work
+    item and pull request. Each is left out when its data is missing."""
+    from integrations.outbox import slack_thread_for
+
+    links: list[dict[str, str]] = []
+    pk = session.scalar(
+        select(models.Incident.id).where(models.Incident.incident_id == incident["incident_id"])
+    )
+    thread = slack_thread_for(session, pk) if pk is not None else None
+    slack = connections.active_connection(session, "slack")
+    if thread and slack:
+        channel = thread[1] or slack.settings.get("channel")
+        url = _slack_url(slack.settings.get("team_id"), channel, thread[0])
+        if url:
+            links.append({"label": "Slack thread", "url": url})
+    for item in stages.get("work_items") or []:
+        url = _web_url(item.get("external_url"))
+        if item.get("provider") == "jira" and url:
+            links.append({"label": f"Jira {item.get('external_key') or ''}".strip(), "url": url})
+    pr = (_did(incident, stages) or {}).get("link")  # the summary's own PR lookup
+    if pr:
+        links.append({"label": "Pull request", "url": pr})
+    return links
 
 
 @router.get("/ui/", response_class=HTMLResponse)
@@ -590,6 +671,7 @@ def incident_detail(
             "i": incident,
             "stages": record["stages"],
             "summary": _summary(record),
+            "ext_links": _incident_links(session, incident, record["stages"]),
             "transitions": record["transitions"],
             "terminal": incident["status"] in TERMINAL_STATUSES,
             "busy": busy,

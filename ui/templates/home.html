@@ -1,5 +1,6 @@
 {% extends "base.html" %}
 {% block title %}Home - Helix{% endblock %}
+{% macro ext_icon() %}<svg class="ext-icon" viewBox="0 0 16 16" width="12" height="12" aria-hidden="true" focusable="false"><path d="M6.5 3H3.75A.75.75 0 0 0 3 3.75v8.5c0 .41.34.75.75.75h8.5a.75.75 0 0 0 .75-.75V9.5M9 3h4v4M13 3 7.5 8.5" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>{% endmacro %}
 {% macro send_test(class_name="btn btn-primary") %}
 <form method="post" action="/ui/samples"><button class="{{ class_name }}" type="submit">Send a test incident</button></form>
 {% endmacro %}
@@ -143,8 +144,14 @@
           <div class="home-main">
             <a class="strong" href="/ui/connections">{{ t.name }}</a>
             <span class="muted small">{% if t.connected %}Connected{% if t.account %} - {{ t.account }}{% endif %}{% else %}Not connected{% endif %}</span>
-            {# A later slice adds a deep link to the connected channel or project here. #}
           </div>
+          {% if t.connected %}
+            {% if t.link %}
+          <a class="btn btn-sm ext" href="{{ t.link.url }}" target="_blank" rel="noopener noreferrer" title="Open {{ t.name }}: {{ t.link.label }}">Open {{ t.link.label }}{{ ext_icon() }}<span class="sr-only"> in {{ t.name }} (opens in a new tab)</span></a>
+            {% else %}
+          <a class="btn btn-sm" href="/ui/connections">{{ t.pick }}</a>
+            {% endif %}
+          {% endif %}
         </li>
         {% endfor %}
       </ul>
