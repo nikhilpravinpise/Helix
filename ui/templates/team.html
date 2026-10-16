@@ -108,7 +108,10 @@
       </div>
       <div class="team-meta">
         <span class="badge{% if inv.role != 'member' %} st-recovered{% endif %}">{{ inv.role|capitalize }}</span>
-        <span class="small muted">{{ inv.expires }}</span>
+        <span class="team-status small muted">
+          <span>{{ inv.expires }}</span>
+          {% if inv.email %}<span>{% if inv.emailed_at %}Emailed {{ inv.emailed_at|age }} ago{% else %}Not emailed{% endif %}</span>{% endif %}
+        </span>
       </div>
       {% if inv.can_manage %}
       <div class="team-actions">
@@ -147,7 +150,7 @@
     <label for="invite-email">Email (optional)</label>
     <div class="bot-field">
       <input id="invite-email" type="text" name="email" inputmode="email" placeholder="name@company.com" autocomplete="off" spellcheck="false">
-      <p class="small muted">Used to find them in Slack.</p>
+      <p class="small muted">Used to email them the invite and find them in Slack.{% if not email_on %} Email is not set up yet, so only Slack is tried.{% endif %}</p>
     </div>
     <button class="btn btn-primary" type="submit">Send invite</button>
   </form>

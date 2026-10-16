@@ -44,6 +44,14 @@ services:
       # value is set as the webhook secret in the App's settings.
       - key: HELIX_GITHUB_WEBHOOK_SECRET
         sync: false
+      # Invite emails through Resend's HTTPS API (Render blocks SMTP). Both
+      # set means on. HELIX_EMAIL_FROM is an address on a domain verified in
+      # Resend; Resend's own onboarding@resend.dev only delivers to the
+      # Resend account owner.
+      - key: HELIX_EMAIL_API_KEY
+        sync: false
+      - key: HELIX_EMAIL_FROM
+        sync: false
       # The Helix GitHub App behind Connect GitHub (installation, no OAuth).
       # Its private key is the Secret File github-app.pem, which
       # scripts/render-start.sh exports as HELIX_GITHUB_APP_PRIVATE_KEY.

@@ -199,3 +199,26 @@ def test_the_html_escapes_every_value():
     assert "<script>" not in html and "<img" not in html and 'a"b<c' not in html
     assert "&lt;script&gt;" in html and "October 23, 2026" in html
     assert '<script>alert("x")</script>' in text
+
+
+def test_pending_invites_say_whether_they_were_emailed(client, db, mail, email_on, monkeypatch):
+    _sign_in(client, monkeypatch)
+    _invite(client)
+    page = client.get("/ui/team").text
+    assert "Emailed just now" in page or "Emailed" in page and " ago" in page
+    mail.state["status"] = 403
+    client.post("/ui/team/invite", data={"login": "other", "role": "member", "email": "o@x.com"})
+    page = client.get("/ui/team").text
+    assert "Not emailed" in page
+
+
+def test_the_invite_form_says_whether_email_is_set_up(client, db, mail, monkeypatch):
+    _sign_in(client, monkeypatch)
+    page = client.get("/ui/team").text
+    assert "Email is not set up" in page
+    monkeypatch.setenv("HELIX_EMAIL_API_KEY", "re_test")
+    monkeypatch.setenv("HELIX_EMAIL_FROM", "Helix <onboarding@resend.dev>")
+    page = client.get("/ui/team").text
+    assert "Email is not set up" not in page
+    assert "email them the invite" in page
+    assert "re_test" not in page

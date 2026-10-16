@@ -33,6 +33,7 @@ from sqlalchemy import select
 from helix import auth, invite_email, slack_people
 from helix.connections_ui import _posted
 from helix.ui import DbSession, _incident_total, _pending_count, templates
+from integrations import email
 from state import models, team
 from state.team import TeamError
 
@@ -162,6 +163,7 @@ def team_page(
             "invited_by": names.get(inv.invited_by, inv.invited_by),
             "created_at": team._aware(inv.created_at),
             "expires": _expires_in(team._aware(inv.expires_at)),
+            "emailed_at": team._aware(inv.emailed_at) if inv.emailed_at else None,
             "link": f"{public}/invite/{inv.token}",
             "can_manage": team.may_manage_invite(actor, inv),
         }
@@ -200,6 +202,7 @@ def team_page(
             "invites": invites,
             "can_manage": auth.may_manage(request, session),
             "slack_reconnect": RECONNECT if slack_people.needs_reconnect(session) else None,
+            "email_on": email.is_configured(),
             "me": me,
             "notice": found,
             "incident_total": _incident_total(session),
