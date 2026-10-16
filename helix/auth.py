@@ -317,8 +317,9 @@ def _link_slack_on_sign_in(session: Session, login: str, verified: tuple[str, ..
 def actor_for(request: Request, session: Session) -> team.Actor | None:
     """Who is acting, for the team rules. None is sign-in off: trusted with
     full owner power, as everywhere else. A user the HELIX_ALLOWED_USERS
-    override lets in without a people row is an owner: the operator named
-    them. Anyone else is not on the team and has no actor (TeamError)."""
+    override lets in without a people row is an admin (decided in issue #45):
+    the operator named them, but owners are only made from the Team page.
+    Anyone else is not on the team and has no actor (TeamError)."""
     user = getattr(request.state, "user", None)
     if user is None:
         return None if not enabled() else team.Actor("", "member")
@@ -326,7 +327,7 @@ def actor_for(request: Request, session: Session) -> team.Actor | None:
     if person is not None:
         return team.Actor(user, person.role)
     if get_settings().allowed_users:
-        return team.Actor(user, "owner")
+        return team.Actor(user, "admin")
     return team.Actor(user, "member")
 
 
