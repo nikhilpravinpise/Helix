@@ -292,3 +292,19 @@ Approvers rename.
 - FOLLOWUPS #16 - ngrok tunnel and webhooks (development stand-in for
   Stage 0 hosting)
 - plan.md D23 - GCP deployment (Stage 0 hosting)
+
+### Self-approval and reviewer reassignment (decided 2026-10-16)
+
+Vraj changed the Phase 2 human-in-the-loop rule:
+
+- **Owners and admins may approve their own change, guarded.** The
+  automatic pick still sends the review or approval to someone else
+  first. Self-approving is a separate, explicit "Approve my own change"
+  action on the dashboard, offered only to owners and admins (never
+  members, never from a Slack click), and every such decision is shown
+  as **self-approved** on the dashboard, in Slack and in the record.
+- **Owners and admins can reassign a pending review** to anyone on the
+  team except the change's author. The automatic pick from the service's
+  reviewer list stays the default.
+- Members keep the old rule: nobody else's role changes, and the
+  benchmark (file registry, no roles) keeps the strict rule.
