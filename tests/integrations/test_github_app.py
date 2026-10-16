@@ -402,3 +402,31 @@ def test_the_evidence_client_fails_auth_when_the_installation_token_cannot_be_mi
     github.replies[("POST", "/app/installations/77/access_tokens")] = (401, {"message": "no"})
     with pytest.raises(EvidenceAuthError):
         _evidence_client([])._get("/repos/acme/sbx")
+
+
+def test_a_refusal_logs_githubs_reason_but_never_the_token(github, monkeypatch):
+    """A bare http_401 cannot tell a wrong App ID from an undecodable key;
+    GitHub's own message can, and it carries no secret."""
+    logged = []
+
+    class Recorder:
+        def warning(self, event, **fields):
+            logged.append((event, fields))
+
+    monkeypatch.setattr(app, "get_logger", lambda: Recorder())
+    github.replies[("GET", "/app/installations/77")] = (
+        401,
+        {"message": "A JSON web token could not be decoded"},
+    )
+    with pytest.raises(app.GitHubAppError):
+        app.get_installation("77")
+    assert logged == [
+        (
+            "github app call refused",
+            {
+                "path": "/app/installations/77",
+                "status": 401,
+                "reason": "A JSON web token could not be decoded",
+            },
+        )
+    ]

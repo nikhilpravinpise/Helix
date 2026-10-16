@@ -487,3 +487,18 @@ def test_bot_save_when_the_installation_list_is_down_changes_nothing(client, git
         follow_redirects=False,
     )
     assert "notice=pr-bot-repo-unavailable" in response.headers["location"]
+
+
+def test_card_says_whether_live_github_events_are_on(client, monkeypatch):
+    """Admins see the URL to give the GitHub App's webhook and which events
+    to subscribe to; everyone sees whether live events are on."""
+    monkeypatch.delenv("HELIX_GITHUB_WEBHOOK_SECRET", raising=False)
+    page = client.get("/ui/connections").text
+    assert "Live events are off" in page
+    assert "/webhooks/github" in page
+    assert "HELIX_GITHUB_WEBHOOK_SECRET" in page
+    assert "Pull request" in page and "Check run" in page
+    monkeypatch.setenv("HELIX_GITHUB_WEBHOOK_SECRET", "s3cret")
+    page = client.get("/ui/connections").text
+    assert "Live events are on" in page
+    assert "s3cret" not in page

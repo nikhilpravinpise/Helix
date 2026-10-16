@@ -95,6 +95,18 @@ def test_database_rows_become_the_registry(team_db):
     assert registry.namespaces() == {"orders-ns"}
     assert registry.people["zed"].slack == "U111" and registry.people["zed"].name == "Zed"
     assert registry.people["yan"].slack is None
+    assert (registry.people["zed"].role, registry.people["yan"].role) == ("admin", "member")
+
+
+def test_the_database_roles_let_an_admin_author_self_approve_but_not_a_member(
+    team_db, incident_for
+):
+    _seed(team_db)
+    admin = incident_for(author="zed")  # zed: admin and default owner of orders
+    assert approval_refusal(admin, "zed") is not None
+    assert approval_refusal(admin, "zed", self_approve=True) is None
+    member = incident_for(author="yan")  # yan: member, an approver, but a member
+    assert approval_refusal(member, "yan", self_approve=True) is not None
 
 
 def test_path_rules_keep_stored_order_last_match_wins(team_db):

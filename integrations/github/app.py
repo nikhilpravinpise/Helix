@@ -32,6 +32,7 @@ from cryptography.hazmat.primitives import hashes, serialization
 from cryptography.hazmat.primitives.asymmetric import padding, rsa
 
 from helix.config import get_settings
+from helix.logging import get_logger
 from state import connections
 
 API_ROOT = "https://api.github.com"
@@ -116,6 +117,15 @@ def _call(method: str, path: str, bearer: str, **kwargs: Any) -> Any:
     except httpx.HTTPError as exc:
         raise GitHubAppError("transport_error") from exc
     if response.status_code >= 400:
+        # GitHub's message tells a wrong App ID from an undecodable key or a
+        # bad timestamp; it never contains the token.
+        try:
+            reason = str((response.json() or {}).get("message") or "")
+        except (ValueError, AttributeError):
+            reason = response.text[:200]
+        get_logger().warning(
+            "github app call refused", path=path, status=response.status_code, reason=reason
+        )
         raise GitHubAppError(f"http_{response.status_code}")
     try:
         return response.json()

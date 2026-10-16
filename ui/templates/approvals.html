@@ -1,5 +1,5 @@
 {% extends "base.html" %}
-{% from "_decide.html" import actor_bar, review_decide_row %}
+{% from "_decide.html" import actor_bar, review_decide_row, reassign_control, own_change_row, own_change_waiting, self_approved_badge %}
 {% block title %}Approvals &amp; reviews - Helix
 {% if pending_reviews or decided_reviews %}
 <h2 class="section-title">Pending reviews</h2>
@@ -15,7 +15,14 @@
       <span class="mono muted ts" title="{{ r.created_at|dt }}">waiting {{ r.created_at|age }}</span>
     </div>
     <p class="record-body">{{ r.rationale }}</p>
+    {% if r.can_self_approve %}
+    {{ own_change_row(r.id, "review") }}
+    {% elif r.own %}
+    {{ own_change_waiting(r.waiting_on) }}
+    {% else %}
     {{ review_decide_row(r.id) }}
+    {% endif %}
+    {{ reassign_control(r.id, r.reassign_options) }}
   </div>
   {% endfor %}
 {% else %}
@@ -36,7 +43,7 @@
       <td><a class="mono" href="/ui/incidents/{{ r.incident_id }}">{{ r.incident_id }}</a></td>
       <td>{{ r.reviewer|person }}</td>
       <td><span class="badge ap-{{ r.status }}">{{ r.status|label }}</span></td>
-      <td>{{ r.decided_by|person or "-" }}</td>
+      <td>{{ r.decided_by|person or "-" }}{% if r.self_approved %} {{ self_approved_badge() }}{% endif %}</td>
       <td class="mono muted">{{ r.decided_at|dt }}</td>
       <td class="small">{{ r.note or "" }}</td>
       <td class="mono muted" title="{{ r.created_at|dt }}">{{ r.created_at|age }}</td>
@@ -73,12 +80,18 @@
     </div>
     <pre class="code">{{ a.params|jsonpp }}</pre>
     <p class="mono muted small">fingerprint {{ a.fingerprint_short }}</p>
+    {% if a.can_self_approve %}
+    {{ own_change_row(a.id) }}
+    {% elif a.own %}
+    {{ own_change_waiting(a.waiting_on) }}
+    {% else %}
     <div class="decide-row">
       <input id="note-{{ a.id }}" type="text" placeholder="decision note (optional)" maxlength="500">
       <button class="btn btn-approve" data-decide="approve" data-approval-id="{{ a.id }}">Approve</button>
       <button class="btn btn-reject" data-decide="reject" data-approval-id="{{ a.id }}">Reject</button>
     </div>
     <p class="decide-error" id="decide-error-{{ a.id }}"></p>
+    {% endif %}
   </div>
   {% endfor %}
 {% elif pending_reviews %}
@@ -107,7 +120,7 @@
       <td><a class="mono" href="/ui/incidents/{{ a.incident_id }}">{{ a.incident_id }}</a></td>
       <td class="mono">{{ a.action }}</td>
       <td><span class="badge ap-{{ a.status }}">{{ a.status|label }}</span></td>
-      <td>{{ a.decided_by|person or "-" }}</td>
+      <td>{{ a.decided_by|person or "-" }}{% if a.self_approved %} {{ self_approved_badge() }}{% endif %}</td>
       <td class="mono muted">{{ a.decided_at|dt }}</td>
       <td class="small">{{ a.note or "" }}</td>
       <td class="mono muted" title="{{ a.created_at|dt }}">{{ a.created_at|age }}</td>
@@ -132,7 +145,14 @@
       <span class="mono muted ts" title="{{ r.created_at|dt }}">waiting {{ r.created_at|age }}</span>
     </div>
     <p class="record-body">{{ r.rationale }}</p>
+    {% if r.can_self_approve %}
+    {{ own_change_row(r.id, "review") }}
+    {% elif r.own %}
+    {{ own_change_waiting(r.waiting_on) }}
+    {% else %}
     {{ review_decide_row(r.id) }}
+    {% endif %}
+    {{ reassign_control(r.id, r.reassign_options) }}
   </div>
   {% endfor %}
 {% else %}
@@ -153,7 +173,7 @@
       <td><a class="mono" href="/ui/incidents/{{ r.incident_id }}">{{ r.incident_id }}</a></td>
       <td>{{ r.reviewer|person }}</td>
       <td><span class="badge ap-{{ r.status }}">{{ r.status|label }}</span></td>
-      <td>{{ r.decided_by|person or "-" }}</td>
+      <td>{{ r.decided_by|person or "-" }}{% if r.self_approved %} {{ self_approved_badge() }}{% endif %}</td>
       <td class="mono muted">{{ r.decided_at|dt }}</td>
       <td class="small">{{ r.note or "" }}</td>
       <td class="mono muted" title="{{ r.created_at|dt }}">{{ r.created_at|age }}</td>

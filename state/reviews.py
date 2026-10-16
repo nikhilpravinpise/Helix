@@ -24,6 +24,18 @@ class ReviewDecidedError(RuntimeError):
     approve/reject is a clean error."""
 
 
+class ReviewReassignError(RuntimeError):
+    """A pending review cannot be handed to that person - the message says
+    why in plain English."""
+
+
+class ReviewReassignForbiddenError(ReviewReassignError):
+    """The actor is not an owner or admin, so may not reassign at all."""
+
+
+REASSIGNER_ROLES = ("owner", "admin")
+
+
 def pending_for_incident(session: Session, incident_pk: int) -> models.ReviewRequest | None:
     """The single pending review request for an incident, if any -
     ux_review_requests_one_pending guarantees at most one exists."""
@@ -63,6 +75,7 @@ def record_decision(
     note: str = "",
     *,
     timeout_s: float | None = None,
+    self_approve: bool = False,
 ) -> models.ReviewRequest:
     """Record a reviewer's decision on a pending review request.
 
@@ -90,13 +103,56 @@ def record_decision(
         )
     from state.deciders import review_refusal
 
-    refusal = review_refusal(review, actor)
+    refusal = review_refusal(review, actor, self_approve=self_approve)
     if refusal is not None:
         raise ReviewDecidedError(f"review {review.id}: {refusal}")
     review.status = models.ApprovalStatus.APPROVED if approved else models.ApprovalStatus.REJECTED
     review.decided_by = actor
     review.decided_at = now
     review.note = note or None
+    session.flush()
+    return review
+
+
+def reassign(
+    session: Session,
+    review: models.ReviewRequest,
+    new_reviewer: str,
+    actor: str,
+    *,
+    actor_role: str | None,
+) -> models.ReviewRequest:
+    """Hand a pending review to another person on the team (decided
+    2026-10-16). Only an owner or admin may; `actor_role` None is sign-in
+    off, trusted like everywhere else. The new reviewer must be on the team
+    (a pending invitee is not yet), must not be the change's author and
+    must not already be the reviewer. Who may DECIDE is unchanged - after
+    this the new reviewer decides it, and the old one is refused.
+
+    Flushes but never commits. The reassignment is recorded in the
+    rationale, and the new reviewer is pinged through the same Slack
+    review_request the automatic pick uses."""
+    if actor_role is not None and actor_role not in REASSIGNER_ROLES:
+        raise ReviewReassignForbiddenError("only an owner or admin can reassign a review")
+    if review.status != models.ApprovalStatus.PENDING:
+        raise ReviewReassignError(
+            f"review {review.id} is already {review.status.value}, so it cannot be reassigned"
+        )
+    from agent.ops.registry import load_registry
+    from state.deciders import author_of
+
+    if new_reviewer not in load_registry().people:
+        raise ReviewReassignError(f"{new_reviewer} is not on the team")
+    if new_reviewer == author_of(review.incident):
+        raise ReviewReassignError(f"{new_reviewer} wrote this change and cannot review it")
+    if new_reviewer == review.reviewer:
+        raise ReviewReassignError(f"{new_reviewer} is already the reviewer")
+    review.rationale = f"{review.rationale}\nReassigned by {actor} (was {review.reviewer})."
+    review.reviewer = new_reviewer
+    session.flush()
+    from integrations.lifecycle_sync import enqueue_review_request
+
+    enqueue_review_request(session, review.incident, review)
     session.flush()
     return review
 

@@ -626,3 +626,58 @@ class TestSelfLinkFromSlack:
         _link_slack(monkeypatch, alice="U999")
         payload = {**_block_actions(approval_id), "user": {"id": "U000", "name": "x"}}
         assert _post(client, payload).status_code == 200 and posts == []
+
+
+class TestSelfApprovalIsNeverFromSlack:
+    """An owner or admin may approve their own change, but only from the
+    dashboard: a Slack click is refused and says where to go."""
+
+    def _owner_authored_pending(self, client, engine, monkeypatch, role: str) -> int:
+        from agent.ops import registry as registry_mod
+        from events.ingest import ingest_event
+        from events.schemas import EngineeringEvent, EventSource, EventType
+
+        with session_scope(engine) as session:
+            incident_id = ingest_event(
+                session,
+                EngineeringEvent(
+                    event_type=EventType.PR_OPENED,
+                    source=EventSource.GITHUB,
+                    service="payment-api",
+                    environment="sandbox",
+                    actor="alice",
+                    metadata={"pr": 5, "branch": "feature/x"},
+                ),
+            ).incident_id
+        approval_id = _seed_pending(engine, incident_id)
+        base = registry_mod.load_registry()
+        people = {
+            **base.people,
+            "alice": registry_mod.Person(slack="U777", role=role),
+        }
+        linked = registry_mod.ServiceRegistry(services=base.services, people=people)
+        monkeypatch.setattr(registry_mod, "load_registry", lambda path=None: linked)
+        return approval_id
+
+    @pytest.mark.parametrize("role", ["owner", "admin"])
+    def test_an_owner_or_admin_author_is_refused_with_the_dashboard_hint(
+        self, client, sqlite_engine, monkeypatch, role
+    ):
+        approval_id = self._owner_authored_pending(client, sqlite_engine, monkeypatch, role)
+        calls: list[str] = []
+        _stub_run(monkeypatch, calls)
+        response = _post(client, _block_actions(approval_id, id="U777"))
+        assert response.status_code == 200
+        (decision,) = response.json()["decisions"]
+        assert "decision" not in decision
+        assert "may not approve it" in decision["note"]
+        assert "Approve my own change" in decision["note"]
+        assert _get_approval(sqlite_engine, approval_id).status == models.ApprovalStatus.PENDING
+        assert calls == []
+
+    def test_a_member_author_gets_no_dashboard_hint(self, client, sqlite_engine, monkeypatch):
+        approval_id = self._owner_authored_pending(client, sqlite_engine, monkeypatch, "member")
+        response = _post(client, _block_actions(approval_id, id="U777"))
+        (decision,) = response.json()["decisions"]
+        assert "may not approve it" in decision["note"]
+        assert "Approve my own change" not in decision["note"]

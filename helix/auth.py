@@ -6,10 +6,10 @@ GitHub user on the allow-list (HELIX_ALLOWED_USERS, default: the
 people table, plus anyone with a pending team invite, who is let in and
 accepted by signing in): pages send a signed-out visitor to /login, API
 routes answer 401. Machine clients keep using the intake token as a Bearer
-header. /healthz, /slack/interactions (Slack-signed) and the sign-in routes
-stay open, and so do "/", the public landing page (a signed-in visitor
-is sent on to the dashboard), and /invite/{token}, the page an invite link
-opens.
+header. /healthz, /slack/interactions (Slack-signed), /webhooks/github
+(GitHub-signed) and the sign-in routes stay open, and so do "/", the public
+landing page (a signed-in visitor is sent on to the dashboard), and
+/invite/{token}, the page an invite link opens.
 
 Managing services, connections and the team needs an admin or an owner
 (`require_admin`); the team page's own rules (state/team.py) decide who may
@@ -50,6 +50,7 @@ _OPEN_PATHS = frozenset(
         "/",
         "/healthz",
         "/slack/interactions",
+        "/webhooks/github",
         "/login",
         "/logout",
         "/auth/github",

@@ -5,12 +5,15 @@
       status changes reload so the timeline re-renders, and stop polling
       once a terminal status arrives.
    2. Approvals queue and incident page: Approve/Reject buttons POST the
-      decision (data-decide-kind="review" for a review, else an approval)
+      decision (data-decide-kind="review" for a review, else an approval;
+      data-self-approve="1" is an owner or admin's "Approve my own change")
       to the 1.8 / 2.6 JSON endpoints with the operator name (and the intake token as
       a Bearer header when the deployment gates decisions). The button says
       "Approving..." at once; with ?wait=false the server saves the decision
       and resumes the run after answering, so the page polls the incident
-      and reloads once its status moves (or after two minutes).
+      and reloads once its status moves (or after two minutes). A pending
+      review also gets a Reassign control (data-reassign) for owners and
+      admins, which POSTs /reviews/{id}/reassign and reloads.
    3. Team page: Copy link puts an invite's link on the clipboard. Without
       clipboard support (or if copying fails) the link field shows instead.
    4. Services form: reviewer and path-rule rows get Move up / Move down /
@@ -96,6 +99,7 @@
       body: JSON.stringify({
         actor: (actorEl && actorEl.value.trim()) || "ui-operator",
         note: (noteEl && noteEl.value) || "",
+        self_approve: btn.getAttribute("data-self-approve") === "1",
       }),
     })
       .then(function (res) {
@@ -115,6 +119,38 @@
         Array.prototype.forEach.call(pair, function (b) {
           b.disabled = false;
         });
+        if (errEl) errEl.textContent = String(err && err.message ? err.message : err);
+      });
+  }
+
+  /* Owners and admins: hand a pending review to another team member. */
+  function reassign(btn) {
+    var id = btn.getAttribute("data-reassign");
+    var tokenEl = field("intake-token");
+    var selectEl = field("reassign-to-" + id);
+    var errEl = field("reassign-error-" + id);
+    var headers = { "Content-Type": "application/json", Accept: "application/json" };
+    if (tokenEl && tokenEl.value) {
+      headers.Authorization = "Bearer " + tokenEl.value;
+    }
+    btn.disabled = true;
+    if (errEl) errEl.textContent = "";
+    fetch("/reviews/" + encodeURIComponent(id) + "/reassign", {
+      method: "POST",
+      headers: headers,
+      body: JSON.stringify({ reviewer: selectEl ? selectEl.value : "" }),
+    })
+      .then(function (res) {
+        if (res.ok) {
+          window.location.reload();
+          return null;
+        }
+        return res.json().then(function (body) {
+          throw new Error(body && body.detail ? body.detail : "HTTP " + res.status);
+        });
+      })
+      .catch(function (err) {
+        btn.disabled = false;
         if (errEl) errEl.textContent = String(err && err.message ? err.message : err);
       });
   }
@@ -176,6 +212,12 @@
     Array.prototype.forEach.call(buttons, function (btn) {
       btn.addEventListener("click", function () {
         decide(btn);
+      });
+    });
+    var reassigns = document.querySelectorAll("[data-reassign]");
+    Array.prototype.forEach.call(reassigns, function (btn) {
+      btn.addEventListener("click", function () {
+        reassign(btn);
       });
     });
   }

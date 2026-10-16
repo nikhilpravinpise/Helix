@@ -79,6 +79,10 @@ class Person(BaseModel):
     name: str = ""
     #: Slack member id (`U...`) to @-mention; None shows the name unpinged.
     slack: str | None = None
+    #: owner | admin | member. The people table holds it; the file registry
+    #: (benchmark, tests) names no roles, so everyone there is a member and
+    #: the strict "the author never decides" rule holds.
+    role: str = "member"
 
 
 @dataclass(frozen=True)
@@ -135,7 +139,7 @@ def _registry_from_database() -> ServiceRegistry:
             for row in session.scalars(select(ServiceRow))
         }
         people = {
-            row.login: Person(name=row.name, slack=row.slack_id)
+            row.login: Person(name=row.name, slack=row.slack_id, role=row.role)
             for row in session.scalars(select(PersonRow))
         }
     return ServiceRegistry(services=services, people=people)

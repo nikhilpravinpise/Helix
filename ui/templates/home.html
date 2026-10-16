@@ -13,6 +13,7 @@
       <div class="home-main">
         <a class="strong" href="{{ p.href }}">{{ p.what }}</a>
         <span class="muted small"><a class="mono" href="/ui/incidents/{{ p.incident_id }}">{{ p.incident_id }}</a>
+          {%- if p.own %} - your own change{% endif %}
           {%- if with_waiting_on %} - waiting on {{ p.waiting_on }}{% endif %}</span>
       </div>
       <span class="mono muted small" title="{{ p.created_at|dt }}">waiting {{ p.created_at|age }}</span>
