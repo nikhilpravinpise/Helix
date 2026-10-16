@@ -5,7 +5,8 @@
       status changes reload so the timeline re-renders, and stop polling
       once a terminal status arrives.
    2. Approvals queue and incident page: Approve/Reject buttons POST the
-      decision (data-decide-kind="review" for a review, else an approval)
+      decision (data-decide-kind="review" for a review, else an approval;
+      data-self-approve="1" is an owner or admin's "Approve my own change")
       to the 1.8 / 2.6 JSON endpoints with the operator name (and the intake token as
       a Bearer header when the deployment gates decisions). The button says
       "Approving..." at once; with ?wait=false the server saves the decision
@@ -96,6 +97,7 @@
       body: JSON.stringify({
         actor: (actorEl && actorEl.value.trim()) || "ui-operator",
         note: (noteEl && noteEl.value) || "",
+        self_approve: btn.getAttribute("data-self-approve") === "1",
       }),
     })
       .then(function (res) {

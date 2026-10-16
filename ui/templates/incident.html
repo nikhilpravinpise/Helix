@@ -1,5 +1,5 @@
 {% extends "base.html" %}
-{% from "_decide.html" import actor_bar, review_decide_row %}
+{% from "_decide.html" import actor_bar, review_decide_row, own_change_row, own_change_waiting, self_approved_badge %}
 {% block title %}{{ i.incident_id }} - Helix{% endblock %}
 {% block content %}
 {% macro params_block(value) %}
@@ -108,14 +108,20 @@
           <div class="record-head">
             <span class="mono strong">#{{ r.id }} - {{ r.reviewer|person }}</span>
             <span class="badge ap-{{ r.status }}">{{ r.status|label }}</span>
-            {% if r.decided_by %}<span class="muted">by {{ r.decided_by|person }} at <span class="mono">{{ r.decided_at|dt }}</span></span>{% endif %}
+            {% if r.decided_by %}<span class="muted">by {{ r.decided_by|person }} at <span class="mono">{{ r.decided_at|dt }}</span></span>{% if r.status == "approved" and r.decided_by == author %} {{ self_approved_badge() }}{% endif %}{% endif %}
             <span class="mono muted ts">{{ r.created_at|dt }}</span>
           </div>
           <p class="record-body">{{ r.rationale }}</p>
           {% if r.note %}<p class="record-body">{{ r.note }}</p>{% endif %}
           {% if r.status == "pending" %}
           {{ actor_bar(request.state.user if request.state is defined else none, default_actor, token_required) }}
+          {% if can_self_approve and own_change %}
+          {{ own_change_row(r.id, "review") }}
+          {% elif own_change %}
+          {{ own_change_waiting(r.reviewer|person) }}
+          {% else %}
           {{ review_decide_row(r.id) }}
+          {% endif %}
           {% endif %}
         </div>
         {% endfor %}
@@ -214,6 +220,7 @@
             {% if d.approval_id %}
               #{{ d.approval_id }} <span class="badge ap-{{ d.approval_status }}">{{ d.approval_status|label }}</span>
               by {{ d.decided_by|person }} at <span class="mono">{{ d.decided_at|dt }}</span>
+              {%- if d.approval_status == "approved" and d.decided_by == author %} {{ self_approved_badge() }}{% endif %}
             {% else %}none required{% endif %}
           </dd></div>
           {% if d.execution_id %}<div><dt>execution</dt><dd class="mono">#{{ d.execution_id }}</dd></div>{% endif %}
@@ -252,12 +259,12 @@
           <div class="record-head">
             <span class="mono strong">#{{ a.id }} - {{ a.action }}</span>
             <span class="badge ap-{{ a.status }}">{{ a.status|label }}</span>
-            {% if a.decided_by %}<span class="muted">by {{ a.decided_by|person }} at <span class="mono">{{ a.decided_at|dt }}</span></span>{% endif %}
+            {% if a.decided_by %}<span class="muted">by {{ a.decided_by|person }} at <span class="mono">{{ a.decided_at|dt }}</span></span>{% if a.status == "approved" and a.decided_by == author %} {{ self_approved_badge() }}{% endif %}{% endif %}
             <span class="mono muted ts">{{ a.created_at|dt }}</span>
           </div>
           {% if a.note %}<p class="record-body">{{ a.note }}</p>{% endif %}
           {% if a.status == "pending" %}
-          <p class="small"><a href="/ui/approvals">decide in the approvals queue</a></p>
+          <p class="small"><a href="/ui/approvals">{% if can_self_approve and own_change %}approve my own change in the approvals queue{% else %}decide in the approvals queue{% endif %}</a></p>
           {% endif %}
         </div>
         {% endfor %}
@@ -275,7 +282,7 @@
             <span class="badge pol-{{ e.policy_decision }}">{{ e.policy_decision|label }}</span>
             <span class="badge origin-{{ e.origin }}">{{ e.origin }}</span>
             <span class="muted">attempt {{ e.attempt }}</span>
-            {% if e.decided_by %}<span class="muted">approved by {{ e.decided_by|person }}</span>{% endif %}
+            {% if e.decided_by %}<span class="muted">{{ "self-approved" if e.decided_by == author else "approved" }} by {{ e.decided_by|person }}</span>{% endif %}
             {% if e.compensates_id %}<span class="badge">compensates #{{ e.compensates_id }}</span>{% endif %}
           </div>
           <p class="mono muted small">{{ e.started_at|dt }} -> {{ e.finished_at|dt }}</p>

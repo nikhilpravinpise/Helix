@@ -124,3 +124,122 @@ def test_status_is_unchanged_by_a_refusal(db_session):
     with pytest.raises(ApprovalDecidedError):
         decide_approval(db_session, approval, True, "mallory", timeout_s=0)
     assert incident.status == IncidentStatus.RECEIVED
+
+
+# Self-approval (decided 2026-10-16): owners and admins may approve their OWN
+# change, but only by asking explicitly (`self_approve=True`). Everything else
+# keeps the strict rule above.
+ROLE_REGISTRY = """
+services:
+  payment-api:
+    default_owner: alice
+    owners: [bob, carol]
+    default_reviewers: [bob, carol]
+people:
+  alice: {role: owner}
+  bob: {role: admin}
+  carol: {role: member}
+  frank: {role: owner}
+"""
+
+
+@pytest.fixture
+def roles(tmp_path, monkeypatch):
+    path = tmp_path / "roles.yaml"
+    path.write_text(ROLE_REGISTRY)
+    monkeypatch.setenv("HELIX_SERVICE_REGISTRY", str(path))
+
+
+class TestSelfApprovalOfApprovals:
+    @pytest.mark.parametrize("author", ["alice", "bob"])
+    def test_an_owner_or_admin_author_may_approve_their_own_change(self, db_session, roles, author):
+        approval = _approval(db_session, _incident(db_session, author=author))
+        decide_approval(db_session, approval, True, author, timeout_s=0, self_approve=True)
+        assert approval.status == models.ApprovalStatus.APPROVED
+        assert approval.decided_by == author
+
+    @pytest.mark.parametrize("author", ["alice", "bob"])
+    def test_without_the_flag_they_are_still_refused(self, db_session, roles, author):
+        approval = _approval(db_session, _incident(db_session, author=author))
+        with pytest.raises(ApprovalDecidedError, match="author"):
+            decide_approval(db_session, approval, True, author, timeout_s=0)
+        assert approval.status == models.ApprovalStatus.PENDING
+
+    def test_a_member_author_is_refused_even_with_the_flag(self, db_session, roles):
+        approval = _approval(db_session, _incident(db_session, author="carol"))
+        with pytest.raises(ApprovalDecidedError, match="author"):
+            decide_approval(db_session, approval, True, "carol", timeout_s=0, self_approve=True)
+        assert approval.status == models.ApprovalStatus.PENDING
+
+    def test_an_author_not_on_the_team_is_refused_even_with_the_flag(self, db_session, roles):
+        approval = _approval(db_session, _incident(db_session, author="ghost"))
+        with pytest.raises(ApprovalDecidedError, match="author"):
+            decide_approval(db_session, approval, True, "ghost", timeout_s=0, self_approve=True)
+
+    def test_an_owner_author_who_is_not_an_approver_of_the_service_is_refused(
+        self, db_session, roles
+    ):
+        approval = _approval(db_session, _incident(db_session, author="frank"))
+        with pytest.raises(ApprovalDecidedError, match="author"):
+            decide_approval(db_session, approval, True, "frank", timeout_s=0, self_approve=True)
+
+    def test_the_flag_does_not_let_a_stranger_decide(self, db_session, roles):
+        approval = _approval(db_session, _incident(db_session, author="alice"))
+        with pytest.raises(ApprovalDecidedError, match="not allowed"):
+            decide_approval(db_session, approval, True, "frank", timeout_s=0, self_approve=True)
+
+    def test_the_automatic_pick_still_leaves_the_author_out(self, db_session, roles):
+        from state.deciders import approval_deciders
+
+        assert approval_deciders(_incident(db_session, author="bob")) == ["alice", "carol"]
+
+    def test_the_benchmark_registry_has_no_roles_so_the_flag_changes_nothing(self, db_session):
+        approval = _approval(db_session, _incident(db_session, author="alice"))
+        with pytest.raises(ApprovalDecidedError, match="author"):
+            decide_approval(db_session, approval, True, "alice", timeout_s=0, self_approve=True)
+        assert approval.status == models.ApprovalStatus.PENDING
+
+
+class TestSelfApprovalOfReviews:
+    @pytest.mark.parametrize("author", ["alice", "bob"])
+    def test_an_owner_or_admin_author_may_approve_the_review_requested_from_someone_else(
+        self, db_session, roles, author
+    ):
+        review = _review(db_session, _incident(db_session, author=author), reviewer="carol")
+        decide_review(db_session, review, True, author, timeout_s=0, self_approve=True)
+        assert review.status == models.ApprovalStatus.APPROVED
+        assert review.decided_by == author
+
+    @pytest.mark.parametrize("author", ["alice", "bob"])
+    def test_without_the_flag_they_are_still_refused(self, db_session, roles, author):
+        review = _review(db_session, _incident(db_session, author=author), reviewer="carol")
+        with pytest.raises(ReviewDecidedError, match="author"):
+            decide_review(db_session, review, True, author, timeout_s=0)
+        assert review.status == models.ApprovalStatus.PENDING
+
+    @pytest.mark.parametrize("author", ["carol", "ghost"])
+    def test_members_and_strangers_are_refused_even_with_the_flag(self, db_session, roles, author):
+        review = _review(db_session, _incident(db_session, author=author), reviewer="bob")
+        with pytest.raises(ReviewDecidedError, match="author"):
+            decide_review(db_session, review, True, author, timeout_s=0, self_approve=True)
+        assert review.status == models.ApprovalStatus.PENDING
+
+    def test_the_flag_does_not_let_a_non_author_skip_the_reviewer_rule(self, db_session, roles):
+        review = _review(db_session, _incident(db_session, author="dana"), reviewer="carol")
+        with pytest.raises(ReviewDecidedError, match="not allowed"):
+            decide_review(db_session, review, True, "alice", timeout_s=0, self_approve=True)
+
+    def test_the_benchmark_registry_still_refuses_an_author(self, db_session):
+        review = _review(db_session, _incident(db_session, author="bob"), reviewer="carol")
+        with pytest.raises(ReviewDecidedError, match="author"):
+            decide_review(db_session, review, True, "bob", timeout_s=0, self_approve=True)
+
+
+def test_self_approved_is_a_decision_by_the_author(db_session, roles):
+    from state.deciders import is_self_approved
+
+    incident = _incident(db_session, author="alice")
+    assert is_self_approved(incident, "alice")
+    assert not is_self_approved(incident, "bob")
+    assert not is_self_approved(incident, None)
+    assert not is_self_approved(_incident(db_session, author="system"), "system")

@@ -63,6 +63,7 @@ def record_decision(
     note: str = "",
     *,
     timeout_s: float | None = None,
+    self_approve: bool = False,
 ) -> models.ReviewRequest:
     """Record a reviewer's decision on a pending review request.
 
@@ -90,7 +91,7 @@ def record_decision(
         )
     from state.deciders import review_refusal
 
-    refusal = review_refusal(review, actor)
+    refusal = review_refusal(review, actor, self_approve=self_approve)
     if refusal is not None:
         raise ReviewDecidedError(f"review {review.id}: {refusal}")
     review.status = models.ApprovalStatus.APPROVED if approved else models.ApprovalStatus.REJECTED

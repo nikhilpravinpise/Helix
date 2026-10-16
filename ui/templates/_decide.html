@@ -24,3 +24,21 @@
 </div>
 <p class="decide-error" id="decide-error-review-{{ id }}"></p>
 {% endmacro %}
+
+{# An owner or admin who wrote the change: a distinct button, recorded as self-approved. #}
+{% macro own_change_row(id, kind="approval") %}
+{%- set suffix = "review-" ~ id if kind == "review" else id|string %}
+<div class="decide-row">
+  <input id="note-{{ suffix }}" type="text" placeholder="decision note (optional)" maxlength="500">
+  <button class="btn btn-approve" data-decide="approve"{% if kind == "review" %} data-decide-kind="review"{% endif %} data-self-approve="1" data-approval-id="{{ id }}">Approve my own change</button>
+</div>
+<p class="muted small">You wrote this change. Approving it yourself is recorded as self-approved.</p>
+<p class="decide-error" id="decide-error-{{ suffix }}"></p>
+{% endmacro %}
+
+{# The author is not offered a button: someone else decides. #}
+{% macro own_change_waiting(who) %}
+<p class="muted small">You wrote this change, so you cannot decide it. Waiting on {{ who }}.</p>
+{% endmacro %}
+
+{% macro self_approved_badge() %}<span class="badge" title="Decided by the change's own author">self-approved</span>{% endmacro %}

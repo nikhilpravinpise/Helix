@@ -55,7 +55,14 @@ from helix import demo
 from helix.config import get_settings
 from state import connections, models, pr_bot
 from state.db import session_scope
-from state.deciders import approval_deciders, approval_refusal, review_refusal
+from state.deciders import (
+    approval_deciders,
+    approval_refusal,
+    author_of,
+    is_self_approved,
+    may_self_approve,
+    review_refusal,
+)
 from state.machine import TERMINAL_STATUSES, IncidentStatus
 from state.provenance import assemble_provenance
 
@@ -167,8 +174,11 @@ def _did(
     incident: dict[str, Any],
     stages: dict[str, Any],
     transitions: list[dict[str, Any]] | None = None,
+    author: str | None = None,
 ) -> dict[str, Any] | None:
-    """The latest real execution, or why nothing ran."""
+    """The latest real execution, or why nothing ran. `author` is the
+    change's author, so an approval the author gave themselves reads as
+    self-approved."""
     executions = stages.get("execution") or []
     primary = [e for e in executions if not e.get("compensates_id")]
     if primary:
@@ -181,7 +191,8 @@ def _did(
         if out.get("branch"):
             text += f" (branch {out['branch']})"
         if e.get("decided_by"):
-            text += f" - approved by {_display_name(e['decided_by'])}"
+            kind = "self-approved" if e["decided_by"] == author else "approved"
+            text += f" - {kind} by {_display_name(e['decided_by'])}"
         if len(primary) < len(executions):
             text += " - undone after verification failed"
         row: dict[str, Any] = {"text": text}
@@ -233,12 +244,12 @@ def _outcome(incident: dict[str, Any], stages: dict[str, Any]) -> str:
     return text
 
 
-def _summary(record: dict[str, Any]) -> dict[str, Any]:
+def _summary(record: dict[str, Any], author: str | None = None) -> dict[str, Any]:
     """The incident page's headline card: four plain-English rows built
     from the provenance record. A row whose stage has no record is left
     out; the outcome always exists."""
     incident, stages = record["incident"], record["stages"]
-    did = _did(incident, stages, record.get("transitions"))
+    did = _did(incident, stages, record.get("transitions"), author)
     rows: list[dict[str, Any]] = [
         {"label": "What broke", "text": _what_broke(incident, stages)},
         {"label": "Why", "text": _why(incident, stages)},
@@ -426,6 +437,13 @@ def _needs_you(session: Session, user: str | None) -> tuple[list[dict], list[dic
         .limit(HOME_PENDING_LIMIT)
     ):
         owners = approval_deciders(a.incident)
+        normal = bool(user) and approval_refusal(a.incident, user) is None
+        # An owner or admin who wrote the change may approve it themselves.
+        own = (
+            bool(user)
+            and not normal
+            and approval_refusal(a.incident, user, self_approve=True) is None
+        )
         items.append(
             {
                 "kind": "Approval",
@@ -434,7 +452,8 @@ def _needs_you(session: Session, user: str | None) -> tuple[list[dict], list[dic
                 "created_at": a.created_at,
                 "href": f"/ui/approvals#approval-{a.id}",
                 "waiting_on": ", ".join(_display_name(o) for o in owners) or "no approver",
-                "mine": bool(user) and approval_refusal(a.incident, user) is None,
+                "mine": normal or own,
+                "own": own,
             }
         )
     for r in session.scalars(
@@ -443,6 +462,8 @@ def _needs_you(session: Session, user: str | None) -> tuple[list[dict], list[dic
         .order_by(models.ReviewRequest.created_at, models.ReviewRequest.id)
         .limit(HOME_PENDING_LIMIT)
     ):
+        normal = bool(user) and review_refusal(r, user) is None
+        own = bool(user) and not normal and review_refusal(r, user, self_approve=True) is None
         items.append(
             {
                 "kind": "Review",
@@ -451,7 +472,8 @@ def _needs_you(session: Session, user: str | None) -> tuple[list[dict], list[dic
                 "created_at": r.created_at,
                 "href": f"/ui/approvals#review-{r.id}",
                 "waiting_on": _display_name(r.reviewer),
-                "mine": bool(user) and review_refusal(r, user) is None,
+                "mine": normal or own,
+                "own": own,
             }
         )
     items.sort(key=lambda i: _utc(i["created_at"]))
@@ -472,7 +494,9 @@ def _open_incidents(session: Session) -> list[dict[str, Any]]:
         record = assemble_provenance(session, i.incident_id)
         waiting = None
         if record is not None:
-            waiting = (_did(record["incident"], record["stages"]) or {}).get("text")
+            waiting = (_did(record["incident"], record["stages"], None, author_of(i)) or {}).get(
+                "text"
+            )
             waiting = waiting or _outcome(record["incident"], record["stages"])
         out.append(
             {
@@ -711,10 +735,16 @@ def incident_detail(
         )
     incident = record["incident"]
     settings = get_settings()
+    row = session.scalar(select(models.Incident).where(models.Incident.incident_id == incident_id))
+    author = author_of(row) if row is not None else None
+    user = getattr(request.state, "user", None)
     return templates.TemplateResponse(
         request,
         "incident.html",
         {
+            "author": author,
+            "own_change": bool(user) and user == author,
+            "can_self_approve": bool(user) and row is not None and may_self_approve(row, user),
             "default_actor": settings.operator,
             "token_required": bool(settings.intake_token),
             "active": "incidents",
@@ -722,7 +752,7 @@ def incident_detail(
             "pending_count": _pending_count(session),
             "i": incident,
             "stages": record["stages"],
-            "summary": _summary(record),
+            "summary": _summary(record, author),
             "ext_links": _incident_links(session, incident, record["stages"]),
             "transitions": record["transitions"],
             "terminal": incident["status"] in TERMINAL_STATUSES,
@@ -731,7 +761,18 @@ def incident_detail(
     )
 
 
-def _approval_row(row: models.Approval) -> dict[str, Any]:
+def _own_change(incident: models.Incident, user: str | None, may_decide: bool) -> dict[str, Any]:
+    """What the signed-in `user` is offered on a change they wrote: the
+    "Approve my own change" button (`can_self_approve`, an owner or admin who
+    may decide this row); an author without it sees who the row waits on."""
+    own = bool(user) and user == author_of(incident)
+    return {
+        "own": own,
+        "can_self_approve": own and may_decide and may_self_approve(incident, user or ""),
+    }
+
+
+def _approval_row(row: models.Approval, user: str | None = None) -> dict[str, Any]:
     """Plain-dict view of an approvals row (session detaches on render);
     risk tier resolves through the candidate FK when the row carries one."""
     return {
@@ -748,10 +789,19 @@ def _approval_row(row: models.Approval) -> dict[str, Any]:
         "created_at": row.created_at,
         "fingerprint_short": row.fingerprint[:16],
         "risk_tier": row.candidate.risk_tier if row.candidate is not None else None,
+        "self_approved": row.status == models.ApprovalStatus.APPROVED
+        and is_self_approved(row.incident, row.decided_by),
+        **_own_change(
+            row.incident,
+            user,
+            approval_refusal(row.incident, user or "", self_approve=True) is None,
+        ),
+        "waiting_on": ", ".join(_display_name(o) for o in approval_deciders(row.incident))
+        or "no approver",
     }
 
 
-def _review_row(row: models.ReviewRequest) -> dict[str, Any]:
+def _review_row(row: models.ReviewRequest, user: str | None = None) -> dict[str, Any]:
     """Plain-dict view of a review_requests row for the decision queue."""
     return {
         "id": row.id,
@@ -766,6 +816,12 @@ def _review_row(row: models.ReviewRequest) -> dict[str, Any]:
         "decided_at": row.decided_at,
         "note": row.note,
         "created_at": row.created_at,
+        "self_approved": row.status == models.ApprovalStatus.APPROVED
+        and is_self_approved(row.incident, row.decided_by),
+        **_own_change(
+            row.incident, user, review_refusal(row, user or "", self_approve=True) is None
+        ),
+        "waiting_on": _display_name(row.reviewer),
     }
 
 
@@ -778,14 +834,15 @@ def approvals_queue(request: Request, session: DbSession) -> HTMLResponse:
     `default_actor` prefills the operator-name field (HELIX_OPERATOR);
     `token_required` shows the intake-token field only when the decision
     endpoints are actually gated."""
+    user = getattr(request.state, "user", None)
     rows = [
-        _approval_row(r)
+        _approval_row(r, user)
         for r in session.scalars(select(models.Approval).order_by(models.Approval.id)).all()
     ]
     pending = [r for r in rows if r["status"] == models.ApprovalStatus.PENDING]
     decided = [r for r in reversed(rows) if r["status"] != models.ApprovalStatus.PENDING]
     review_rows = [
-        _review_row(r)
+        _review_row(r, user)
         for r in session.scalars(select(models.ReviewRequest).order_by(models.ReviewRequest.id))
     ]
     pending_reviews = [r for r in review_rows if r["status"] == models.ApprovalStatus.PENDING]

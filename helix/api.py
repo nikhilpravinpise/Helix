@@ -344,6 +344,9 @@ class ApprovalDecisionIn(BaseModel):
 
     actor: str = Field(min_length=1, max_length=128)
     note: str = ""
+    #: The dashboard's "Approve my own change": honoured only for an owner
+    #: or admin who wrote the change (state/deciders.py). Slack never sets it.
+    self_approve: bool = False
 
 
 class ApprovalDecisionOut(BaseModel):
@@ -396,7 +399,9 @@ def _decide_approval(
     if approval is None:
         raise HTTPException(status_code=404, detail=f"no such approval: {approval_id}")
     try:
-        record_decision(session, approval, approved, actor, body.note)
+        record_decision(
+            session, approval, approved, actor, body.note, self_approve=body.self_approve
+        )
     except ApprovalDecidedError as exc:
         raise HTTPException(status_code=409, detail=str(exc)) from exc
     incident_id = approval.incident.incident_id
@@ -937,7 +942,9 @@ def _decide_review(
     if review is None:
         raise HTTPException(status_code=404, detail=f"no such review: {review_id}")
     try:
-        record_review_decision(session, review, approved, actor, body.note)
+        record_review_decision(
+            session, review, approved, actor, body.note, self_approve=body.self_approve
+        )
     except ReviewDecidedError as exc:
         raise HTTPException(status_code=409, detail=str(exc)) from exc
     incident_id = review.incident.incident_id

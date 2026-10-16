@@ -69,6 +69,7 @@ def record_decision(
     note: str = "",
     *,
     timeout_s: float | None = None,
+    self_approve: bool = False,
 ) -> models.Approval:
     """Record the human decision on a pending approvals row.
 
@@ -99,7 +100,7 @@ def record_decision(
         )
     from state.deciders import approval_refusal
 
-    refusal = approval_refusal(approval.incident, actor)
+    refusal = approval_refusal(approval.incident, actor, self_approve=self_approve)
     if refusal is not None:
         raise ApprovalDecidedError(f"approval {approval.id}: {refusal}")
     approval.status = models.ApprovalStatus.APPROVED if approved else models.ApprovalStatus.REJECTED
