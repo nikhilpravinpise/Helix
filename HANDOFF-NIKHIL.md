@@ -204,6 +204,12 @@ Migrations run at every boot.
   lists their names. Secrets (OAuth client secrets, signing secret, the
   GitHub App key as a Secret File) are typed into Render only, never into
   chat, git or logs.
+- **GitHub events:** the GitHub App's webhook delivers to
+  `/webhooks/github`, signed with `HELIX_GITHUB_WEBHOOK_SECRET` (set once
+  for the product, in Render and in the App's webhook settings; an unset
+  secret closes the route). Pull requests on a registered repository start
+  the change review; failed check runs are only recorded until Helix reads
+  live GitHub evidence (Render diagnoses from recorded evidence).
 - **Free tier limits:** the service sleeps after 15 idle minutes;
   **UptimeRobot** pings `/` and `/healthz` every 5 minutes to keep it awake
   and email on downtime. 750 instance hours a month covers one
@@ -298,8 +304,10 @@ live on Render; merge it.
 - **Old demo incidents** still sit in the Render database and show in the
   stats (issue #42).
 - **FOLLOWUPS still open:** I5 (a Notion page deleted in the UI reads as
-  archived, not missing; not reproduced), #16 (instant GitHub webhooks
-  through ngrok, deferred), and the #21 items now tracked in #42 and #45.
+  archived, not missing; not reproduced) and the #21 items now tracked in
+  #42. (#16, GitHub webhooks, is done on the hosted Helix.)
+- **GitHub CI failures are recorded, not diagnosed** on the hosted Helix
+  until it reads live GitHub evidence (the next planned piece of work).
 - **GCP deployment** for the course, deferred by decision.
 - **Free tier speed:** the first request after a deploy is slow; the
   instance has little CPU, which is why approvals resume in the

@@ -270,6 +270,11 @@ clients use the installation token ahead of HELIX_GITHUB_TOKEN.
 
 ## 16. Instant GitHub webhooks through an ngrok tunnel (deferred)
 
+**Status 2026-10-16: done on the hosted Helix** without a tunnel: Render is
+already public, and `/webhooks/github` is protected by the App's signature
+(see HANDOFF-NIKHIL.md). Check runs are recorded, not diagnosed, until live
+GitHub evidence exists. The laptop watcher still works for local runs.
+
 Decided 2026-10-04: Vraj wants a tunnel, using ngrok, picked up later.
 Helix works without one today - `helix watch --source github` polls every
 ~10s and `helix slack-socket` receives Slack clicks over Socket Mode - so

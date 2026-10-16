@@ -79,6 +79,10 @@
   {% if p.installation_id %}<p class="small muted provider-why">Disconnect only makes Helix forget the installation. To uninstall the app, use <a href="https://github.com/settings/installations/{{ p.installation_id }}" rel="noopener">GitHub's installation settings</a>.</p>{% endif %}
   {% if not p.can_connect %}<p class="small muted provider-why" id="why-{{ p.id }}">{{ p.reason }}</p>
   <details><summary>For admins</summary><p class="small muted">{{ p.admin_reason }}</p></details>{% endif %}
+  {% if p.id == "github" %}
+  <p class="small muted provider-why">{% if github_events.on %}Live events are on: new pull requests and failed checks on your repositories show up here as they happen.{% else %}Live events are off: pull requests and checks on your repositories do not reach Helix yet.{% endif %}</p>
+  <details><summary>Set up live events (admins)</summary><p class="small muted">In the GitHub App's settings, turn the webhook on with the URL <span class="mono">{{ github_events.url }}</span> and the same secret as the HELIX_GITHUB_WEBHOOK_SECRET setting, then subscribe to the Pull request and Check run events.</p></details>
+  {% endif %}
 </section>
 {% endfor %}
 

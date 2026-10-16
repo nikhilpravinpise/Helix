@@ -378,6 +378,10 @@ def _render(request: Request, session, *, notice: tuple[str, str] | None, status
         {
             "active": "connections",
             "providers": _providers(session),
+            "github_events": {
+                "on": bool(get_settings().github_webhook_secret),
+                "url": f"{auth._public_url(request)}/webhooks/github",
+            },
             "pr_bot": _pr_bot(session),
             "notice": notice,
             "incident_total": _incident_total(session),
