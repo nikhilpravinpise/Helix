@@ -308,3 +308,15 @@ Vraj changed the Phase 2 human-in-the-loop rule:
   reviewer list stays the default.
 - Members keep the old rule: nobody else's role changes, and the
   benchmark (file registry, no roles) keeps the strict rule.
+
+### Invite emails (decided 2026-10-16)
+
+Helix emails the team invite link when an email is typed on the invite,
+like GitHub's collaborator invite emails. Render's free tier blocks
+outbound SMTP and every email API needs a verified domain, so invites go
+through **Resend's HTTPS API**, sent from Vraj's own domain
+(`Helix <invites@vrajved.tech>`, the root domain verified in Resend; mail
+cannot be sent from `onrender.com`, which nobody here controls). The link in
+the email is the Render address (`https://helix-eksf.onrender.com/invite/...`).
+`HELIX_EMAIL_API_KEY` and `HELIX_EMAIL_FROM` are set in Render; with no key
+the feature is off and invites work as before (copy link, Slack DM).

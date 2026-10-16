@@ -220,6 +220,11 @@ Migrations run at every boot.
   secret closes the route). Pull requests on a registered repository start
   the change review; failed check runs are only recorded until Helix reads
   live GitHub evidence (Render diagnoses from recorded evidence).
+- **Invite emails:** Resend's HTTPS API, on when `HELIX_EMAIL_API_KEY`
+  and `HELIX_EMAIL_FROM` are set. The sender must be on a domain verified
+  in Resend (`onboarding@resend.dev` only reaches the Resend account owner);
+  the link in the email is the Render address. The Resend CLI
+  (`resend doctor`, `resend domains ...`) manages the domain.
 - **Free tier limits:** the service sleeps after 15 idle minutes;
   **UptimeRobot** pings `/` and `/healthz` every 5 minutes to keep it awake
   and email on downtime. 750 instance hours a month covers one
