@@ -1,9 +1,9 @@
 # Handoff - To Nikhil: Helix as a product
 
 **Date:** 2026-10-16
-**Branch:** `main` at `aea4de3` (`VrajVed/Helix`). Everything up to PR #46
-is merged into `nikhilpravinpise/Helix`; PR #47 (one small fix) is open.
-**Tests:** 2301 unit pass, 51 integration deselected by default, lint clean
+**Branch:** `main` at `8b9089e`, the same in `VrajVed/Helix` and
+`nikhilpravinpise/Helix`. Everything through PR #51 is merged and deployed.
+**Tests:** 2394 unit pass, 51 integration deselected by default, lint clean
 (`make lint && make test`, see [docs/verifying.md](docs/verifying.md))
 **Live:** https://helix-eksf.onrender.com (Render, free tier)
 **Prior handoffs:** [HANDOFF-PHASE2-EXIT.md](HANDOFF-PHASE2-EXIT.md) |
@@ -30,19 +30,18 @@ Helix, not how anyone uses it.
 
 **Do these first.**
 
-1. **Merge PR #47** (HEAD support for uptime monitors, already deployed).
-2. **Sign in** at https://helix-eksf.onrender.com. You are a **co-owner**;
-   VrajVed is the **main owner**. Check that the Team page shows both of you
-   and the Services page shows `payment-api`.
-3. **Read the open issues** (section 7) and answer the ones marked
-   "decision": #41, #42, #45.
-4. **Note the deadline:** the free Render Postgres (`helix-db`) **expires on
-   2026-11-13**. Before then, upgrade it to a paid plan or move the data,
-   or every incident, team member, service and connection is lost.
+1. **Sign in** at https://helix-eksf.onrender.com. You are a **co-owner**;
+   VrajVed is the **main owner**.
+2. **Answer #48** (move the database to Neon) and the three stage-1
+   questions in **#38** (teams). Everything else waits on those two.
+3. **Note the deadline:** the free Render Postgres (`helix-db`) **expires on
+   2026-11-13**. Before then the data must move (#48), or every incident,
+   team member, service and connection is lost.
+4. Section 7 lists every open issue, who it waits on, and the next step.
 
 ---
 
-## 2. What changed since the Phase 2 exit (PRs #31 to #47)
+## 2. What changed since the Phase 2 exit (PRs #31 to #51)
 
 | PR | Merged | What it did |
 |---|---|---|
@@ -55,7 +54,9 @@ Helix, not how anyone uses it.
 | #39 | 10-15 | Product DX: public landing page, dashboard home, links out to Slack/Jira/GitHub, plain-English Connections page, draggable sidebar, no demo framing |
 | #40 | 10-15 | **Team and services moved out of the YAML into the dashboard** (details in section 4) |
 | #46 | 10-15 | **Owner, admin and member roles**, and service "owners" renamed **Approvers** |
-| #47 | open | `/`, `/login` and `/healthz` answer HEAD, so UptimeRobot sees Helix as up |
+| #47 | 10-16 | `/`, `/login` and `/healthz` answer HEAD, so UptimeRobot sees Helix as up; this handoff |
+| #49 | 10-16 | Signed-out requests no longer query the database (keeps a scale-to-zero database idle); the #45 follow-ups |
+| #51 | 10-16 | **GitHub App webhooks** on the hosted Helix; **guarded self-approval** for owners and admins; **reassign reviewer**; GitHub App refusals logged with GitHub's reason |
 
 The plan and decision record for #39, #40 and #46 is
 [future_plans.md](future_plans.md), sections "Product DX", "Next: team and
@@ -124,12 +125,17 @@ High-risk actions stay behind approval whoever is signed in.
 - People are shown by **display name**, with the GitHub login as a
   tooltip.
 
-### Human-in-the-loop rules (unchanged from Phase 2)
+### Human-in-the-loop rules (changed 2026-10-16, issue #50)
 
 | Decision | Who may make it |
 |---|---|
-| Approve or reject an action | An approver of the service, never the change's author |
-| Approve or request changes on a PR | Only the reviewer Helix asked, never the author |
+| Approve or reject an action | An approver of the service. The author only through "Approve my own change" (below) |
+| Approve or request changes on a PR | The reviewer Helix asked (or was reassigned to). The author only through "Approve my own change" |
+| Self-approval | **Owners and admins only**, as an explicit dashboard action; never members, never a Slack click, never the benchmark. Always shown as **self-approved** |
+| Reassign a pending review | Owners and admins, to anyone on the team except the author; the new reviewer gets the Slack review request |
+
+The automatic pick still never asks the author. Users let in only by the
+`HELIX_ALLOWED_USERS` override act as **admins** (issue #45).
 
 ### Slack identity matching (three steps)
 
@@ -168,6 +174,8 @@ without the flag still waits, as the CLI expects.
 | `/invite/{token}` | Public invite page |
 | `/ui/team/link-slack` | Slack self-link confirmation |
 | `/healthz` | Liveness; public; answers GET and HEAD |
+| `/webhooks/github` | GitHub App deliveries; public but signature-checked; closed (404) without `HELIX_GITHUB_WEBHOOK_SECRET` |
+| `POST /reviews/{id}/reassign` | Reassign a pending review (owners, admins) |
 
 ### Code map for the new parts
 
@@ -181,7 +189,9 @@ without the flag still waits, as the CLI expects.
 | Slack lookups for people | [helix/slack_people.py](helix/slack_people.py), [integrations/slack/oauth.py](integrations/slack/oauth.py) |
 | Connections and PR bot | [helix/connections_ui.py](helix/connections_ui.py), [state/connections.py](state/connections.py), [state/pr_bot.py](state/pr_bot.py) |
 | Dashboard pages and the `person` filter | [helix/ui.py](helix/ui.py), templates in [ui/templates/](ui/templates/), design system in [ui/static/style.css](ui/static/style.css) |
-| Decision endpoints (`?wait=false`) | [helix/api.py](helix/api.py) |
+| Decision endpoints (`?wait=false`, `self_approve`), GitHub webhook | [helix/api.py](helix/api.py) |
+| Self-approval and reassignment rules | [state/deciders.py](state/deciders.py), [state/reviews.py](state/reviews.py) |
+| GitHub App calls (JWT, installation tokens, refusal logging) | [integrations/github/app.py](integrations/github/app.py) |
 
 ### Database
 
@@ -254,20 +264,23 @@ and GitHub App, PR bot settings, landing page, dashboard home, tool links,
 team and services in the dashboard, invites, roles, Slack matching,
 instant approvals.
 
-**Next, in order:**
+**Next, in Nikhil's order (issue #38):**
 
-1. **First-run setup guide** (issue #41): a team checklist on Home ticked
-   off from real state (recommended), or per-person accounts first.
-2. **Any team can use Helix** (issue #38):
+1. **Move the database to Neon** (issue #48), before 2026-11-13.
+2. **Any team can use Helix** (issue #38, stages 1 to 5, the plan is in the
+   issue):
    - one app per tool, owned by the product, with public distribution
      turned on (Slack app, GitHub App "any account", Atlassian sharing);
    - sign-up instead of an allow-list: anyone signs in with GitHub and
      creates or joins a team;
    - connections, PR bot settings, incidents, outbox rows and the
-     registry scoped per team (Stage 3, multi-tenancy).
-3. **Live updates without full-page reloads** (the dashboard redesign
+     registry scoped per team (Stage 3, multi-tenancy);
+   - last, the first-run setup checklist on Home (issue #41).
+3. **Live GitHub evidence on Render**, so GitHub CI failures are diagnosed
+   for real instead of only recorded.
+4. **Live updates without full-page reloads** (the dashboard redesign
    item in future_plans.md).
-4. **Running it as a service** (Stage 4): paid database, backups,
+5. **Running it as a service** (Stage 4): paid database, backups,
    monitoring, a real domain.
 
 **Open product questions** (future_plans.md "Open questions"): hosted only
@@ -280,23 +293,32 @@ optional).
 
 ## 7. Open GitHub issues on nikhilpravinpise/Helix
 
-| # | Title | Type | Recommended answer / next step |
-|---|---|---|---|
-| [#38](https://github.com/nikhilpravinpise/Helix/issues/38) | Product DX: let any team connect Slack, Jira and GitHub | Plan | Retire the dev Slack app from the product, turn on distribution for all three tools, then build teams (Stage 2 and 3) |
-| [#41](https://github.com/nikhilpravinpise/Helix/issues/41) | First-run setup guide | **Decision** | Team checklist on Home |
-| [#42](https://github.com/nikhilpravinpise/Helix/issues/42) | Clear the old demo incidents from Render | **Decision** (deletes data) | Export with `helix export-history`, then delete them |
-| [#43](https://github.com/nikhilpravinpise/Helix/issues/43) | Delete `config/service_registry.yaml` | Task | After someone signs in and confirms the import; keep `helix team import --path` |
-| [#44](https://github.com/nikhilpravinpise/Helix/issues/44) | Slack user scopes and a real Slack check | Setup + check | Add `users:read` and `users:read.email` to the Slack app, reconnect Slack, then try invite, Find in Slack and the self-link for real |
-| [#45](https://github.com/nikhilpravinpise/Helix/issues/45) | Small product follow-ups | **Decision** (yes/no each) | See the issue |
+"Waits on" says who has to act next. **Vraj** items need his accounts,
+keys or dashboards.
 
-Open PR: [#47](https://github.com/nikhilpravinpise/Helix/pull/47), already
-live on Render; merge it.
+| # | What | Waits on | Next step |
+|---|---|---|---|
+| [#48](https://github.com/nikhilpravinpise/Helix/issues/48) | Move the database to Neon before 2026-11-13 | **Nikhil** (yes), then **Vraj** (Neon account) | Nikhil approves; Vraj creates the Neon project and sets `HELIX_NEXT_DATABASE_URL` in Render; then the dry run and cutover |
+| [#38](https://github.com/nikhilpravinpise/Helix/issues/38) | Teams: any team can use Helix | **Nikhil** | Answer the three stage-1 questions in the issue |
+| [#52](https://github.com/nikhilpravinpise/Helix/issues/52) | GitHub App install fails with `http_401`; live webhook PR check | **Vraj** | Retry Install on GitHub and read the logged reason; push a commit to a sandbox PR |
+| [#44](https://github.com/nikhilpravinpise/Helix/issues/44) | Real Slack check of people matching | **Vraj** | Scopes are added; run the checks in the issue |
+| [#42](https://github.com/nikhilpravinpise/Helix/issues/42) | Clear the old demo incidents | After #48 | Export, then delete once, on Neon |
+| [#43](https://github.com/nikhilpravinpise/Helix/issues/43) | Delete `config/service_registry.yaml` | After #48, **Nikhil** | His sign-in check (steps in the issue), then the delete |
+| [#41](https://github.com/nikhilpravinpise/Helix/issues/41) | First-run setup checklist | After #38 | Built as #38's last stage |
+
+Closed since the first version of this handoff: #45 (small follow-ups,
+#49) and #50 (self-approval and reassignment, #51).
 
 ---
 
 ## 8. Known gaps and risks
 
 - **Database expiry 2026-11-13** (free Render Postgres). Highest priority.
+  On Neon, keep anything from querying the database on a timer: its free
+  plan sleeps when idle and has 100 compute-hours a month.
+- **GitHub App credentials** in Render are refused by GitHub (`http_401`),
+  so the PR bot cannot open real PRs until issue #52 is solved. The
+  webhook is unaffected and verified.
 - **Slack matching is tested only against simulated Slack replies.** The
   real check is issue #44.
 - **Single team only.** Connections are one per tool for the whole Helix,
