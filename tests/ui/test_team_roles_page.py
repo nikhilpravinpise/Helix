@@ -121,24 +121,29 @@ def test_sign_in_off_acts_as_an_owner_but_cannot_hand_over_main_ownership(db, mo
         app.dependency_overrides.clear()
 
 
-def test_a_user_from_the_allow_list_override_without_a_row_acts_as_an_owner(
+def test_a_user_from_the_allow_list_override_without_a_row_acts_as_an_admin(
     client, db, monkeypatch
 ):
+    """Decided in issue #45: someone the HELIX_ALLOWED_USERS override lets in
+    without a people row acts as an admin, not an owner."""
     monkeypatch.setenv("HELIX_ALLOWED_USERS", "operator")
     _sign_in(client, monkeypatch, "operator")
     done = client.post(
-        "/ui/team/invite", data={"login": "fresh", "role": "owner"}, follow_redirects=False
+        "/ui/team/invite", data={"login": "fresh", "role": "member"}, follow_redirects=False
     )
     assert done.status_code == 303
+    refused = client.post(
+        "/ui/team/invite", data={"login": "boss", "role": "owner"}, follow_redirects=True
+    )
+    assert _flash(refused)
     with Session(db) as s:
-        assert [(i.login, i.role) for i in team.pending_invites(s)] == [("fresh", "owner")]
-    client.post("/ui/team/people/adm/role", data={"role": "owner"})
-    assert _people(db)["adm"].role == "owner"
-    # an owner, but not the main owner
-    refused = client.post("/ui/team/people/main/remove", follow_redirects=True)
-    assert "main owner cannot be removed" in _flash(refused)
-    page = client.get("/ui/team").text
-    assert 'name="role"' in page and "Make main owner" not in page
+        assert [(i.login, i.role) for i in team.pending_invites(s)] == [("fresh", "member")]
+    client.post("/ui/team/people/mem/rename", data={"name": "Renamed"})
+    assert _people(db)["mem"].name == "Renamed"
+    refused = client.post(
+        "/ui/team/people/adm/role", data={"role": "member"}, follow_redirects=True
+    )
+    assert _flash(refused) and _people(db)["adm"].role == "admin"
 
 
 # ---- the rules reach the page as notices --------------------------------------

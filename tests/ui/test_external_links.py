@@ -157,14 +157,14 @@ class TestIncidentLinks:
         assert f'href="{url}"' in row and "Slack thread" in row
         assert 'rel="noopener noreferrer"' in row and 'target="_blank"' in row
 
-    def test_an_old_row_without_channel_falls_back_to_the_configured_one(
-        self, client, sqlite_engine
-    ):
+    def test_an_old_row_without_channel_gets_no_link(self, client, sqlite_engine):
+        """Rows posted before channel ids were stored (95f381d) may have gone
+        to another channel than today's, so a guessed link could point at the
+        wrong thread. Decided in issue #45: no link for them."""
         _save(sqlite_engine, "slack", team_id="T1", channel="C9")
         inc = _incident(sqlite_engine)
         _slack_row(sqlite_engine, inc, ts="1700000000.123456")
-        row = _row(client.get(f"/ui/incidents/{inc}").text)
-        assert 'href="https://app.slack.com/client/T1/C9/thread/C9-1700000000.123456"' in row
+        assert "Slack thread" not in client.get(f"/ui/incidents/{inc}").text
 
     def test_no_slack_link_without_channel_or_connection_or_ts(self, client, sqlite_engine):
         inc = _incident(sqlite_engine)

@@ -82,3 +82,22 @@ def test_uptime_monitors_can_check_the_public_pages_with_head(client, oauth):
         response = client.head(path)
         assert response.status_code == 200, path
         assert response.content == b"", path
+
+
+def test_signed_out_requests_never_look_up_the_team(client, oauth, monkeypatch):
+    """The allow-list is the people table. Uptime pings and bots arrive
+    without a session every few minutes; looking the team up for them kept
+    the database awake around the clock (issue #48)."""
+    calls = []
+    real = auth.allowed_users
+    monkeypatch.setattr(auth, "allowed_users", lambda: calls.append(1) or real())
+    client.get("/", follow_redirects=False)
+    client.head("/")
+    client.get("/wp-admin", follow_redirects=False)
+    client.get("/ui/", follow_redirects=False)
+    assert calls == []
+    client.cookies.set(
+        auth.SESSION_COOKIE, auth._sign({"login": "VrajVed", "exp": time.time() + 60})
+    )
+    assert client.get("/ui/", follow_redirects=False).status_code == 200
+    assert calls, "a real session is still checked against the allow-list"

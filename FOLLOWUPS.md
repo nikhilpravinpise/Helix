@@ -485,7 +485,8 @@ Found while turning the hosted service into a product (future_plans.md
 - **Old Slack rows link to the configured channel.** Incidents posted
   before 95f381d have no stored channel id, so their thread link falls
   back to the currently configured channel, which may not be where the
-  message went.
+  message went. **Done (8211f12):** those rows get no link (decided in
+  issue #45).
 - **Home's open-incidents list assembles provenance per row** (up to 6
   per page load) to say what each is waiting on. Fine at this size;
   replace with a direct query if Home gets slow.
