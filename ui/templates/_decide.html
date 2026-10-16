@@ -42,3 +42,19 @@
 {% endmacro %}
 
 {% macro self_approved_badge() %}<span class="badge" title="Decided by the change's own author">self-approved</span>{% endmacro %}
+
+{# Owners and admins: hand a pending review to someone else on the team. #}
+{% macro reassign_control(id, options) %}
+{% if options %}
+<details class="reassign">
+  <summary>Reassign</summary>
+  <div class="decide-row">
+    <select id="reassign-to-{{ id }}" aria-label="New reviewer">
+      {% for o in options %}<option value="{{ o.login }}">{{ o.name }} ({{ o.login }})</option>{% endfor %}
+    </select>
+    <button class="btn" data-reassign="{{ id }}">Reassign</button>
+  </div>
+  <p class="decide-error" id="reassign-error-{{ id }}"></p>
+</details>
+{% endif %}
+{% endmacro %}

@@ -53,7 +53,7 @@ from sqlalchemy.orm import Session
 from agent.ops.registry import load_registry
 from helix import demo
 from helix.config import get_settings
-from state import connections, models, pr_bot
+from state import connections, models, pr_bot, reviews
 from state.db import session_scope
 from state.deciders import (
     approval_deciders,
@@ -65,6 +65,7 @@ from state.deciders import (
 )
 from state.machine import TERMINAL_STATUSES, IncidentStatus
 from state.provenance import assemble_provenance
+from state.reviews import REASSIGNER_ROLES
 
 # Repo-root ui/ directory - sibling of the helix package.
 UI_DIR = Path(__file__).resolve().parents[1] / "ui"
@@ -738,10 +739,16 @@ def incident_detail(
     row = session.scalar(select(models.Incident).where(models.Incident.incident_id == incident_id))
     author = author_of(row) if row is not None else None
     user = getattr(request.state, "user", None)
+    pending_review = reviews.pending_for_incident(session, row.id) if row is not None else None
     return templates.TemplateResponse(
         request,
         "incident.html",
         {
+            "reassign_options": (
+                _reassign_options(pending_review)
+                if pending_review is not None and _can_reassign(request, session)
+                else []
+            ),
             "author": author,
             "own_change": bool(user) and user == author,
             "can_self_approve": bool(user) and row is not None and may_self_approve(row, user),
@@ -801,9 +808,37 @@ def _approval_row(row: models.Approval, user: str | None = None) -> dict[str, An
     }
 
 
-def _review_row(row: models.ReviewRequest, user: str | None = None) -> dict[str, Any]:
+def _can_reassign(request: Request, session: Session) -> bool:
+    """Whether the viewer may hand a pending review to someone else: an
+    owner or admin, or anyone when sign-in is off (trusted, as in the API)."""
+    from helix import auth  # imports this module, so only here
+
+    who = auth.actor_for(request, session)
+    return who is None or who.role in REASSIGNER_ROLES
+
+
+def _reassign_options(review: models.ReviewRequest) -> list[dict[str, str]]:
+    """The team members a pending review can be handed to: everyone but
+    the change's author and the current reviewer."""
+    skip = {author_of(review.incident), review.reviewer}
+    people = load_registry().people
+    return sorted(
+        (
+            {"login": login, "name": p.name or login}
+            for login, p in people.items()
+            if login not in skip
+        ),
+        key=lambda o: (o["name"].lower(), o["login"]),
+    )
+
+
+def _review_row(
+    row: models.ReviewRequest, user: str | None = None, can_reassign: bool = False
+) -> dict[str, Any]:
     """Plain-dict view of a review_requests row for the decision queue."""
+    pending = row.status == models.ApprovalStatus.PENDING
     return {
+        "reassign_options": _reassign_options(row) if can_reassign and pending else [],
         "id": row.id,
         "incident_id": row.incident.incident_id,
         "incident_status": row.incident.status.value,
@@ -841,8 +876,9 @@ def approvals_queue(request: Request, session: DbSession) -> HTMLResponse:
     ]
     pending = [r for r in rows if r["status"] == models.ApprovalStatus.PENDING]
     decided = [r for r in reversed(rows) if r["status"] != models.ApprovalStatus.PENDING]
+    can_reassign = _can_reassign(request, session)
     review_rows = [
-        _review_row(r, user)
+        _review_row(r, user, can_reassign)
         for r in session.scalars(select(models.ReviewRequest).order_by(models.ReviewRequest.id))
     ]
     pending_reviews = [r for r in review_rows if r["status"] == models.ApprovalStatus.PENDING]

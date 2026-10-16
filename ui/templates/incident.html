@@ -1,5 +1,5 @@
 {% extends "base.html" %}
-{% from "_decide.html" import actor_bar, review_decide_row, own_change_row, own_change_waiting, self_approved_badge %}
+{% from "_decide.html" import actor_bar, review_decide_row, reassign_control, own_change_row, own_change_waiting, self_approved_badge %}
 {% block title %}{{ i.incident_id }} - Helix{% endblock %}
 {% block content %}
 {% macro params_block(value) %}
@@ -122,6 +122,7 @@
           {% else %}
           {{ review_decide_row(r.id) }}
           {% endif %}
+          {{ reassign_control(r.id, reassign_options) }}
           {% endif %}
         </div>
         {% endfor %}

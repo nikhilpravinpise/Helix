@@ -1,5 +1,5 @@
 {% extends "base.html" %}
-{% from "_decide.html" import actor_bar, review_decide_row, own_change_row, own_change_waiting, self_approved_badge %}
+{% from "_decide.html" import actor_bar, review_decide_row, reassign_control, own_change_row, own_change_waiting, self_approved_badge %}
 {% block title %}Approvals &amp; reviews - Helix
 {% if pending_reviews or decided_reviews %}
 <h2 class="section-title">Pending reviews</h2>
@@ -22,6 +22,7 @@
     {% else %}
     {{ review_decide_row(r.id) }}
     {% endif %}
+    {{ reassign_control(r.id, r.reassign_options) }}
   </div>
   {% endfor %}
 {% else %}
@@ -151,6 +152,7 @@
     {% else %}
     {{ review_decide_row(r.id) }}
     {% endif %}
+    {{ reassign_control(r.id, r.reassign_options) }}
   </div>
   {% endfor %}
 {% else %}

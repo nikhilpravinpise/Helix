@@ -1019,6 +1019,44 @@ def reject_review(
     )
 
 
+class ReviewReassignIn(BaseModel):
+    reviewer: str = Field(min_length=1, max_length=128)
+
+
+@app.post("/reviews/{review_id}/reassign", response_model=ReviewOut)
+def reassign_review(
+    request: Request,
+    review_id: int,
+    body: ReviewReassignIn,
+    session: DbSession,
+    _: Annotated[None, Depends(require_intake_token)],
+) -> ReviewOut:
+    """Hand a pending review to someone else on the team (owners and admins).
+    The new reviewer is pinged; the decision rules do not change."""
+    from helix import auth
+    from state.reviews import ReviewReassignError, ReviewReassignForbiddenError, reassign
+
+    review = session.get(models.ReviewRequest, review_id)
+    if review is None:
+        raise HTTPException(status_code=404, detail=f"no such review: {review_id}")
+    who = auth.actor_for(request, session)
+    try:
+        reassign(
+            session,
+            review,
+            body.reviewer,
+            _signed_in(request) or get_settings().operator,
+            actor_role=None if who is None else who.role,
+        )
+    except ReviewReassignForbiddenError as exc:
+        raise HTTPException(status_code=403, detail=str(exc)) from exc
+    except ReviewReassignError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    out = _review_out(review)
+    session.commit()
+    return out
+
+
 # Subphase 1.12 (D11): mount the server-rendered operator UI - / redirects
 # to /ui/ (incident list), detail and approvals pages live under /ui/,
 # assets under /static. ui.py keeps its own session dependency so there is
