@@ -568,9 +568,10 @@ def _incident_links(session: Session, incident: dict[str, Any], stages: dict[str
     )
     thread = slack_thread_for(session, pk) if pk is not None else None
     slack = connections.active_connection(session, "slack")
-    if thread and slack:
-        channel = thread[1] or slack.settings.get("channel")
-        url = _slack_url(slack.settings.get("team_id"), channel, thread[0])
+    # Only rows that stored their channel: older ones may have gone to another
+    # channel than today's, and a guessed link would open the wrong thread.
+    if thread and thread[1] and slack:
+        url = _slack_url(slack.settings.get("team_id"), thread[1], thread[0])
         if url:
             links.append({"label": "Slack thread", "url": url})
     for item in stages.get("work_items") or []:
