@@ -113,6 +113,10 @@ def signed_in_user(request: Request) -> str | None:
     """The GitHub login of the signed-in user, or None."""
     payload = _unsign(request.cookies.get(SESSION_COOKIE))
     login = (payload or {}).get("login")
+    if not login:
+        # Uptime pings and bots come without a session; looking the team up
+        # for them would keep the database awake around the clock.
+        return None
     return login if login in allowed_users() else None
 
 
