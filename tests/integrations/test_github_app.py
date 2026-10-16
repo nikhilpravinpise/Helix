@@ -100,6 +100,16 @@ def test_app_jwt_claims_and_rs256_signature(key):
     )
 
 
+def test_app_jwt_times_are_whole_seconds(monkeypatch, key):
+    """GitHub refuses a JWT whose iat or exp is not an integer ("'exp' must
+    be a numeric value representing the future time"), and time.time() has
+    a fraction; this is what made Install on GitHub fail with http_401."""
+    monkeypatch.setattr(app, "_now", lambda: 1_800_000_000.4821)
+    claims = json.loads(_b64(app.app_jwt().split(".")[1]))
+    assert claims["iat"] == 1_799_999_940 and type(claims["iat"]) is int
+    assert claims["exp"] == 1_800_000_540 and type(claims["exp"]) is int
+
+
 def test_a_key_with_literal_backslash_n_works(monkeypatch, pem, key):
     monkeypatch.setenv("HELIX_GITHUB_APP_PRIVATE_KEY", pem.strip().replace("\n", "\\n"))
     header, claims, signature = app.app_jwt().split(".")

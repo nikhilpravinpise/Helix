@@ -89,7 +89,8 @@ def app_jwt() -> str:
     if not app_id:
         raise GitHubAppError("not_configured")
     key = _private_key()
-    now = _now()
+    # GitHub accepts only whole seconds for iat and exp.
+    now = int(_now())
     header = _b64(json.dumps({"alg": "RS256", "typ": "JWT"}, separators=(",", ":")).encode())
     claims = _b64(
         json.dumps(
