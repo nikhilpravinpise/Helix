@@ -35,6 +35,7 @@ REJECTED -> FIX_REQUIRED, approval drives REVIEW_PENDING -> APPROVED.
 `helix serve` runs this app under uvicorn at HELIX_API_BIND:HELIX_API_PORT.
 """
 
+import hashlib
 import hmac
 import json
 import time
@@ -45,6 +46,7 @@ from urllib.parse import parse_qsl
 
 import httpx
 from fastapi import BackgroundTasks, Depends, FastAPI, Header, HTTPException, Request, Response
+from fastapi.responses import JSONResponse
 from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy import select
 from sqlalchemy.orm import Session
@@ -595,6 +597,109 @@ async def slack_interactions(
     if payload.get("type") == "url_verification":
         return {"challenge": payload.get("challenge")}
     return handle_slack_interaction(payload, session, background)
+
+
+@app.post("/webhooks/github")
+async def github_webhook(
+    request: Request, session: DbSession, background: BackgroundTasks
+) -> Response:
+    """The GitHub App's webhook: real activity on a registered repo reaches
+    the dashboard. The X-Hub-Signature-256 HMAC is the whole authentication
+    (GitHub cannot carry the intake bearer token), so an unset secret closes
+    the surface (404). Pull requests are ingested and a run is scheduled
+    after the response (GitHub times out at 10s); check runs are only
+    recorded - on the hosted Helix every diagnosis reads one pinned
+    fixture, so a check-run incident is never run."""
+    settings = get_settings()
+    if not settings.github_webhook_secret:
+        raise HTTPException(status_code=404, detail="not found")
+    body = await request.body()
+    expected = (
+        "sha256="
+        + hmac.new(settings.github_webhook_secret.encode(), body, hashlib.sha256).hexdigest()
+    )
+    if not hmac.compare_digest(expected, request.headers.get("x-hub-signature-256", "")):
+        raise HTTPException(status_code=401, detail="invalid github signature")
+
+    event = request.headers.get("x-github-event", "")
+    delivery = request.headers.get("x-github-delivery", "")
+    try:
+        payload = json.loads(body)
+    except ValueError:
+        raise HTTPException(status_code=400, detail="malformed github payload") from None
+    if not isinstance(payload, dict):
+        raise HTTPException(status_code=400, detail="malformed github payload")
+    action = str(payload.get("action") or "")
+
+    def reply(status: int, content: dict, result: str) -> Response:
+        get_logger().info(
+            "github webhook", delivery=delivery, github_event=event, action=action, result=result
+        )
+        return JSONResponse(content, status_code=status)
+
+    if event == "ping":
+        return reply(200, {"ok": True, "ping": True}, "ping")
+    if event not in ("pull_request", "check_run"):
+        return reply(202, {"ok": True, "ignored": event}, "ignored event")
+
+    from agent.ops.registry import load_registry
+    from events.adapters.github import check_run_events, pull_request_events
+    from events.ingest import ingest_event
+
+    repo = str((payload.get("repository") or {}).get("full_name") or "").lower()
+    # Services sharing one repo: the first by name takes the delivery.
+    service = next(
+        (
+            name
+            for name, entry in sorted(load_registry().services.items())
+            if repo and entry.repo.lower() == repo
+        ),
+        None,
+    )
+    if service is None:
+        return reply(202, {"ok": True, "ignored": "repository not registered"}, "unregistered")
+
+    if event == "pull_request":
+        events = pull_request_events(payload, service=service)
+    else:
+        check = payload.get("check_run") or {}
+        events = (
+            check_run_events(
+                {
+                    "ref": check.get("head_sha"),
+                    "items": [
+                        {
+                            "name": check.get("name"),
+                            "status": check.get("status"),
+                            "conclusion": check.get("conclusion"),
+                            "url": check.get("html_url"),
+                            "started_at": check.get("started_at"),
+                            "completed_at": check.get("completed_at"),
+                        }
+                    ],
+                },
+                service=service,
+            )
+            if action == "completed"
+            else []
+        )
+    if not events:
+        return reply(202, {"ok": True, "ignored": action or event}, "ignored action")
+
+    results = [ingest_event(session, e) for e in events]
+    # Commit before the response so the scheduled run sees the incident.
+    session.commit()
+    if event == "pull_request":
+        from agent.runner import run_until_parked
+
+        for result in results:
+            if not result.duplicate:
+                background.add_task(_resume_logged, run_until_parked, result.incident_id)
+    return reply(
+        200,
+        {"ok": True, "incidents": sorted({r.incident_id for r in results})},
+        "duplicate" if all(r.duplicate for r in results) else "ingested",
+    )
 
 
 def _slack_person(member: str | None) -> str | None:

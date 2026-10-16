@@ -214,6 +214,10 @@ class Settings(BaseSettings):
     #: connection, so no public URL into this machine is needed.
     slack_app_token: str | None = Field(default=None, repr=False)
     slack_default_channel: str = "#helix-incidents"
+    #: Secret of the GitHub App's webhook (POST /webhooks/github). The
+    #: X-Hub-Signature-256 HMAC is the route's only authentication; unset
+    #: closes the route (404).
+    github_webhook_secret: str | None = Field(default=None, repr=False)
     #: Slack app credentials for "Connect Slack" (Connections page OAuth
     #: install, integrations/slack/oauth.py). Unset disables the button.
     slack_client_id: str | None = None

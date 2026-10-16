@@ -157,7 +157,17 @@ def _why(incident: dict[str, Any], stages: dict[str, Any]) -> str | None:
     return f"{h['claim']} (confidence {h['confidence']:.2f})"
 
 
-def _did(incident: dict[str, Any], stages: dict[str, Any]) -> dict[str, Any] | None:
+_GITHUB_CI_NOT_DIAGNOSED = (
+    "Recorded from GitHub. Helix does not diagnose GitHub CI failures yet, "
+    "because it cannot read live GitHub evidence here."
+)
+
+
+def _did(
+    incident: dict[str, Any],
+    stages: dict[str, Any],
+    transitions: list[dict[str, Any]] | None = None,
+) -> dict[str, Any] | None:
     """The latest real execution, or why nothing ran."""
     executions = stages.get("execution") or []
     primary = [e for e in executions if not e.get("compensates_id")]
@@ -180,6 +190,15 @@ def _did(incident: dict[str, Any], stages: dict[str, Any]) -> dict[str, Any] | N
             row["link"] = url
         return row
     status = incident["status"]
+    # A GitHub check run that opened this incident is only recorded: the
+    # hosted Helix cannot read live GitHub evidence, so it never ran.
+    if (
+        incident.get("kind") != "change"
+        and transitions is not None
+        and len(transitions) == 1
+        and (transitions[0].get("cause") or "").startswith("event build.failed from github")
+    ):
+        return {"text": _GITHUB_CI_NOT_DIAGNOSED}
     pending = [a for a in stages.get("approval") or [] if a["status"] == "pending"]
     reviews = [r for r in stages.get("reviews") or [] if r["status"] == "pending"]
     if status == "awaiting_approval" or pending:
@@ -219,7 +238,7 @@ def _summary(record: dict[str, Any]) -> dict[str, Any]:
     from the provenance record. A row whose stage has no record is left
     out; the outcome always exists."""
     incident, stages = record["incident"], record["stages"]
-    did = _did(incident, stages)
+    did = _did(incident, stages, record.get("transitions"))
     rows: list[dict[str, Any]] = [
         {"label": "What broke", "text": _what_broke(incident, stages)},
         {"label": "Why", "text": _why(incident, stages)},
