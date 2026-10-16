@@ -30,7 +30,7 @@ from fastapi import APIRouter, Request
 from fastapi.responses import HTMLResponse, RedirectResponse, Response
 from sqlalchemy import select
 
-from helix import auth, slack_people
+from helix import auth, invite_email, slack_people
 from helix.connections_ui import _posted
 from helix.ui import DbSession, _incident_total, _pending_count, templates
 from state import models, team
@@ -38,6 +38,7 @@ from state.team import TeamError
 
 FLASH_COOKIE = "helix_team_flash"
 _LOGIN = re.compile(r"[A-Za-z0-9-]{1,39}")
+_MAIL_CODE = re.compile(r"[a-z0-9_]{1,30}")
 
 router = APIRouter(include_in_schema=False, dependencies=[auth.AdminOnly])
 
@@ -82,8 +83,10 @@ _NOTICES = {
 }
 
 
-def _back(code: str, login: str = "") -> RedirectResponse:
+def _back(code: str, login: str = "", mail: tuple[str, str] = ("none", "")) -> RedirectResponse:
     suffix = f"&login={quote(login)}" if _LOGIN.fullmatch(login) else ""
+    if mail[0] != "none":
+        suffix += f"&mail={mail[0]}" + (f"&mailerr={quote(mail[1])}" if mail[1] else "")
     return RedirectResponse(f"/ui/team?notice={code}{suffix}", status_code=303)
 
 
@@ -114,8 +117,35 @@ def _expires_in(expires_at: datetime) -> str:
     return "Expires in under an hour"
 
 
+def _notice_text(session, notice: str, login: str, name: str, mail: str, mailerr: str) -> str:
+    """The notice with the invite email's outcome added. When the email went
+    out, the "copy the link" advice of the Slack outcomes no longer applies."""
+    text = _NOTICES[notice].format(login=name)
+    row = next((i for i in team.pending_invites(session) if i.login == login), None)
+    if mail not in ("sent", "off", "failed") or row is None or not row.email:
+        return text
+    if mail == "sent":
+        if notice == "resent":
+            return f"{text} Emailed the new link to {row.email}."
+        slack = " Also sent it to them in Slack." if notice == "invited-messaged" else ""
+        return f"Invited {name}. Emailed the invite link to {row.email}.{slack}"
+    if notice == "invited":
+        text = f"Invited {name}."
+    if mail == "off":
+        return f"{text} Email is not set up, so copy the invite link and send it to them."
+    code = mailerr if _MAIL_CODE.fullmatch(mailerr) else "error"
+    return f"{text} Could not email them ({code}); copy the invite link and send it to them."
+
+
 @router.get("/ui/team", response_class=HTMLResponse)
-def team_page(request: Request, session: DbSession, notice: str = "", login: str = "") -> Response:
+def team_page(
+    request: Request,
+    session: DbSession,
+    notice: str = "",
+    login: str = "",
+    mail: str = "",
+    mailerr: str = "",
+) -> Response:
     people = list(session.scalars(select(models.Person).order_by(models.Person.created_at)))
     names = {p.login: p.name or p.login for p in people}
     public = auth._public_url(request)
@@ -144,7 +174,8 @@ def team_page(request: Request, session: DbSession, notice: str = "", login: str
         who = login if _LOGIN.fullmatch(login) else "them"
         # Someone on the team is named as everywhere else; an invitee by login.
         person = session.get(models.Person, who) if who != "them" else None
-        found = ("ok", _NOTICES[notice].format(login=(person.name if person else "") or who))
+        name = (person.name if person else "") or who
+        found = ("ok", _notice_text(session, notice, who, name, mail, mailerr))
     else:
         found = None
     response = templates.TemplateResponse(
@@ -194,7 +225,16 @@ async def invite(request: Request, session: DbSession) -> Response:
         )
     except TeamError as error:
         return _refused(request, error)
-    return _back(_match_invitee(request, session, row, user), row.login)
+    code = _match_invitee(request, session, row, user)
+    mail = invite_email.send_invite(
+        session, row, _display_name(session, user), auth._public_url(request)
+    )
+    return _back(code, row.login, mail)
+
+
+def _display_name(session, login: str | None) -> str:
+    person = session.get(models.Person, login) if login else None
+    return (person.name if person and person.name else login) or "Helix"
 
 
 def _match_invitee(request: Request, session, row: models.Invitation, user: str | None) -> str:
@@ -205,8 +245,7 @@ def _match_invitee(request: Request, session, row: models.Invitation, user: str 
     found = slack_people.find_by_emails(session, [row.email])
     if found.status == "found":
         row.slack_id = found.slack_id
-        inviter = session.get(models.Person, user) if user else None
-        who = (inviter.name if inviter and inviter.name else user) or "Helix"
+        who = _display_name(session, user)
         role = {"owner": "an owner", "admin": "an admin"}.get(row.role, "a member")
         sent = slack_people.send_dm(
             session,
@@ -228,7 +267,11 @@ def resend(request: Request, session: DbSession, invite_id: int) -> Response:
         row = team.resend(session, invite_id, actor=auth.actor_for(request, session))
     except TeamError as error:
         return _refused(request, error)
-    return _back("resent", row.login)
+    user = getattr(request.state, "user", None)
+    mail = invite_email.send_invite(
+        session, row, _display_name(session, user), auth._public_url(request)
+    )
+    return _back("resent", row.login, mail)
 
 
 @router.post("/ui/team/invites/{invite_id}/cancel")

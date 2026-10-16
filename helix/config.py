@@ -222,6 +222,11 @@ class Settings(BaseSettings):
     #: install, integrations/slack/oauth.py). Unset disables the button.
     slack_client_id: str | None = None
     slack_client_secret: str | None = Field(default=None, repr=False)
+    #: Invite emails through Resend's HTTPS API (integrations/email.py; Render
+    #: blocks SMTP). On only when both are set; `email_from` is the sender,
+    #: e.g. "Helix <invites@example.com>" on a domain verified with Resend.
+    email_api_key: str | None = Field(default=None, repr=False)
+    email_from: str | None = None
     # How long an interactive Slack approval may sit undecided before the
     # same escalate-on-timeout contract 1.8's approval_timeout uses
     # applies (0 disables; falls back to approval_timeout when unset).
