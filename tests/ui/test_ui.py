@@ -170,6 +170,9 @@ class TestApprovalsPage:
         response = client.get("/ui/approvals")
         assert response.status_code == 200
         assert "Nothing awaiting approval" in response.text
+        # Plain English for the people who use it (issue #45), not policy jargon.
+        assert "until one of the service's approvers says yes." in response.text
+        assert "REQUIRE_APPROVAL" not in response.text
 
     def test_pending_row_renders(self, client, sqlite_sessions, store):
         incident_id, _deps = _suspend_on_gate(sqlite_sessions, store)
