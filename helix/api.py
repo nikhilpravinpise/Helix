@@ -365,8 +365,17 @@ class ApprovalDecisionOut(BaseModel):
 def _decider(request: Request, body: "ApprovalDecisionIn") -> str:
     """Who the decision is recorded as: the signed-in GitHub user when
     there is one - a typed name cannot override a session - else the
-    body's actor (CLI, machine clients with the intake token)."""
-    return _signed_in(request) or body.actor
+    body's actor. With sign-in on, the token alone cannot decide: it would
+    let the holder decide as any person they name. With sign-in off (local
+    dev, the CLI and benchmark) the body's actor is trusted."""
+    from helix import auth
+
+    user = _signed_in(request)
+    if user:
+        return user
+    if auth.enabled():
+        raise HTTPException(status_code=403, detail="Decide from the dashboard or Slack.")
+    return body.actor
 
 
 def _schedule_resume(background: BackgroundTasks, incident_id: str) -> None:

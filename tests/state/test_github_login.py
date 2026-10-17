@@ -194,3 +194,65 @@ def test_the_approvals_page_shows_who_is_deciding(client, monkeypatch):
     page = client.get("/ui/approvals").text
     assert "Deciding as <b>VrajVed</b>" in page
     assert 'id="intake-token"' not in page
+
+
+def _pending_review(sqlite_engine, approval_id):
+    """A parked review on the same incident as `approval_id` (reviewer bob)."""
+    from state import models
+    from state.db import session_scope
+
+    with session_scope(sqlite_engine) as session:
+        row = models.ReviewRequest(
+            incident_id=session.get(models.Approval, approval_id).incident_id,
+            attempt=0,
+            reviewer="bob",
+            rationale="registry",
+            status=models.ApprovalStatus.PENDING,
+        )
+        session.add(row)
+        session.flush()
+        return row.id
+
+
+def test_the_token_alone_cannot_decide_when_sign_in_is_on(client, sqlite_engine, monkeypatch):
+    """Issue #59: a token holder must not decide as any person they name."""
+    approval_id = _pending_approval(client, sqlite_engine, monkeypatch)
+    review_id = _pending_review(sqlite_engine, approval_id)
+    urls = [
+        f"/approvals/{approval_id}/approve",
+        f"/approvals/{approval_id}/reject",
+        f"/reviews/{review_id}/approve",
+        f"/reviews/{review_id}/reject",
+    ]
+    _enable(monkeypatch)
+    for url in urls:
+        response = client.post(
+            url, json={"actor": "alice"}, headers={"Authorization": "Bearer tok"}
+        )
+        assert response.status_code == 403, url
+        assert response.json()["detail"] == "Decide from the dashboard or Slack."
+
+
+def test_a_signed_in_user_still_decides_a_review(client, sqlite_engine, monkeypatch):
+    approval_id = _pending_approval(client, sqlite_engine, monkeypatch)
+    review_id = _pending_review(sqlite_engine, approval_id)
+    _enable(monkeypatch, login="bob")
+    monkeypatch.setenv("HELIX_ALLOWED_USERS", "bob")
+    _sign_in(client)
+    response = client.post(f"/reviews/{review_id}/approve", json={"actor": "mallory"})
+    assert response.status_code == 200
+    assert response.json()["review"]["decided_by"] == "bob"
+
+
+def test_the_token_still_decides_when_sign_in_is_off(client, sqlite_engine, monkeypatch):
+    approval_id = _pending_approval(client, sqlite_engine, monkeypatch)
+    review_id = _pending_review(sqlite_engine, approval_id)
+    headers = {"Authorization": "Bearer tok"}
+    approved = client.post(
+        f"/approvals/{approval_id}/approve", json={"actor": "alice"}, headers=headers
+    )
+    assert approved.status_code == 200
+    assert approved.json()["approval"]["decided_by"] == "alice"
+    rejected = client.post(f"/reviews/{review_id}/reject", json={"actor": "bob"}, headers=headers)
+    assert rejected.status_code == 200
+    assert rejected.json()["review"]["decided_by"] == "bob"
