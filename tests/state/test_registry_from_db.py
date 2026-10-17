@@ -147,7 +147,7 @@ def test_a_login_outside_the_people_table_is_not_signed_in(team_db, monkeypatch)
 def test_slack_member_maps_to_the_database_login(team_db):
     _seed(team_db)
     assert _slack_handle({"id": "U111", "username": "z"}) == "zed"
-    assert _slack_handle({"id": "U999", "username": "stranger"}) == "stranger"
+    assert _slack_handle({"id": "U999", "username": "stranger"}) == "slack:U999"
 
 
 def test_the_registry_file_setting_wins_over_database_rows(team_db, monkeypatch):

@@ -681,3 +681,75 @@ class TestSelfApprovalIsNeverFromSlack:
         (decision,) = response.json()["decisions"]
         assert "may not approve it" in decision["note"]
         assert "Approve my own change" not in decision["note"]
+
+
+class TestSlackNameIsNeverAnIdentity:
+    """Issue #57: the Slack payload's username/name is attacker-controlled.
+    Only a linked member id identifies a person; an unlinked click is
+    `slack:<id>`, which can never equal a GitHub login."""
+
+    def _setup(self, client, sqlite_engine, monkeypatch):
+        posts = []
+        monkeypatch.setattr(
+            "helix.api.httpx.post",
+            lambda url, json=None, timeout=None: (
+                posts.append(json) or httpx.Response(200, request=httpx.Request("POST", url))
+            ),
+        )
+        incident_id = _seed_incident(client)
+        _stub_run(monkeypatch, [])
+        return incident_id, posts
+
+    def test_unlinked_handle_is_not_a_login(self):
+        from helix.api import _slack_handle
+
+        assert _slack_handle({"id": "UATTACKER9", "username": "alice", "name": "alice"}) == (
+            "slack:UATTACKER9"
+        )
+        assert _slack_handle({}) == "slack"
+
+    @pytest.mark.parametrize("field", ["username", "name"])
+    def test_unlinked_user_named_like_an_approver_is_refused(
+        self, client, sqlite_engine, monkeypatch, field
+    ):
+        incident_id, posts = self._setup(client, sqlite_engine, monkeypatch)
+        approval_id = _seed_pending(sqlite_engine, incident_id)
+        _link_slack(monkeypatch, alice="U999")
+        payload = {
+            **_block_actions(approval_id),
+            "user": {"id": "UATTACKER9", field: "alice"},
+            "response_url": "https://hooks.slack.test/x",
+        }
+        response = _post(client, payload)
+        assert response.status_code == 200
+        assert "decision" not in response.json()["decisions"][0]
+        row = _get_approval(sqlite_engine, approval_id)
+        assert row.status == models.ApprovalStatus.PENDING and row.decided_by is None
+        assert any("Not recorded" in (body or {}).get("text", "") for body in posts)
+
+    @pytest.mark.parametrize("field", ["username", "name"])
+    def test_unlinked_user_named_like_the_reviewer_is_refused(
+        self, client, sqlite_engine, monkeypatch, field
+    ):
+        incident_id, posts = self._setup(client, sqlite_engine, monkeypatch)
+        review_id = _seed_review(sqlite_engine, incident_id)
+        _link_slack(monkeypatch, bob="U456")
+        payload = {
+            **_review_block_actions(review_id),
+            "user": {"id": "UATTACKER9", field: "bob"},
+            "response_url": "https://hooks.slack.test/x",
+        }
+        response = _post(client, payload)
+        assert response.status_code == 200
+        assert "decision" not in response.json()["decisions"][0]
+        row = _get_review(sqlite_engine, review_id)
+        assert row.status == models.ApprovalStatus.PENDING and row.decided_by is None
+        assert any("Not recorded" in (body or {}).get("text", "") for body in posts)
+
+    def test_a_linked_user_still_decides(self, client, sqlite_engine, monkeypatch):
+        incident_id, _ = self._setup(client, sqlite_engine, monkeypatch)
+        approval_id = _seed_pending(sqlite_engine, incident_id)
+        _link_slack(monkeypatch, alice="U999")
+        payload = {**_block_actions(approval_id), "user": {"id": "U999", "name": "whatever"}}
+        assert _post(client, payload).status_code == 200
+        assert _get_approval(sqlite_engine, approval_id).decided_by == "alice"

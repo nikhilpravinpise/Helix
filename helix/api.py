@@ -719,10 +719,12 @@ def _slack_person(member: str | None) -> str | None:
 
 
 def _slack_handle(user: dict) -> str:
-    """The registry handle of the Slack user who clicked. Someone not linked
-    keeps their Slack name, which the decision rules then refuse with a reason."""
+    """The registry handle of the Slack user who clicked. Only a linked member
+    id names a person; the Slack username/name is attacker-controlled, so
+    someone not linked is `slack:<id>` (GitHub logins cannot contain ':'),
+    which the decision rules refuse with a reason."""
     member = user.get("id")
-    return _slack_person(member) or user.get("username") or user.get("name") or member or "slack"
+    return _slack_person(member) or (f"slack:{member}" if member else "slack")
 
 
 def handle_slack_interaction(payload: dict, session: Session, background: BackgroundTasks) -> dict:
