@@ -353,7 +353,7 @@ def require_admin(request: Request, session: DbSession) -> None:
 AdminOnly = Depends(require_admin)
 
 
-@router.get("/logout")
+@router.post("/logout")
 def logout() -> Response:
     response = RedirectResponse("/login", status_code=303)
     response.delete_cookie(SESSION_COOKIE)

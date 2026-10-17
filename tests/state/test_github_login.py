@@ -110,8 +110,28 @@ def test_a_tampered_session_cookie_is_refused(client, monkeypatch):
 def test_sign_out_ends_the_session(client, monkeypatch):
     _enable(monkeypatch)
     _sign_in(client)
-    client.get("/logout", follow_redirects=False)
+    # Logout became POST-only (issue #60 item 3): a GET from any site's
+    # image tag must not sign anyone out.
+    out = client.post("/logout", follow_redirects=False)
+    assert out.status_code == 303 and out.headers["location"].endswith("/login")
+    cleared = out.headers["set-cookie"]
+    assert cleared.startswith(f"{auth.SESSION_COOKIE}=") and "Max-Age=0" in cleared
     assert client.get("/incidents").status_code == 401
+
+
+def test_get_logout_is_refused_and_keeps_the_session(client, monkeypatch):
+    _enable(monkeypatch)
+    _sign_in(client)
+    assert client.get("/logout", follow_redirects=False).status_code == 405
+    assert client.get("/incidents").status_code == 200
+
+
+def test_the_sidebar_signs_out_with_a_post_form(client, monkeypatch):
+    _enable(monkeypatch)
+    _sign_in(client)
+    page = client.get("/ui/").text
+    assert '<form method="post" action="/logout"' in page
+    assert 'href="/logout"' not in page
 
 
 def test_machines_still_use_the_intake_token(client, monkeypatch):
