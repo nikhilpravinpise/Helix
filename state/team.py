@@ -256,6 +256,7 @@ def resend(session: Session, invite_id: int, actor: Actor | None = None) -> Invi
     row = _managed_invite(session, invite_id, actor)
     now = datetime.now(UTC)
     row.token = secrets.token_urlsafe(32)
+    row.slack_messaged_at = None  # that DM carried the old link
     row.created_at = now
     row.expires_at = now + timedelta(days=INVITE_DAYS)
     session.flush()

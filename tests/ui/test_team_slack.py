@@ -846,6 +846,67 @@ def test_pick_button_shows_only_when_slack_is_connected_and_unmatched(
     assert "Pick from Slack" not in client.get("/ui/team").text
 
 
+# ---- how each pending invite reached the person ------------------------------
+
+
+def _reached(client):
+    import re
+
+    return re.findall(r'<span class="invite-reached">([^<]*)</span>', client.get("/ui/team").text)
+
+
+def test_status_slack_dm_sent_and_the_link_button(client, db, slack, monkeypatch):
+    _connect(db)
+    slack.users["new@x.com"] = "U77"
+    _sign_in(client, monkeypatch, "VrajVed")
+    _invite(client)
+    assert _reached(client) == ["Slack DM sent"]
+    token = _invite_row(db, "newbie").token
+    page = client.get("/ui/team").text
+    assert "data-copy-link" in page and f"https://helix.example/invite/{token}" in page
+
+
+def test_status_slack_dm_failed_when_the_dm_did_not_go(client, db, slack, monkeypatch):
+    _connect(db)
+    slack.users["new@x.com"] = "U77"
+    slack.fail["chat.postMessage"] = "channel_not_found"
+    _sign_in(client, monkeypatch, "VrajVed")
+    _invite(client)
+    assert _reached(client) == ["Slack DM failed - copy the link"]
+
+
+def test_status_emailed(client, db, slack, monkeypatch):
+    _sign_in(client, monkeypatch, "VrajVed")
+    _make_invite(db)
+    with Session(db) as s:
+        s.scalar(select(models.Invitation)).emailed_at = datetime.now(UTC)
+        s.commit()
+    assert _reached(client) == ["Emailed"]
+
+
+def test_status_not_in_slack_when_connected_but_unmatched(client, db, slack, monkeypatch):
+    _connect(db)
+    _sign_in(client, monkeypatch, "VrajVed")
+    _make_invite(db)
+    assert _reached(client) == ["Not in Slack - copy the link"]
+
+
+def test_status_slack_not_connected(client, db, slack, monkeypatch):
+    _sign_in(client, monkeypatch, "VrajVed")
+    _make_invite(db)
+    assert _reached(client) == ["Slack not connected"]
+
+
+def test_picking_changes_the_status_and_resend_clears_a_stale_dm(client, db, slack, monkeypatch):
+    _connect(db)
+    invite_id = _make_invite(db)
+    _sign_in(client, monkeypatch, "VrajVed")
+    client.post(f"/ui/team/invites/{invite_id}/slack-pick", data={"slack_id": "U09ABC123"})
+    assert _reached(client) == ["Slack DM sent"]
+    client.post(f"/ui/team/invites/{invite_id}/resend")
+    assert _reached(client) == ["Slack DM failed - copy the link"]
+
+
 def test_typed_email_wins_over_the_github_one(client, db, github, monkeypatch):
     github.users["newbie"] = {"login": "newbie", "email": "pub@x.com"}
     _sign_in(client, monkeypatch, "VrajVed")

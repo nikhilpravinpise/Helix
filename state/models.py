@@ -1180,6 +1180,11 @@ class Invitation(Base):
     cancelled_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     #: When Helix last emailed the invite link; None if never or it failed.
     emailed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    #: When Helix last DMed the invite link in Slack; None if never or it failed.
+    #: slack_id alone does not say: it is kept even when the DM fails.
+    slack_messaged_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
 
 
 class Service(Base):

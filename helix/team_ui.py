@@ -169,7 +169,7 @@ def team_page(
             "invited_by": names.get(inv.invited_by, inv.invited_by),
             "created_at": team._aware(inv.created_at),
             "expires": _expires_in(team._aware(inv.expires_at)),
-            "emailed_at": team._aware(inv.emailed_at) if inv.emailed_at else None,
+            "reached": _reached(inv, slack_on),
             "link": f"{public}/invite/{inv.token}",
             "can_manage": team.may_manage_invite(actor, inv),
             "can_pick": slack_on and not inv.slack_id and team.may_manage_invite(actor, inv),
@@ -257,12 +257,27 @@ def _display_name(session, login: str | None) -> str:
 def _dm_invite(request: Request, session, row: models.Invitation, user: str | None) -> bool:
     """DM the invite link to the member id on the row."""
     role = {"owner": "an owner", "admin": "an admin"}.get(row.role, "a member")
-    return slack_people.send_dm(
+    sent = slack_people.send_dm(
         session,
         row.slack_id,
         f"{_display_name(session, user)} invited you to the team on Helix as {role}. "
         f"Accept: {auth._public_url(request)}/invite/{row.token}",
     )
+    if sent:
+        row.slack_messaged_at = datetime.now(UTC)
+        session.flush()
+    return sent
+
+
+def _reached(inv: models.Invitation, slack_on: bool) -> str:
+    """How the invite reached the person, in one line for the Team page."""
+    if inv.slack_messaged_at:
+        return "Slack DM sent"
+    if inv.emailed_at:
+        return "Emailed"
+    if inv.slack_id:
+        return "Slack DM failed - copy the link"
+    return "Not in Slack - copy the link" if slack_on else "Slack not connected"
 
 
 def _match_invitee(

@@ -110,7 +110,7 @@
         <span class="badge{% if inv.role != 'member' %} st-recovered{% endif %}">{{ inv.role|capitalize }}</span>
         <span class="team-status small muted">
           <span>{{ inv.expires }}</span>
-          {% if inv.email %}<span>{% if inv.emailed_at %}Emailed {{ inv.emailed_at|age }} ago{% else %}Not emailed{% endif %}</span>{% endif %}
+          <span class="invite-reached">{{ inv.reached }}</span>
         </span>
       </div>
       {% if inv.can_manage %}

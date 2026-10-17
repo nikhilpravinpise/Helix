@@ -77,7 +77,7 @@ def test_revision_chain_and_columns_match_the_model(conn, mig):
     _run(conn, mig, "upgrade")
     for model in (models.Person, models.Invitation):
         cols = {c["name"] for c in inspect(conn).get_columns(model.__table__.name)}
-        assert cols == set(model.__table__.columns.keys()) - {"emailed_at"}
+        assert cols == set(model.__table__.columns.keys()) - {"emailed_at", "slack_messaged_at"}
 
 
 def test_admins_become_owners_and_vrajved_is_the_main_owner(conn, mig):
