@@ -320,3 +320,15 @@ cannot be sent from `onrender.com`, which nobody here controls). The link in
 the email is the Render address (`https://helix-eksf.onrender.com/invite/...`).
 `HELIX_EMAIL_API_KEY` and `HELIX_EMAIL_FROM` are set in Render; with no key
 the feature is off and invites work as before (copy link, Slack DM).
+
+### Teams: stage-1 decisions (decided 2026-10-17, issue #38)
+
+Vraj decided, so the work can start without waiting:
+
+- **Anyone with a GitHub account can create a team.**
+- **One person can belong to several teams**, with a team switcher;
+  their role can differ per team.
+- **A team's last owner cannot leave** without handing ownership over
+  first, so a team is never orphaned.
+- Order unchanged: the Neon move (#48, also approved) first, then teams
+  stage 1, then stages 2 to 5 as planned in #38.
