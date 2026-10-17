@@ -30,7 +30,7 @@ from fastapi import APIRouter, Request
 from fastapi.responses import HTMLResponse, RedirectResponse, Response
 from sqlalchemy import select
 
-from helix import auth, invite_email, slack_people
+from helix import auth, github_users, invite_email, slack_people
 from helix.connections_ui import _posted
 from helix.ui import DbSession, _incident_total, _pending_count, templates
 from integrations import email
@@ -217,13 +217,19 @@ def team_page(
 @router.post("/ui/team/invite")
 async def invite(request: Request, session: DbSession) -> Response:
     user = getattr(request.state, "user", None)
+    login = (await _posted(request, "login")).strip()
+    typed_email = await _posted(request, "email")
     try:
+        # Only a well-formed login is worth asking GitHub about.
+        profile = github_users.lookup(login) if team._GITHUB_LOGIN.fullmatch(login) else None
+        if profile is False:
+            raise TeamError(f"There is no GitHub user called {login}.")
         row = team.invite(
             session,
-            await _posted(request, "login"),
+            profile.login if profile else login,
             await _posted(request, "role"),
             user or "Helix",
-            await _posted(request, "email"),
+            typed_email or (profile.email if profile else None),
             actor=auth.actor_for(request, session),
         )
     except TeamError as error:

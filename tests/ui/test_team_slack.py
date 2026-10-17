@@ -567,3 +567,89 @@ def test_a_forged_next_is_not_trusted_from_the_query_on_the_callback(client, db,
         f"/auth/github/callback?code=c&state={state}&next=//evil.example", follow_redirects=False
     )
     assert done.headers["location"] == "/ui/"
+
+
+# ---- the GitHub login is checked when inviting ------------------------------
+
+
+@pytest.fixture
+def github(monkeypatch):
+    """Fake GitHub users API: `users` maps lowercase login -> profile JSON;
+    `state["down"]` makes every call fail like an outage."""
+    from helix import github_users
+
+    calls: list[str] = []
+    users: dict[str, dict] = {}
+    state = {"down": False}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        calls.append(str(request.url))
+        if state["down"]:
+            raise httpx.ConnectError("down")
+        profile = users.get(request.url.path.rsplit("/", 1)[-1].lower())
+        if profile is None:
+            return httpx.Response(404, json={"message": "Not Found"})
+        return httpx.Response(200, json=profile)
+
+    monkeypatch.setattr(
+        github_users, "_http", lambda: httpx.Client(transport=httpx.MockTransport(handler))
+    )
+    return type("GitHub", (), {"calls": calls, "users": users, "state": state})
+
+
+def test_unknown_github_login_is_refused_and_no_invite_is_made(client, db, github, monkeypatch):
+    _sign_in(client, monkeypatch, "VrajVed")
+    page = _invite(client)
+    assert "There is no GitHub user called newbie." in page.text
+    assert _invite_row(db, "newbie") is None
+    assert github.calls == ["https://api.github.com/users/newbie"]
+
+
+def test_malformed_login_never_reaches_github(client, db, github, monkeypatch):
+    _sign_in(client, monkeypatch, "VrajVed")
+    page = client.post(
+        "/ui/team/invite", data={"login": "a/../b", "role": "member"}, follow_redirects=True
+    )
+    assert "not a valid GitHub login" in page.text and github.calls == []
+
+
+def test_github_being_down_does_not_block_the_invite(client, db, github, monkeypatch):
+    github.state["down"] = True
+    _sign_in(client, monkeypatch, "VrajVed")
+    page = _invite(client)
+    assert _invite_row(db, "newbie") is not None
+    assert "Invited newbie" in page.text
+
+
+def test_github_rate_limit_does_not_block_the_invite(client, db, monkeypatch):
+    from helix import github_users
+
+    monkeypatch.setattr(
+        github_users,
+        "_http",
+        lambda: httpx.Client(transport=httpx.MockTransport(lambda r: httpx.Response(403))),
+    )
+    _sign_in(client, monkeypatch, "VrajVed")
+    _invite(client)
+    assert _invite_row(db, "newbie") is not None
+
+
+def test_invite_keeps_githubs_casing_for_the_login(client, db, github, monkeypatch):
+    github.users["newbie"] = {"login": "NewBie", "email": None}
+    _sign_in(client, monkeypatch, "VrajVed")
+    _invite(client)
+    assert _invite_row(db, "NewBie") is not None and _invite_row(db, "newbie") is None
+
+
+def test_public_github_email_is_used_when_none_was_typed(client, db, github, monkeypatch):
+    github.users["newbie"] = {"login": "newbie", "email": "pub@x.com"}
+    _sign_in(client, monkeypatch, "VrajVed")
+    _invite(client, email="")
+    assert _invite_row(db, "newbie").email == "pub@x.com"
+
+
+def test_typed_email_wins_over_the_github_one(client, db, github, monkeypatch):
+    github.users["newbie"] = {"login": "newbie", "email": "pub@x.com"}
+    _sign_in(client, monkeypatch, "VrajVed")
+    _invite(client, email="typed@x.com")
+    assert _invite_row(db, "newbie").email == "typed@x.com"
