@@ -70,13 +70,18 @@ app = FastAPI(
 @app.middleware("http")
 async def sign_in_gate(request: Request, call_next):
     """With a GitHub OAuth app configured, every route needs a signed-in,
-    allowed user or the intake token (helix/auth.py). Off otherwise."""
+    allowed user or the intake token (helix/auth.py). Off otherwise. Every
+    response, refused or not, also gets the hardening headers."""
     from helix import auth
 
     refused = auth.gate(request)
-    if refused is not None:
-        return refused
-    return await call_next(request)
+    response = refused if refused is not None else await call_next(request)
+    response.headers["X-Content-Type-Options"] = "nosniff"
+    response.headers["Referrer-Policy"] = "same-origin"
+    response.headers["Content-Security-Policy"] = "frame-ancestors 'none'"
+    if auth._secure(request):
+        response.headers["Strict-Transport-Security"] = "max-age=31536000"
+    return response
 
 
 # HEAD too: uptime monitors check with it, and a 405 reads as "down".
