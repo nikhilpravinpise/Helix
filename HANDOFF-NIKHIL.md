@@ -1,9 +1,9 @@
 # Handoff - To Nikhil: Helix as a product
 
-**Date:** 2026-10-16
-**Branch:** `main` at `8b9089e`, the same in `VrajVed/Helix` and
-`nikhilpravinpise/Helix`. Everything through PR #51 is merged and deployed.
-**Tests:** 2394 unit pass, 51 integration deselected by default, lint clean
+**Date:** 2026-10-18 (first version 2026-10-16)
+**Branch:** everything through PR #55 is merged and deployed. PR #63
+(security fixes and the invite flow) is open on `VrajVed/Helix` `main`.
+**Tests:** 2462 unit pass, 51 integration deselected by default, lint clean
 (`make lint && make test`, see [docs/verifying.md](docs/verifying.md))
 **Live:** https://helix-eksf.onrender.com (Render, free tier)
 **Prior handoffs:** [HANDOFF-PHASE2-EXIT.md](HANDOFF-PHASE2-EXIT.md) |
@@ -41,7 +41,7 @@ Helix, not how anyone uses it.
 
 ---
 
-## 2. What changed since the Phase 2 exit (PRs #31 to #51)
+## 2. What changed since the Phase 2 exit (PRs #31 to #63)
 
 | PR | Merged | What it did |
 |---|---|---|
@@ -57,6 +57,10 @@ Helix, not how anyone uses it.
 | #47 | 10-16 | `/`, `/login` and `/healthz` answer HEAD, so UptimeRobot sees Helix as up; this handoff |
 | #49 | 10-16 | Signed-out requests no longer query the database (keeps a scale-to-zero database idle); the #45 follow-ups |
 | #51 | 10-16 | **GitHub App webhooks** on the hosted Helix; **guarded self-approval** for owners and admins; **reassign reviewer**; GitHub App refusals logged with GitHub's reason |
+| #53 | 10-16 | This handoff brought up to date through #51 |
+| #54 | 10-16 | GitHub App JWT sends whole seconds, so Install on GitHub can authenticate |
+| #55 | 10-16 | **Invite emails** through Resend, and the Team page shows whether each invite was emailed |
+| #63 | open | **Security audit fixes** (#57, #59, #60, #61): only a linked Slack account decides, the intake token alone cannot decide, security headers, sign out is a POST. **Invite flow**: GitHub login checked when inviting, Pick from Slack, each invite shows how it reached the person. Migration 0020 |
 
 The plan and decision record for #39, #40 and #46 is
 [future_plans.md](future_plans.md), sections "Product DX", "Next: team and
@@ -104,6 +108,14 @@ services in the dashboard" and "Roles: owners, admins, members".
   invited GitHub login signs in, expire after 7 days, can be resent or
   cancelled, have a copyable link. A pending invitee cannot approve or
   review anything yet.
+- **Inviting checks the GitHub login** (PR #63): a login GitHub does not
+  know is refused, so no dead invite sits for 7 days. With no email typed,
+  the person's public GitHub email is used. If GitHub is down the invite
+  still goes through.
+- **Each pending invite says how it reached the person**: Slack DM sent,
+  Slack DM failed, Emailed, Not in Slack or Slack not connected, with a
+  Copy link button. Slack DM and Copy link are the dependable channels;
+  email lands in spam until the DNS records in section 4 exist (#64).
 
 ### Roles (Discord-style hierarchy)
 
@@ -144,13 +156,22 @@ The automatic pick still never asks the author. Users let in only by the
 
 A person's Slack member id is found automatically, in order:
 
-1. the email an admin types on the invite (Helix also DMs them the invite
-   link when it finds them),
+1. the email an admin types on the invite, or the invitee's public GitHub
+   email (Helix also DMs them the invite link when it finds them). If no
+   email matches, an admin can **Pick from Slack**: search the workspace
+   by name and choose the person (PR #63),
 2. every verified email on their GitHub account, read at sign-in
    (sign-in asks GitHub for `user:email`),
 3. a private, signed **"Link your Slack"** link Helix sends when an
    unlinked person clicks a Helix button in Slack; opening it while signed
    in binds the two accounts.
+
+**Only a linked Slack member id identifies a person** (PR #63, issue #57).
+A click from an unlinked Slack account is recorded as `slack:<member id>`,
+which no rule accepts, so a Slack name that happens to match an
+approver's GitHub login decides nothing. Likewise, with sign-in on, the
+intake token alone cannot approve or review (issue #59): decisions come
+from a signed-in dashboard user or a linked Slack account.
 
 ### Approve and Reject feel instant
 
@@ -186,6 +207,7 @@ without the flag still waits, as the CLI expects.
 |---|---|
 | Sign-in, sessions, admin gate, `next` redirects | [helix/auth.py](helix/auth.py) |
 | Team rules (roles, invites, main owner, Slack link) | [state/team.py](state/team.py), page in [helix/team_ui.py](helix/team_ui.py) |
+| Invite checks (GitHub login lookup, Pick from Slack) | [helix/github_users.py](helix/github_users.py), [helix/slack_people.py](helix/slack_people.py) |
 | Services rules and page | [state/services.py](state/services.py), [helix/services_ui.py](helix/services_ui.py) |
 | Registry read (file or database), owner and reviewer resolution | [agent/ops/registry.py](agent/ops/registry.py) |
 | Who may decide | [state/deciders.py](state/deciders.py) |
@@ -316,7 +338,13 @@ keys or dashboards.
 | # | What | Waits on | Next step |
 |---|---|---|---|
 | [#48](https://github.com/nikhilpravinpise/Helix/issues/48) | Move the database to Neon before 2026-11-13 | **Nikhil** (yes), then **Vraj** (Neon account) | Nikhil approves; Vraj creates the Neon project and sets `HELIX_NEXT_DATABASE_URL` in Render; then the dry run and cutover |
-| [#38](https://github.com/nikhilpravinpise/Helix/issues/38) | Teams: any team can use Helix | **Nikhil** | Answer the three stage-1 questions in the issue |
+| [#63](https://github.com/nikhilpravinpise/Helix/pull/63) (PR) | Security fixes and invite flow; fixes #57, #59, #61, part of #60 | **Nikhil** | Review and merge; then a manual Render deploy |
+| [#56](https://github.com/nikhilpravinpise/Helix/issues/56) | When sign-up opens relative to per-team data | **Nikhil** | Answer; recommended: keep sign-up closed until data is per team |
+| [#58](https://github.com/nikhilpravinpise/Helix/issues/58) | Row-level security: a team column and Postgres RLS | After #56 | Built into teams stage 3 |
+| [#60](https://github.com/nikhilpravinpise/Helix/issues/60) | Hardening left: sign out everywhere (session revoke) | After #48 | Headers, POST sign out and the docs are in #63 |
+| [#64](https://github.com/nikhilpravinpise/Helix/issues/64) | Invite emails land in spam | **Vraj** | Add SPF, DKIM and DMARC for `vrajved.tech`, or turn email off |
+| [#62](https://github.com/nikhilpravinpise/Helix/issues/62) | Audit summary (2026-10-17) | - | Tracks #56 to #61 |
+| [#38](https://github.com/nikhilpravinpise/Helix/issues/38) | Teams: any team can use Helix | After #48 | Stage-1 questions decided by Vraj 2026-10-17 (future_plans.md); Neon first |
 | [#52](https://github.com/nikhilpravinpise/Helix/issues/52) | GitHub App install fails with `http_401`; live webhook PR check | **Vraj** | Retry Install on GitHub and read the logged reason; push a commit to a sandbox PR |
 | [#44](https://github.com/nikhilpravinpise/Helix/issues/44) | Real Slack check of people matching | **Vraj** | Scopes are added; run the checks in the issue |
 | [#42](https://github.com/nikhilpravinpise/Helix/issues/42) | Clear the old demo incidents | After #48 | Export, then delete once, on Neon |
@@ -338,6 +366,11 @@ Closed since the first version of this handoff: #45 (small follow-ups,
   webhook is unaffected and verified.
 - **Slack matching is tested only against simulated Slack replies.** The
   real check is issue #44.
+- **No row-level security yet** (#58). Roles guard every change, but any
+  signed-in person reads all data, no table has a team column and Postgres
+  RLS is off. Fine for one team; must ship before sign-up opens (#56).
+- **Sessions cannot be revoked**: sign out clears the cookie, but a copied
+  cookie works for up to 12 hours. Removing a person locks them out at once.
 - **Single team only.** Connections are one per tool for the whole Helix,
   so a second team connecting would replace ours (issue #38).
 - **Old demo incidents** still sit in the Render database and show in the
