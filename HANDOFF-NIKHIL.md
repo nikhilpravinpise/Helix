@@ -83,6 +83,9 @@ services in the dashboard" and "Roles: owners, admins, members".
 - Slack and Jira connect with **OAuth** from the Connections page; GitHub
   through the **GitHub App** "Helix Incident Bot" (not an OAuth app).
   Tokens are stored encrypted (`HELIX_CONNECTIONS_KEY`), never in git.
+  The key is turned into the Fernet key with one SHA-256, so it must stay
+  the long random value Render generated, never a typed password.
+  Changing it makes every stored connection read as not connected.
 - Only one Slack app should exist for the product (issue #38 explains the
   two apps we have today and how to retire one).
 
@@ -225,10 +228,19 @@ Migrations run at every boot.
   in Resend (`onboarding@resend.dev` only reaches the Resend account owner);
   the link in the email is the Render address. The Resend CLI
   (`resend doctor`, `resend domains ...`) manages the domain.
+  Without SPF, DKIM and DMARC on the sending domain the invites land in
+  spam. Checked 2026-10-18: `vrajved.tech` has none of them. The records to
+  add at the registrar (copy the exact values from Resend, Domains):
+  TXT `resend._domainkey` (the DKIM key), MX `send` pointing at Resend's
+  feedback host (priority 10), TXT `send` `v=spf1 include:amazonses.com ~all`
+  and TXT `_dmarc` `v=DMARC1; p=none;`. No mailbox is needed. Slack DMs
+  and the invite's Copy link button work without email.
 - **Free tier limits:** the service sleeps after 15 idle minutes;
   **UptimeRobot** pings `/` and `/healthz` every 5 minutes to keep it awake
   and email on downtime. 750 instance hours a month covers one
   always-on service. **The free Postgres expires 2026-11-13.**
+  The replacement (Neon, #48) needs `sslmode=require` in its connection
+  string; Neon refuses connections without TLS.
 
 ---
 
