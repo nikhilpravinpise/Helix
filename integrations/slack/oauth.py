@@ -122,6 +122,36 @@ def lookup_user_by_email(token: str, email: str) -> str | None:
     return str((body.get("user") or {}).get("id") or "") or None
 
 
+def list_members(token: str, *, max_pages: int = 50) -> list[dict[str, str]]:
+    """users.list: the workspace's people as {"id", "name", "display"},
+    following the cursor. Bots, apps, Slackbot and deactivated accounts are
+    left out. A token without users:read fails with `missing_scope`."""
+    members: list[dict[str, str]] = []
+    cursor = ""
+    for _ in range(max_pages):
+        data = {"limit": "200"}
+        if cursor:
+            data["cursor"] = cursor
+        body = _call("users.list", data=data, token=token, timeout=10.0)
+        for user in body.get("members") or []:
+            if user.get("deleted") or user.get("is_bot") or user.get("is_app_user"):
+                continue
+            if not user.get("id") or user.get("id") == "USLACKBOT":
+                continue
+            profile = user.get("profile") or {}
+            members.append(
+                {
+                    "id": str(user["id"]),
+                    "name": str(user.get("real_name") or profile.get("real_name") or ""),
+                    "display": str(profile.get("display_name") or user.get("name") or ""),
+                }
+            )
+        cursor = str((body.get("response_metadata") or {}).get("next_cursor") or "")
+        if not cursor:
+            break
+    return members
+
+
 def send_dm(token: str, user_id: str, text: str) -> None:
     """chat.postMessage to a member id, which opens the bot's DM with them."""
     _call("chat.postMessage", data={"channel": user_id, "text": text}, token=token, timeout=5.0)

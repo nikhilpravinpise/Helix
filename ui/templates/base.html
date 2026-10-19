@@ -32,7 +32,7 @@
     </nav>
     <div class="side-foot">
       {% if who %}
-      <p class="whoami"><span class="who-name">{{ who|person }}</span> <a href="/logout">Sign out</a></p>
+      <div class="whoami"><span class="who-name">{{ who|person }}</span> <form method="post" action="/logout"><button type="submit" class="link-button">Sign out</button></form></div>
       {% endif %}
     </div>
   </aside>

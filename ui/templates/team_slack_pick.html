@@ -1,0 +1,48 @@
+{% extends "base.html" %}
+{% block title %}Pick from Slack - Helix{% endblock %}
+{% block content %}
+<header class="pane-head">
+  <div>
+    <p class="eyebrow">team</p>
+    <h1>Pick {{ invite.login }} from Slack</h1>
+  </div>
+</header>
+
+<section class="card team">
+  {% if status == "not_connected" %}
+  <p class="notice notice-bad" role="status">Slack is not connected. Connect it on the Connections page first.</p>
+  {% elif status == "reconnect" %}
+  <p class="notice notice-bad" role="status">{{ reconnect }}</p>
+  {% elif status == "error" %}
+  <p class="notice notice-bad" role="status">Slack did not answer, so nothing was searched.</p>
+  {% elif status == "ok" and not members %}
+  <p class="muted">Nobody in Slack matches "{{ query }}". Try another spelling.</p>
+  {% elif status == "empty" %}
+  <p class="muted">Type a name to search for.</p>
+  {% endif %}
+  {% if members %}
+  <ul class="team-list">
+    {% for m in members %}
+    <li class="team-row">
+      <div class="team-who">
+        <span class="team-name">{{ m.name or m.display }}</span>
+        <span class="mono small muted">{{ m.display }}</span>
+      </div>
+      <div class="team-actions">
+        <form method="post" action="/ui/team/invites/{{ invite.id }}/slack-pick">
+          <input type="hidden" name="slack_id" value="{{ m.id }}">
+          <button class="btn btn-sm btn-primary" type="submit">Send the invite to {{ m.name or m.display }}</button>
+        </form>
+      </div>
+    </li>
+    {% endfor %}
+  </ul>
+  {% endif %}
+  <form class="team-inline" method="post" action="/ui/team/invites/{{ invite.id }}/slack-search">
+    <label class="sr-only" for="pick-q">Name in Slack</label>
+    <input id="pick-q" type="text" name="q" value="{{ query }}" placeholder="Name in Slack" autocomplete="off">
+    <button class="btn btn-sm" type="submit">Search again</button>
+  </form>
+  <p><a class="btn btn-sm" href="/ui/team">Back to the team</a></p>
+</section>
+{% endblock %}

@@ -70,13 +70,18 @@ app = FastAPI(
 @app.middleware("http")
 async def sign_in_gate(request: Request, call_next):
     """With a GitHub OAuth app configured, every route needs a signed-in,
-    allowed user or the intake token (helix/auth.py). Off otherwise."""
+    allowed user or the intake token (helix/auth.py). Off otherwise. Every
+    response, refused or not, also gets the hardening headers."""
     from helix import auth
 
     refused = auth.gate(request)
-    if refused is not None:
-        return refused
-    return await call_next(request)
+    response = refused if refused is not None else await call_next(request)
+    response.headers["X-Content-Type-Options"] = "nosniff"
+    response.headers["Referrer-Policy"] = "same-origin"
+    response.headers["Content-Security-Policy"] = "frame-ancestors 'none'"
+    if auth._secure(request):
+        response.headers["Strict-Transport-Security"] = "max-age=31536000"
+    return response
 
 
 # HEAD too: uptime monitors check with it, and a 405 reads as "down".
@@ -365,8 +370,17 @@ class ApprovalDecisionOut(BaseModel):
 def _decider(request: Request, body: "ApprovalDecisionIn") -> str:
     """Who the decision is recorded as: the signed-in GitHub user when
     there is one - a typed name cannot override a session - else the
-    body's actor (CLI, machine clients with the intake token)."""
-    return _signed_in(request) or body.actor
+    body's actor. With sign-in on, the token alone cannot decide: it would
+    let the holder decide as any person they name. With sign-in off (local
+    dev, the CLI and benchmark) the body's actor is trusted."""
+    from helix import auth
+
+    user = _signed_in(request)
+    if user:
+        return user
+    if auth.enabled():
+        raise HTTPException(status_code=403, detail="Decide from the dashboard or Slack.")
+    return body.actor
 
 
 def _schedule_resume(background: BackgroundTasks, incident_id: str) -> None:
@@ -719,10 +733,12 @@ def _slack_person(member: str | None) -> str | None:
 
 
 def _slack_handle(user: dict) -> str:
-    """The registry handle of the Slack user who clicked. Someone not linked
-    keeps their Slack name, which the decision rules then refuse with a reason."""
+    """The registry handle of the Slack user who clicked. Only a linked member
+    id names a person; the Slack username/name is attacker-controlled, so
+    someone not linked is `slack:<id>` (GitHub logins cannot contain ':'),
+    which the decision rules refuse with a reason."""
     member = user.get("id")
-    return _slack_person(member) or user.get("username") or user.get("name") or member or "slack"
+    return _slack_person(member) or (f"slack:{member}" if member else "slack")
 
 
 def handle_slack_interaction(payload: dict, session: Session, background: BackgroundTasks) -> dict:

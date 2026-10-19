@@ -205,11 +205,13 @@ def test_pending_invites_say_whether_they_were_emailed(client, db, mail, email_o
     _sign_in(client, monkeypatch)
     _invite(client)
     page = client.get("/ui/team").text
-    assert "Emailed just now" in page or "Emailed" in page and " ago" in page
+    assert '<span class="invite-reached">Emailed</span>' in page
     mail.state["status"] = 403
     client.post("/ui/team/invite", data={"login": "other", "role": "member", "email": "o@x.com"})
     page = client.get("/ui/team").text
-    assert "Not emailed" in page
+    # The requested wording changed: "Not emailed" is now the Slack-based status.
+    assert page.count('<span class="invite-reached">Emailed</span>') == 1
+    assert '<span class="invite-reached">Slack not connected</span>' in page
 
 
 def test_the_invite_form_says_whether_email_is_set_up(client, db, mail, monkeypatch):

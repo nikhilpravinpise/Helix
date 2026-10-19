@@ -30,7 +30,7 @@ from fastapi import APIRouter, Request
 from fastapi.responses import HTMLResponse, RedirectResponse, Response
 from sqlalchemy import select
 
-from helix import auth, invite_email, slack_people
+from helix import auth, github_users, invite_email, slack_people
 from helix.connections_ui import _posted
 from helix.ui import DbSession, _incident_total, _pending_count, templates
 from integrations import email
@@ -71,6 +71,11 @@ _NOTICES = {
     ),
     "invited-slack-error": (
         "Invited {login}. Slack did not answer, so Helix could not look them up. "
+        "Copy the invite link and send it to them."
+    ),
+    "slack-picked": "Sent {login} the invite in Slack. You can still copy the invite link.",
+    "slack-pick-dm-failed": (
+        "Linked {login} to that Slack account but could not message them. "
         "Copy the invite link and send it to them."
     ),
     "slack-found": "Linked {login} to their Slack account.",
@@ -154,6 +159,7 @@ def team_page(
     grantable = team.grantable_roles(actor)
     me = actor.login if actor else None
     main = next((p.login for p in people if p.main_owner), None)
+    slack_on = slack_people.connected(session)
     invites = [
         {
             "id": inv.id,
@@ -163,9 +169,10 @@ def team_page(
             "invited_by": names.get(inv.invited_by, inv.invited_by),
             "created_at": team._aware(inv.created_at),
             "expires": _expires_in(team._aware(inv.expires_at)),
-            "emailed_at": team._aware(inv.emailed_at) if inv.emailed_at else None,
+            "reached": _reached(inv, slack_on),
             "link": f"{public}/invite/{inv.token}",
             "can_manage": team.may_manage_invite(actor, inv),
+            "can_pick": slack_on and not inv.slack_id and team.may_manage_invite(actor, inv),
         }
         for inv in team.pending_invites(session)
     ]
@@ -217,18 +224,25 @@ def team_page(
 @router.post("/ui/team/invite")
 async def invite(request: Request, session: DbSession) -> Response:
     user = getattr(request.state, "user", None)
+    login = (await _posted(request, "login")).strip()
+    typed_email = await _posted(request, "email")
     try:
+        # Only a well-formed login is worth asking GitHub about.
+        profile = github_users.lookup(login) if team._GITHUB_LOGIN.fullmatch(login) else None
+        if profile is False:
+            raise TeamError(f"There is no GitHub user called {login}.")
         row = team.invite(
             session,
-            await _posted(request, "login"),
+            profile.login if profile else login,
             await _posted(request, "role"),
             user or "Helix",
-            await _posted(request, "email"),
+            typed_email or (profile.email if profile else None),
             actor=auth.actor_for(request, session),
         )
     except TeamError as error:
         return _refused(request, error)
-    code = _match_invitee(request, session, row, user)
+    emails = [e for e in (typed_email.strip(), profile.email if profile else None) if e]
+    code = _match_invitee(request, session, row, user, list(dict.fromkeys(emails)))
     mail = invite_email.send_invite(
         session, row, _display_name(session, user), auth._public_url(request)
     )
@@ -240,23 +254,46 @@ def _display_name(session, login: str | None) -> str:
     return (person.name if person and person.name else login) or "Helix"
 
 
-def _match_invitee(request: Request, session, row: models.Invitation, user: str | None) -> str:
-    """Best effort, and never undoes the invite: look the invited email up in
-    Slack, remember the member id and DM the invite. Returns the notice code."""
-    if not row.email:
+def _dm_invite(request: Request, session, row: models.Invitation, user: str | None) -> bool:
+    """DM the invite link to the member id on the row."""
+    role = {"owner": "an owner", "admin": "an admin"}.get(row.role, "a member")
+    sent = slack_people.send_dm(
+        session,
+        row.slack_id,
+        f"{_display_name(session, user)} invited you to the team on Helix as {role}. "
+        f"Accept: {auth._public_url(request)}/invite/{row.token}",
+    )
+    if sent:
+        row.slack_messaged_at = datetime.now(UTC)
+        session.flush()
+    return sent
+
+
+def _reached(inv: models.Invitation, slack_on: bool) -> str:
+    """How the invite reached the person, in one line for the Team page."""
+    if inv.slack_messaged_at:
+        return "Slack DM sent"
+    if inv.emailed_at:
+        return "Emailed"
+    if inv.slack_id:
+        return "Slack DM failed - copy the link"
+    return "Not in Slack - copy the link" if slack_on else "Slack not connected"
+
+
+def _match_invitee(
+    request: Request, session, row: models.Invitation, user: str | None, emails: list[str]
+) -> str:
+    """Best effort, and never undoes the invite: look every known email up in
+    Slack (typed first, then the GitHub profile's), remember the member id and
+    DM the invite. Returns the notice code."""
+    if not emails:
         return "invited"
-    found = slack_people.find_by_emails(session, [row.email])
+    found = slack_people.find_by_emails(session, emails)
     if found.status == "found":
         row.slack_id = found.slack_id
-        who = _display_name(session, user)
-        role = {"owner": "an owner", "admin": "an admin"}.get(row.role, "a member")
-        sent = slack_people.send_dm(
-            session,
-            found.slack_id,
-            f"{who} invited you to the team on Helix as {role}. "
-            f"Accept: {auth._public_url(request)}/invite/{row.token}",
+        return (
+            "invited-messaged" if _dm_invite(request, session, row, user) else "invited-dm-failed"
         )
-        return "invited-messaged" if sent else "invited-dm-failed"
     return {
         "not_found": "invited-not-found",
         "reconnect": "invited-reconnect",
@@ -285,6 +322,61 @@ def cancel(request: Request, session: DbSession, invite_id: int) -> Response:
     except TeamError as error:
         return _refused(request, error)
     return _back("cancelled", row.login if row else "")
+
+
+_SLACK_ID = re.compile(r"[UW][A-Z0-9]{2,20}")
+
+
+def _managed_open_invite(session, request: Request, invite_id: int) -> models.Invitation:
+    row = session.get(models.Invitation, invite_id)
+    if row is None or not team.is_pending(row):
+        raise TeamError("That invite is no longer pending.")
+    if not team.may_manage_invite(auth.actor_for(request, session), row):
+        raise TeamError("You cannot change this invite.")
+    return row
+
+
+@router.post("/ui/team/invites/{invite_id}/slack-search", response_class=HTMLResponse)
+async def slack_search(request: Request, session: DbSession, invite_id: int) -> Response:
+    """Search the Slack workspace by name and show who matches, each with a
+    button that picks them for this invite."""
+    try:
+        row = _managed_open_invite(session, request, invite_id)
+    except TeamError as error:
+        return _refused(request, error)
+    query = (await _posted(request, "q")).strip()
+    status, members = slack_people.search_members(session, query) if query else ("empty", [])
+    return templates.TemplateResponse(
+        request,
+        "team_slack_pick.html",
+        {
+            "active": "team",
+            "invite": row,
+            "query": query,
+            "status": status,
+            "members": members,
+            "reconnect": RECONNECT,
+            "incident_total": _incident_total(session),
+            "pending_count": _pending_count(session),
+        },
+    )
+
+
+@router.post("/ui/team/invites/{invite_id}/slack-pick")
+async def slack_pick(request: Request, session: DbSession, invite_id: int) -> Response:
+    """Use the chosen Slack member for this invite and DM them the link."""
+    slack_id = (await _posted(request, "slack_id")).strip()
+    try:
+        row = _managed_open_invite(session, request, invite_id)
+        if not _SLACK_ID.fullmatch(slack_id):
+            raise TeamError("Choose someone from the list.")
+    except TeamError as error:
+        return _refused(request, error)
+    row.slack_id = slack_id
+    session.flush()
+    user = getattr(request.state, "user", None)
+    sent = _dm_invite(request, session, row, user)
+    return _back("slack-picked" if sent else "slack-pick-dm-failed", row.login)
 
 
 @router.post("/ui/team/people/{login}/role")

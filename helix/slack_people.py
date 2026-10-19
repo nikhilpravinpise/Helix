@@ -53,6 +53,34 @@ def find_by_emails(session: Session, emails: list[str]) -> Lookup:
     return Lookup("not_found")
 
 
+def connected(session: Session) -> bool:
+    """Slack is connected (whatever its scopes)."""
+    stored = connections.active_connection(session, "slack")
+    return stored is not None and bool(stored.access_token)
+
+
+MAX_PICKS = 10
+
+
+def search_members(session: Session, query: str) -> tuple[str, list[dict[str, str]]]:
+    """Workspace members whose name or display name contains `query`, for the
+    admin to pick from. (status, members): status is ok, not_connected,
+    reconnect or error. Nothing is cached; every search asks Slack."""
+    stored = connections.active_connection(session, "slack")
+    if stored is None or not stored.access_token:
+        return "not_connected", []
+    try:
+        members = oauth.list_members(stored.access_token)
+    except SlackError as exc:
+        if str(exc) == "missing_scope":
+            return "reconnect", []
+        get_logger().warning("slack_list_failed", error=str(exc))
+        return "error", []
+    needle = query.strip().lower()
+    hits = [m for m in members if needle and needle in f"{m['name']} {m['display']}".lower()]
+    return "ok", hits[:MAX_PICKS]
+
+
 def send_dm(session: Session, slack_id: str, text: str) -> bool:
     """DM a member; False when Slack is not connected or refuses."""
     stored = connections.active_connection(session, "slack")

@@ -4,6 +4,7 @@ Every step is best effort - a Slack or GitHub failure never blocks an invite
 or a sign-in."""
 
 import time
+from datetime import UTC, datetime, timedelta
 from urllib.parse import parse_qs, quote, urlencode, urlparse
 
 import httpx
@@ -69,6 +70,7 @@ def slack(monkeypatch):
     calls: list[tuple[str, dict]] = []
     users: dict[str, str] = {}
     fail: dict[str, str] = {}
+    pages: list[list[dict]] = [[]]
 
     def handler(request: httpx.Request) -> httpx.Response:
         method = request.url.path.rsplit("/", 1)[-1]
@@ -78,6 +80,12 @@ def slack(monkeypatch):
             raise httpx.ConnectError("down")
         if method in fail:
             return httpx.Response(200, json={"ok": False, "error": fail[method]})
+        if method == "users.list":
+            page = int(form.get("cursor") or 0)
+            more = {"next_cursor": str(page + 1)} if page + 1 < len(pages) else {}
+            return httpx.Response(
+                200, json={"ok": True, "members": pages[page], "response_metadata": more}
+            )
         if method == "users.lookupByEmail":
             if form["email"] in users:
                 return httpx.Response(200, json={"ok": True, "user": {"id": users[form["email"]]}})
@@ -87,7 +95,7 @@ def slack(monkeypatch):
     monkeypatch.setattr(
         oauth, "_http", lambda: httpx.Client(transport=httpx.MockTransport(handler), timeout=5)
     )
-    return type("Slack", (), {"calls": calls, "users": users, "fail": fail})
+    return type("Slack", (), {"calls": calls, "users": users, "fail": fail, "pages": pages})
 
 
 def _connect(db, scopes=GOOD_SCOPES):
@@ -348,11 +356,11 @@ def test_sign_in_without_emails_or_slack_does_nothing(client, db, slack, monkeyp
 def test_sign_in_skips_a_person_who_is_already_linked(client, db, slack, monkeypatch):
     _connect(db)
     with Session(db) as s:
-        s.get(models.Person, "nikhil").slack_id = "U9"
+        s.get(models.Person, "nikhil").slack_id = "U09ABC123"
         s.commit()
     slack.users["a@x.com"] = "U1"
     assert _sign_in(client, monkeypatch, "nikhil", emails=("a@x.com",)).status_code == 303
-    assert slack.calls == [] and _person(db, "nikhil").slack_id == "U9"
+    assert slack.calls == [] and _person(db, "nikhil").slack_id == "U09ABC123"
 
 
 def test_sign_in_survives_slack_failures(client, db, slack, monkeypatch):
@@ -567,3 +575,340 @@ def test_a_forged_next_is_not_trusted_from_the_query_on_the_callback(client, db,
         f"/auth/github/callback?code=c&state={state}&next=//evil.example", follow_redirects=False
     )
     assert done.headers["location"] == "/ui/"
+
+
+# ---- the GitHub login is checked when inviting ------------------------------
+
+
+@pytest.fixture
+def github(monkeypatch):
+    """Fake GitHub users API: `users` maps lowercase login -> profile JSON;
+    `state["down"]` makes every call fail like an outage."""
+    from helix import github_users
+
+    calls: list[str] = []
+    users: dict[str, dict] = {}
+    state = {"down": False}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        calls.append(str(request.url))
+        if state["down"]:
+            raise httpx.ConnectError("down")
+        profile = users.get(request.url.path.rsplit("/", 1)[-1].lower())
+        if profile is None:
+            return httpx.Response(404, json={"message": "Not Found"})
+        return httpx.Response(200, json=profile)
+
+    monkeypatch.setattr(
+        github_users, "_http", lambda: httpx.Client(transport=httpx.MockTransport(handler))
+    )
+    return type("GitHub", (), {"calls": calls, "users": users, "state": state})
+
+
+def test_unknown_github_login_is_refused_and_no_invite_is_made(client, db, github, monkeypatch):
+    _sign_in(client, monkeypatch, "VrajVed")
+    page = _invite(client)
+    assert "There is no GitHub user called newbie." in page.text
+    assert _invite_row(db, "newbie") is None
+    assert github.calls == ["https://api.github.com/users/newbie"]
+
+
+def test_malformed_login_never_reaches_github(client, db, github, monkeypatch):
+    _sign_in(client, monkeypatch, "VrajVed")
+    page = client.post(
+        "/ui/team/invite", data={"login": "a/../b", "role": "member"}, follow_redirects=True
+    )
+    assert "not a valid GitHub login" in page.text and github.calls == []
+
+
+def test_github_being_down_does_not_block_the_invite(client, db, github, monkeypatch):
+    github.state["down"] = True
+    _sign_in(client, monkeypatch, "VrajVed")
+    page = _invite(client)
+    assert _invite_row(db, "newbie") is not None
+    assert "Invited newbie" in page.text
+
+
+def test_github_rate_limit_does_not_block_the_invite(client, db, monkeypatch):
+    from helix import github_users
+
+    monkeypatch.setattr(
+        github_users,
+        "_http",
+        lambda: httpx.Client(transport=httpx.MockTransport(lambda r: httpx.Response(403))),
+    )
+    _sign_in(client, monkeypatch, "VrajVed")
+    _invite(client)
+    assert _invite_row(db, "newbie") is not None
+
+
+def test_invite_keeps_githubs_casing_for_the_login(client, db, github, monkeypatch):
+    github.users["newbie"] = {"login": "NewBie", "email": None}
+    _sign_in(client, monkeypatch, "VrajVed")
+    _invite(client)
+    assert _invite_row(db, "NewBie") is not None and _invite_row(db, "newbie") is None
+
+
+def test_public_github_email_is_used_when_none_was_typed(client, db, github, monkeypatch):
+    github.users["newbie"] = {"login": "newbie", "email": "pub@x.com"}
+    _sign_in(client, monkeypatch, "VrajVed")
+    _invite(client, email="")
+    assert _invite_row(db, "newbie").email == "pub@x.com"
+
+
+def test_slack_match_falls_back_to_the_github_email(client, db, slack, github, monkeypatch):
+    _connect(db)
+    github.users["newbie"] = {"login": "newbie", "email": "pub@x.com"}
+    slack.users["pub@x.com"] = "U88"
+    _sign_in(client, monkeypatch, "VrajVed")
+    slack.calls.clear()  # signing in looks up the admin's own stored email
+    page = _invite(client, email="typed@x.com")
+    assert _invite_row(db, "newbie").slack_id == "U88"
+    assert "Found them in Slack" in page.text
+    looked_up = [f["email"] for m, f in slack.calls if m == "users.lookupByEmail"]
+    assert looked_up == ["typed@x.com", "pub@x.com"]
+
+
+def test_slack_match_uses_the_github_email_when_none_typed(client, db, slack, github, monkeypatch):
+    _connect(db)
+    github.users["newbie"] = {"login": "newbie", "email": "pub@x.com"}
+    slack.users["pub@x.com"] = "U88"
+    _sign_in(client, monkeypatch, "VrajVed")
+    _invite(client, email="")
+    assert _invite_row(db, "newbie").slack_id == "U88"
+
+
+# ---- Pick from Slack --------------------------------------------------------
+
+
+def _member(uid, real, display="", **flags):
+    return {"id": uid, "real_name": real, "profile": {"display_name": display}, **flags}
+
+
+def _make_invite(db, login="newbie", role="member"):
+    with Session(db) as s:
+        row = models.Invitation(
+            login=login,
+            role=role,
+            invited_by="VrajVed",
+            token="tok-" + login,
+            created_at=datetime.now(UTC),
+            expires_at=datetime.now(UTC) + timedelta(days=7),
+        )
+        s.add(row)
+        s.commit()
+        return row.id
+
+
+def _search(client, invite_id, q):
+    return client.post(f"/ui/team/invites/{invite_id}/slack-search", data={"q": q})
+
+
+def test_picker_searches_every_page_and_skips_bots_and_deleted(client, db, slack, monkeypatch):
+    _connect(db)
+    slack.pages[:] = [
+        [
+            _member("U1", "Carol Smith", "carol"),
+            _member("U2", "Carol Bot", "carolbot", is_bot=True),
+            _member("USLACKBOT", "Carol Slackbot"),
+        ],
+        [
+            _member("U3", "Carol Gone", "carolg", deleted=True),
+            _member("U4", "Caroline Jones", "cj"),
+            _member("U5", "Dave Other", "dave"),
+        ],
+    ]
+    invite_id = _make_invite(db)
+    _sign_in(client, monkeypatch, "VrajVed")
+    page = _search(client, invite_id, "CAROL")
+    assert page.status_code == 200
+    assert "Carol Smith" in page.text and "Caroline Jones" in page.text
+    assert "Carol Bot" not in page.text and "Carol Gone" not in page.text
+    assert "Slackbot" not in page.text and "Dave Other" not in page.text
+    assert [f.get("cursor") for m, f in slack.calls if m == "users.list"] == [None, "1"]
+
+
+def test_picker_matches_the_display_name_too(client, db, slack, monkeypatch):
+    _connect(db)
+    slack.pages[:] = [[_member("U1", "Carol Smith", "csmith")]]
+    _sign_in(client, monkeypatch, "VrajVed")
+    assert "Carol Smith" in _search(client, _make_invite(db), "csmi").text
+
+
+def test_picker_with_no_match_or_empty_query_says_so(client, db, slack, monkeypatch):
+    _connect(db)
+    slack.pages[:] = [[_member("U1", "Carol Smith", "carol")]]
+    invite_id = _make_invite(db)
+    _sign_in(client, monkeypatch, "VrajVed")
+    assert "Nobody in Slack matches" in _search(client, invite_id, "zed").text
+    slack.calls.clear()
+    assert "Type a name" in _search(client, invite_id, "  ").text
+    assert slack.calls == []
+
+
+def test_picker_reports_slack_failures(client, db, slack, monkeypatch):
+    invite_id = _make_invite(db)
+    _sign_in(client, monkeypatch, "VrajVed")
+    assert "Slack is not connected" in _search(client, invite_id, "c").text
+    _connect(db)
+    slack.fail["users.list"] = "transport"
+    assert "Slack did not answer" in _search(client, invite_id, "c").text
+    slack.fail["users.list"] = "missing_scope"
+    assert "Reconnect Slack" in _search(client, invite_id, "c").text
+
+
+def test_picking_sets_the_slack_id_and_sends_the_dm(client, db, slack, monkeypatch):
+    _connect(db)
+    invite_id = _make_invite(db)
+    _sign_in(client, monkeypatch, "VrajVed")
+    done = client.post(
+        f"/ui/team/invites/{invite_id}/slack-pick",
+        data={"slack_id": "U09ABC123"},
+        follow_redirects=True,
+    )
+    assert "Sent newbie the invite in Slack" in done.text
+    assert _invite_row(db, "newbie").slack_id == "U09ABC123"
+    sent = [f for m, f in slack.calls if m == "chat.postMessage"]
+    assert len(sent) == 1 and sent[0]["channel"] == "U09ABC123"
+    assert sent[0]["text"] == (
+        "Vraj Ved invited you to the team on Helix as a member. "
+        "Accept: https://helix.example/invite/tok-newbie"
+    )
+    client.cookies.clear()
+    _sign_in(client, monkeypatch, "newbie", "New Bie")
+    assert _person(db, "newbie").slack_id == "U09ABC123"
+
+
+def test_picking_keeps_the_id_when_the_dm_fails(client, db, slack, monkeypatch):
+    _connect(db)
+    slack.fail["chat.postMessage"] = "channel_not_found"
+    invite_id = _make_invite(db)
+    _sign_in(client, monkeypatch, "VrajVed")
+    done = client.post(
+        f"/ui/team/invites/{invite_id}/slack-pick",
+        data={"slack_id": "U09ABC123"},
+        follow_redirects=True,
+    )
+    assert "could not message them" in done.text
+    assert _invite_row(db, "newbie").slack_id == "U09ABC123"
+
+
+def test_picking_rejects_a_junk_id(client, db, slack, monkeypatch):
+    _connect(db)
+    invite_id = _make_invite(db)
+    _sign_in(client, monkeypatch, "VrajVed")
+    done = client.post(
+        f"/ui/team/invites/{invite_id}/slack-pick", data={"slack_id": "<x>"}, follow_redirects=True
+    )
+    assert "Choose someone from the list" in done.text
+    assert _invite_row(db, "newbie").slack_id is None
+
+
+def test_members_cannot_search_or_pick(client, db, slack, monkeypatch):
+    _connect(db)
+    invite_id = _make_invite(db)
+    _sign_in(client, monkeypatch, "nikhil")
+    assert _search(client, invite_id, "c").status_code == 403
+    pick = client.post(f"/ui/team/invites/{invite_id}/slack-pick", data={"slack_id": "U09ABC123"})
+    assert pick.status_code == 403
+    assert _invite_row(db, "newbie").slack_id is None
+    assert [m for m, _ in slack.calls if m in ("users.list", "chat.postMessage")] == []
+
+
+def test_an_admin_cannot_pick_for_an_admin_invite(client, db, slack, monkeypatch):
+    with Session(db) as s:
+        s.add(models.Person(login="ada", name="Ada", role="admin"))
+        s.commit()
+    _connect(db)
+    invite_id = _make_invite(db, role="admin")
+    _sign_in(client, monkeypatch, "ada")
+    done = client.post(
+        f"/ui/team/invites/{invite_id}/slack-pick",
+        data={"slack_id": "U09ABC123"},
+        follow_redirects=True,
+    )
+    assert "You cannot change this invite" in done.text
+    assert _invite_row(db, "newbie").slack_id is None
+
+
+def test_pick_button_shows_only_when_slack_is_connected_and_unmatched(
+    client, db, slack, monkeypatch
+):
+    invite_id = _make_invite(db)
+    _sign_in(client, monkeypatch, "VrajVed")
+    assert "Pick from Slack" not in client.get("/ui/team").text
+    _connect(db)
+    page = client.get("/ui/team").text
+    assert "Pick from Slack" in page and f"/ui/team/invites/{invite_id}/slack-search" in page
+    with Session(db) as s:
+        s.get(models.Invitation, invite_id).slack_id = "U1"
+        s.commit()
+    assert "Pick from Slack" not in client.get("/ui/team").text
+
+
+# ---- how each pending invite reached the person ------------------------------
+
+
+def _reached(client):
+    import re
+
+    return re.findall(r'<span class="invite-reached">([^<]*)</span>', client.get("/ui/team").text)
+
+
+def test_status_slack_dm_sent_and_the_link_button(client, db, slack, monkeypatch):
+    _connect(db)
+    slack.users["new@x.com"] = "U77"
+    _sign_in(client, monkeypatch, "VrajVed")
+    _invite(client)
+    assert _reached(client) == ["Slack DM sent"]
+    token = _invite_row(db, "newbie").token
+    page = client.get("/ui/team").text
+    assert "data-copy-link" in page and f"https://helix.example/invite/{token}" in page
+
+
+def test_status_slack_dm_failed_when_the_dm_did_not_go(client, db, slack, monkeypatch):
+    _connect(db)
+    slack.users["new@x.com"] = "U77"
+    slack.fail["chat.postMessage"] = "channel_not_found"
+    _sign_in(client, monkeypatch, "VrajVed")
+    _invite(client)
+    assert _reached(client) == ["Slack DM failed - copy the link"]
+
+
+def test_status_emailed(client, db, slack, monkeypatch):
+    _sign_in(client, monkeypatch, "VrajVed")
+    _make_invite(db)
+    with Session(db) as s:
+        s.scalar(select(models.Invitation)).emailed_at = datetime.now(UTC)
+        s.commit()
+    assert _reached(client) == ["Emailed"]
+
+
+def test_status_not_in_slack_when_connected_but_unmatched(client, db, slack, monkeypatch):
+    _connect(db)
+    _sign_in(client, monkeypatch, "VrajVed")
+    _make_invite(db)
+    assert _reached(client) == ["Not in Slack - copy the link"]
+
+
+def test_status_slack_not_connected(client, db, slack, monkeypatch):
+    _sign_in(client, monkeypatch, "VrajVed")
+    _make_invite(db)
+    assert _reached(client) == ["Slack not connected"]
+
+
+def test_picking_changes_the_status_and_resend_clears_a_stale_dm(client, db, slack, monkeypatch):
+    _connect(db)
+    invite_id = _make_invite(db)
+    _sign_in(client, monkeypatch, "VrajVed")
+    client.post(f"/ui/team/invites/{invite_id}/slack-pick", data={"slack_id": "U09ABC123"})
+    assert _reached(client) == ["Slack DM sent"]
+    client.post(f"/ui/team/invites/{invite_id}/resend")
+    assert _reached(client) == ["Slack DM failed - copy the link"]
+
+
+def test_typed_email_wins_over_the_github_one(client, db, github, monkeypatch):
+    github.users["newbie"] = {"login": "newbie", "email": "pub@x.com"}
+    _sign_in(client, monkeypatch, "VrajVed")
+    _invite(client, email="typed@x.com")
+    assert _invite_row(db, "newbie").email == "typed@x.com"

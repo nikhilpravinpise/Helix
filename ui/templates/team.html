@@ -110,12 +110,22 @@
         <span class="badge{% if inv.role != 'member' %} st-recovered{% endif %}">{{ inv.role|capitalize }}</span>
         <span class="team-status small muted">
           <span>{{ inv.expires }}</span>
-          {% if inv.email %}<span>{% if inv.emailed_at %}Emailed {{ inv.emailed_at|age }} ago{% else %}Not emailed{% endif %}</span>{% endif %}
+          <span class="invite-reached">{{ inv.reached }}</span>
         </span>
       </div>
       {% if inv.can_manage %}
       <div class="team-actions">
         <button class="btn btn-sm" type="button" data-copy-link="{{ inv.link }}" hidden>Copy link</button>
+        {% if inv.can_pick %}
+        <details class="team-more">
+          <summary class="btn btn-sm">Pick from Slack</summary>
+          <form class="team-inline" method="post" action="/ui/team/invites/{{ inv.id }}/slack-search">
+            <label class="sr-only" for="pick-{{ inv.id }}">Name in Slack for {{ inv.login }}</label>
+            <input id="pick-{{ inv.id }}" type="text" name="q" placeholder="Name in Slack" autocomplete="off">
+            <button class="btn btn-sm btn-primary" type="submit">Search</button>
+          </form>
+        </details>
+        {% endif %}
         <form method="post" action="/ui/team/invites/{{ inv.id }}/resend"><button class="btn btn-sm" type="submit">Resend</button></form>
         <form method="post" action="/ui/team/invites/{{ inv.id }}/cancel"><button class="btn btn-sm btn-reject" type="submit">Cancel</button></form>
       </div>

@@ -389,13 +389,29 @@ body.sidebar-resizing {
   text-overflow: ellipsis;
 }
 
-.whoami a {
+.whoami a,
+.whoami .link-button {
   color: var(--ink-2);
   white-space: nowrap;
 }
 
-.whoami a:hover {
+.whoami a:hover,
+.whoami .link-button:hover {
   color: var(--ink);
+}
+
+.whoami form {
+  margin: 0;
+}
+
+.whoami .link-button {
+  padding: 0;
+  border: 0;
+  background: none;
+  font: inherit;
+  cursor: pointer;
+  text-decoration: underline;
+  text-underline-offset: 3px;
 }
 
 /* ---------- cards, windows, canvas ---------- */
@@ -1623,7 +1639,8 @@ details summary:hover {
     min-width: 0;
     gap: 10px;
   }
-  .whoami a {
+  .whoami a,
+  .whoami .link-button {
     display: inline-block;
     padding: 8px 4px;
     margin: -8px 0;

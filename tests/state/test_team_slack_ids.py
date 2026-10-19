@@ -83,7 +83,10 @@ def test_0017_matches_the_model_and_downgrades():
             first.upgrade()
             mig.upgrade()
         cols = {c["name"] for c in inspect(conn).get_columns("invitations")}
-        assert cols == set(models.Invitation.__table__.columns.keys()) - {"emailed_at"}
+        assert cols == set(models.Invitation.__table__.columns.keys()) - {
+            "emailed_at",
+            "slack_messaged_at",
+        }
         with Operations.context(MigrationContext.configure(conn)):
             mig.downgrade()
         assert "slack_id" not in {c["name"] for c in inspect(conn).get_columns("invitations")}

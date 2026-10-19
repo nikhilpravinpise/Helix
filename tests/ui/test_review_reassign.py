@@ -194,3 +194,20 @@ class TestPages:
         client.post(f"/reviews/{review_id}/reassign", json={"reviewer": "dave"})
         body = client.get(f"/ui/incidents/{incident_id}").text
         assert "dave" in body and "Reassigned by bob (was carol)." in body
+
+
+class TestOwnerLabel:
+    def test_a_review_card_labels_the_service_owner_as_owner(self, client, sqlite_sessions):
+        """Requirement changed per issue #61: "assigned to X" on a review card
+        read as if the review went to X, so the label is now "owner X"."""
+        review_id, incident_id = _review(sqlite_sessions)
+        with sqlite_sessions() as session:
+            incident = session.scalar(
+                select(models.Incident).where(models.Incident.incident_id == incident_id)
+            )
+            incident.owner = "alice"
+            session.commit()
+        page = client.get("/ui/approvals").text
+        assert f'id="review-{review_id}"' in page
+        assert "assigned to" not in page
+        assert 'class="muted">owner <span class="person" title="alice">Alice Anders</span>' in page

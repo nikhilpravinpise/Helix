@@ -15,6 +15,7 @@ with monkeypatch, which runs after this fixture.
 
 from pathlib import Path
 
+import httpx
 import pytest
 
 #: Every setting that can send traffic to a third-party integration.
@@ -47,3 +48,19 @@ def _no_live_integrations(request, monkeypatch):
     monkeypatch.setenv("HELIX_ENV_FILE", "")
     for name, value in _LIVE_INTEGRATIONS.items():
         monkeypatch.setenv(name, value)
+
+
+@pytest.fixture(autouse=True)
+def _no_github_user_lookup(request, monkeypatch):
+    """The invite form checks the login on GitHub; unit tests never reach it.
+    The lookup fails like an outage, so invites go ahead unchecked."""
+    if request.node.get_closest_marker("integration") is not None:
+        return
+    from helix import github_users
+
+    def down(request: httpx.Request) -> httpx.Response:
+        raise httpx.ConnectError("no network in unit tests")
+
+    monkeypatch.setattr(
+        github_users, "_http", lambda: httpx.Client(transport=httpx.MockTransport(down))
+    )
