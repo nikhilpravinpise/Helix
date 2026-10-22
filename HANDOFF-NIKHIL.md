@@ -1,8 +1,8 @@
 # Handoff - To Nikhil: Helix as a product
 
 **Date:** 2026-10-18 (first version 2026-10-16)
-**Branch:** everything through PR #55 is merged and deployed. PR #63
-(security fixes and the invite flow) is open on `VrajVed/Helix` `main`.
+**Branch:** everything through PR #63 is merged. PR #63 (security fixes
+and the invite flow, migration 0020) still needs a manual Render deploy.
 **Tests:** 2462 unit pass, 51 integration deselected by default, lint clean
 (`make lint && make test`, see [docs/verifying.md](docs/verifying.md))
 **Live:** https://helix-eksf.onrender.com (Render, free tier)
@@ -60,7 +60,7 @@ Helix, not how anyone uses it.
 | #53 | 10-16 | This handoff brought up to date through #51 |
 | #54 | 10-16 | GitHub App JWT sends whole seconds, so Install on GitHub can authenticate |
 | #55 | 10-16 | **Invite emails** through Resend, and the Team page shows whether each invite was emailed |
-| #63 | open | **Security audit fixes** (#57, #59, #60, #61): only a linked Slack account decides, the intake token alone cannot decide, security headers, sign out is a POST. **Invite flow**: GitHub login checked when inviting, Pick from Slack, each invite shows how it reached the person. Migration 0020 |
+| #63 | 10-19 | **Security audit fixes** (#57, #59, #60, #61): only a linked Slack account decides, the intake token alone cannot decide, security headers, sign out is a POST. **Invite flow**: GitHub login checked when inviting, Pick from Slack, each invite shows how it reached the person. Migration 0020 |
 
 The plan and decision record for #39, #40 and #46 is
 [future_plans.md](future_plans.md), sections "Product DX", "Next: team and
@@ -338,11 +338,11 @@ keys or dashboards.
 | # | What | Waits on | Next step |
 |---|---|---|---|
 | [#48](https://github.com/nikhilpravinpise/Helix/issues/48) | Move the database to Neon before 2026-11-13 | **Nikhil** (yes), then **Vraj** (Neon account) | Nikhil approves; Vraj creates the Neon project and sets `HELIX_NEXT_DATABASE_URL` in Render; then the dry run and cutover |
-| [#63](https://github.com/nikhilpravinpise/Helix/pull/63) (PR) | Security fixes and invite flow; fixes #57, #59, #61, part of #60 | **Nikhil** | Review and merge; then a manual Render deploy |
-| [#56](https://github.com/nikhilpravinpise/Helix/issues/56) | When sign-up opens relative to per-team data | **Nikhil** | Answer; recommended: keep sign-up closed until data is per team |
+| [#63](https://github.com/nikhilpravinpise/Helix/pull/63) (PR, merged) | Security fixes and invite flow | **Vraj** | Manual Render deploy, then sign out and back in once |
+| [#56](https://github.com/nikhilpravinpise/Helix/issues/56) | When sign-up opens relative to per-team data | Decided 10-19 | Stage 1 builds with sign-up closed behind a flag; the allow-list goes only after stage 3 |
 | [#58](https://github.com/nikhilpravinpise/Helix/issues/58) | Row-level security: a team column and Postgres RLS | After #56 | Built into teams stage 3 |
 | [#60](https://github.com/nikhilpravinpise/Helix/issues/60) | Hardening left: sign out everywhere (session revoke) | After #48 | Headers, POST sign out and the docs are in #63 |
-| [#64](https://github.com/nikhilpravinpise/Helix/issues/64) | Invite emails land in spam | **Vraj** | Add SPF, DKIM and DMARC for `vrajved.tech`, or turn email off |
+| [#64](https://github.com/nikhilpravinpise/Helix/issues/64) | Invite emails land in spam | **Vraj** | Decided 10-19: email stays off. Confirm `HELIX_EMAIL_API_KEY` is unset in Render, note it in the issue, close it |
 | [#62](https://github.com/nikhilpravinpise/Helix/issues/62) | Audit summary (2026-10-17) | - | Tracks #56 to #61 |
 | [#38](https://github.com/nikhilpravinpise/Helix/issues/38) | Teams: any team can use Helix | After #48 | Stage-1 questions decided by Vraj 2026-10-17 (future_plans.md); Neon first |
 | [#52](https://github.com/nikhilpravinpise/Helix/issues/52) | GitHub App install fails with `http_401`; live webhook PR check | **Vraj** | Retry Install on GitHub and read the logged reason; push a commit to a sandbox PR |

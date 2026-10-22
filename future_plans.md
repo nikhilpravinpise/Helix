@@ -332,3 +332,12 @@ Vraj decided, so the work can start without waiting:
   first, so a team is never orphaned.
 - Order unchanged: the Neon move (#48, also approved) first, then teams
   stage 1, then stages 2 to 5 as planned in #38.
+
+### Teams and invites: Nikhil's answers (2026-10-19, issues #56 and #64)
+
+- **Sign-up stays closed until data is per team (#56, option 1).** Teams
+  stage 1 is built behind a flag; the allow-list goes away only after
+  stage 3, which also builds row-level security (#58). Order unchanged:
+  the Neon move (#48) first.
+- **Invite email stays off (#64, option 2).** No DNS work; invites reach
+  people through the Slack DM, Pick from Slack and Copy link.
