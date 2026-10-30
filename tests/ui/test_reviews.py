@@ -44,6 +44,15 @@ def _status(sessions, incident_id: str) -> str:
 
 
 class TestReviewsOnApprovalsPage:
+    def test_page_title_is_plain_text(self, client, sqlite_sessions, store):
+        """The reviews section once sat inside the title block, so the tab
+        title carried raw HTML whenever a review existed."""
+        _review_pending(sqlite_sessions, store)
+        body = client.get("/ui/approvals").text
+        title = re.search(r"<title>(.*?)</title>", body, re.S).group(1)
+        assert title == "Approvals &amp; reviews - Helix"
+        assert body.count('<h2 class="section-title">Pending reviews</h2>') == 1
+
     def test_pending_review_has_controls_with_id_and_kind(self, client, sqlite_sessions, store):
         incident_id = _review_pending(sqlite_sessions, store)
         review = _review(sqlite_sessions, incident_id)

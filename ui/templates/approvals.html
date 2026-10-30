@@ -1,60 +1,6 @@
 {% extends "base.html" %}
 {% from "_decide.html" import actor_bar, review_decide_row, reassign_control, own_change_row, own_change_waiting, self_approved_badge %}
-{% block title %}Approvals &amp; reviews - Helix
-{% if pending_reviews or decided_reviews %}
-<h2 class="section-title">Pending reviews</h2>
-{% if pending_reviews %}
-  {% for r in pending_reviews %}
-  <div class="card approval" id="review-{{ r.id }}">
-    <div class="record-head">
-      <span class="mono strong">review #{{ r.id }} - {{ r.reviewer|person }}</span>
-      <a class="mono" href="/ui/incidents/{{ r.incident_id }}">{{ r.incident_id }}</a>
-      <span class="badge">{{ r.service }}</span>
-      {% if r.owner %}<span class="muted">owner {{ r.owner|person }}</span>{% endif %}
-      <span class="badge">{{ r.incident_status|label }}</span>
-      <span class="mono muted ts" title="{{ r.created_at|dt }}">waiting {{ r.created_at|age }}</span>
-    </div>
-    <p class="record-body">{{ r.rationale }}</p>
-    {% if r.can_self_approve %}
-    {{ own_change_row(r.id, "review") }}
-    {% elif r.own %}
-    {{ own_change_waiting(r.waiting_on) }}
-    {% else %}
-    {{ review_decide_row(r.id) }}
-    {% endif %}
-    {{ reassign_control(r.id, r.reassign_options) }}
-  </div>
-  {% endfor %}
-{% else %}
-<p class="muted">No reviews awaiting a decision.</p>
-{% endif %}
-
-{% if decided_reviews %}
-<h2 class="section-title">Decided reviews</h2>
-<section class="card flush"><div class="table-wrap">
-<table class="table">
-  <thead>
-    <tr><th>#</th><th>Incident</th><th>Reviewer</th><th>Decision</th><th>By</th><th>At</th><th>Note</th><th>Age</th></tr>
-  </thead>
-  <tbody>
-    {% for r in decided_reviews %}
-    <tr>
-      <td class="mono">{{ r.id }}</td>
-      <td><a class="mono" href="/ui/incidents/{{ r.incident_id }}">{{ r.incident_id }}</a></td>
-      <td>{{ r.reviewer|person }}</td>
-      <td><span class="badge ap-{{ r.status }}">{{ r.status|label }}</span></td>
-      <td>{{ r.decided_by|person or "-" }}{% if r.self_approved %} {{ self_approved_badge() }}{% endif %}</td>
-      <td class="mono muted">{{ r.decided_at|dt }}</td>
-      <td class="small">{{ r.note or "" }}</td>
-      <td class="mono muted" title="{{ r.created_at|dt }}">{{ r.created_at|age }}</td>
-    </tr>
-    {% endfor %}
-  </tbody>
-</table>
-</div></section>
-{% endif %}
-{% endif %}
-{% endblock %}
+{% block title %}Approvals &amp; reviews - Helix{% endblock %}
 {% block content %}
 <header class="pane-head">
   <div>
