@@ -11,12 +11,9 @@ on its own, and asks a human at the points that matter:
   and a reviewer from the service registry, follows review, rework and
   deploy, and hands a failed deploy to the recovery loop.
 
-**Demo video:** [watch Helix work an incident end to end](https://www.youtube.com/watch?v=e4SGshhiFbg)
-
-[![Helix demo video](https://i.ytimg.com/vi/e4SGshhiFbg/hqdefault.jpg)](https://www.youtube.com/watch?v=e4SGshhiFbg)
-
-Postgres is the source of truth. Slack, Jira, Notion and a Neo4j graph are
-projections of it, fed through a transactional outbox.
+Postgres is the source of truth. Slack, Jira and Notion are projections of
+it, fed through a transactional outbox; a Neo4j graph is re-derived from it
+with `helix graph-sync`.
 
 **Status: Phase 1, Phase 1.5, Phase 2 and the optional OPT-1 are done**
 (32 of 32 subphases). OPT-1 is an advisory PyCaret model, see
@@ -26,24 +23,35 @@ projections of it, fed through a transactional outbox.
 
 ## How it works
 
+```mermaid
+flowchart TD
+    sources["GitHub, Jenkins, Kubernetes, Elasticsearch"]
+    kafka["Kafka events"]
+    consume["helix consume: correlate into incidents"]
+    sources -->|"helix watch, webhooks, Jenkins post-build"| kafka --> consume --> coord
+
+    coord{"Coordinator (LangGraph)"}
+    coord -->|recovery| diagnose[Diagnose] --> plan["Plan: pick from a typed catalogue"] --> validate[Validate] --> policy1{"Safety policy: first check"}
+    coord -->|change| triage[Triage] --> owner["Owner and reviewer"] --> review[Review] --> deploy[Deploy]
+    deploy -->|"failed deploy"| diagnose
+
+    policy1 -->|"low or medium risk, non-production"| execute
+    policy1 -->|"high risk or out of bounds"| human["A person decides: Slack, CLI or UI"]
+    human -->|approved| execute["Executor: safety policy checks again"]
+    execute --> verify{"Verify recovery"}
+    verify -->|recovered| done[Recovered]
+    verify -->|"not recovered"| escalate["Compensate or replan, then escalate to a person"]
+    review -.->|"approve or request changes"| human
+
+    db[("Postgres: source of truth\nincidents, evidence, decisions, approvals, audit")]
+    coord --> db
+    execute --> db
+    db -->|"transactional outbox, helix sync"| tools["Slack threads, Jira tickets, Notion pages"]
+    db -->|"helix graph-sync"| neo4j[("Neo4j graph")]
+    db -.->|"helix export-history"| mlops["Advisory model (mlops): shown beside a decision, never used to choose"]
 ```
-GitHub / Jenkins / Kubernetes / Elasticsearch
-        |  helix watch, webhooks, Jenkins post-build
-        v
-   Kafka events  ->  helix consume --follow --run
-        |                (correlate into incidents)
-        v
-   Coordinator graph (LangGraph)
-     recovery: diagnose -> plan -> validate -> policy -> execute -> verify
-     change:   triage -> owner -> review -> deploy
-        |
-        |  high-risk or out-of-bounds?  ->  a human approves (Slack, CLI, UI)
-        v
-   Postgres (incidents, evidence, decisions, approvals, audit)
-        |  transactional outbox, helix sync
-        v
-   Slack threads, Jira tickets, Notion pages, Neo4j graph
-```
+
+If the diagram does not render, see [the exported copy](docs/architecture/helix-architecture.svg).
 
 The LLM never gets a shell. It chooses from a catalogue of typed actions
 (restart, rollback, scale, reapply a manifest, rerun a pipeline, open a fix
