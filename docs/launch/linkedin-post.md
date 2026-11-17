@@ -27,6 +27,9 @@ named here is recorded in `plan.md` (D1 to D27).
 > - Ingesting events never executes anything. Acting is a separate, explicit step.
 > - The knowledge graph is a derived projection, off by default, rebuilt from Postgres.
 > - Vendors are reached through capability contracts, never from inside the agent's reasoning.
+> - No signed-in person, no decision. A machine token cannot approve anything on someone's behalf.
+> - When the model asks for a riskier action than it needs, we report it as a finding, not a failure. The policy catches it, and hiding it would hide the most useful thing the harness tells us.
+> - We kept the benchmark on a local cluster on purpose. A managed cloud upgrading itself mid-run would have become the thing we measured.
 >
 > Code: https://github.com/nikhilpravinpise/Helix
 > Demo: [video link]
